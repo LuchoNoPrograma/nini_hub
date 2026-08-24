@@ -146,7 +146,7 @@ SettingsController   -> SettingsState
 - Usar streams Drift para lecturas reactivas.
 - Asociar cada respuesta asincrona con la solicitud vigente.
 - No usar `reload()` global como sincronizacion ordinaria.
-- Mantener `ChangeNotifier` existente como fachada temporal, sin ampliar responsabilidades.
+- No reintroducir una fachada o controller global para coordinar dominios migrados.
 
 ## Persistencia e integraciones
 
@@ -176,15 +176,11 @@ SettingsController   -> SettingsState
 - No reconstruir calendario, cuentas, logs y workspaces tras una operacion local.
 - Paginar o limitar historiales crecientes.
 
-Migrar incrementalmente:
-
-1. Aplicar la arquitectura a features nuevas.
-2. Mantener `DashboardController` como fachada sin agregar dominios.
-3. Migrar `workspaces`.
-4. Migrar `settings`.
-5. Separar perfiles y cuentas.
-6. Migrar usage y heartbeat al final.
-7. Retirar la fachada cuando no queden consumidores.
+Migrar incrementalmente, una fraccion aprobada a la vez. Los owners de feature
+reemplazan fachadas compartidas sólo después de caracterizar sus consumidores y
+el composition root conecta las implementaciones concretas. Las excepciones de
+imports existentes se retiran o se congelan en una baseline explícita antes de
+activar un guard automático.
 
 Cada corte debe conservar comportamiento y datos.
 
@@ -198,4 +194,7 @@ Cada corte debe conservar comportamiento y datos.
 - El estado se actualiza sin recargas globales innecesarias.
 - Procesos, rutas, secretos, timeouts y plataforma estan controlados.
 - Formato, analisis y pruebas focalizadas cubren el alcance modificado.
-- Las reglas de imports se verifican manualmente hasta introducir un control automatico con baseline legacy.
+- `test/architecture/import_boundaries_test.dart` verifica automáticamente los
+  límites de imports/exports en `lib/features`; su baseline estricta contiene
+  únicamente las excepciones Presentation -> App existentes y debe reducirse
+  cuando una de ellas se retire.

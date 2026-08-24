@@ -19,6 +19,7 @@
 
 Las skills vigentes viven exclusivamente en `.agents/skills/`:
 
+- `multi-cli-ai-migrate-architecture`: migraciones legacy incrementales por fracciones, equivalencia funcional y continuidad entre agentes.
 - `multi-cli-ai-feature-integral`: features nuevas o cambios reales en dos o mas capas.
 - `multi-cli-ai-domain-application`: entidades, reglas, casos de uso, puertos y fallos.
 - `multi-cli-ai-presentation-flutter-desktop`: Riverpod, estado, vistas, widgets y dialogs.
@@ -26,6 +27,8 @@ Las skills vigentes viven exclusivamente en `.agents/skills/`:
 - `multi-cli-ai-diagnostico-incidentes`: bugs, lentitud, bloqueos o resultados inconsistentes sin implementar el fix.
 
 Activar solo las skills relevantes. La orquestadora no reemplaza las skills de capa.
+
+Para una migracion arquitectonica legacy, activar primero `multi-cli-ai-migrate-architecture`, leer `.agents/references/architecture.md` y `.agents/references/architecture-migration.md`, trabajar una sola fraccion y consumir las skills de capa que correspondan. Si aparece un posible bug o no esta claro si la logica vigente es intencional, activar `multi-cli-ai-diagnostico-incidentes` y separar el diagnostico de cualquier fix.
 
 ## Arquitectura oficial
 
