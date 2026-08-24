@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:multi_cli_ai/core/process/process_runner.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account_models.dart';
+import 'package:multi_cli_ai/providers/codex/codex_app_server_models.dart';
 
 class CodexAppServerClient {
   const CodexAppServerClient({

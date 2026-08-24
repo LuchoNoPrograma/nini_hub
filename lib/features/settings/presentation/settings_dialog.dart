@@ -1,47 +1,54 @@
 import 'package:flutter/material.dart';
-import 'package:multi_cli_ai/app/dashboard_controller.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:multi_cli_ai/core/theme/app_theme.dart';
+import 'package:multi_cli_ai/features/settings/domain/app_preferences.dart';
+import 'package:multi_cli_ai/features/settings/presentation/controllers/settings_controller.dart';
+import 'package:multi_cli_ai/features/settings/presentation/state/settings_state.dart';
 
-Future<void> showSettingsDialog(
+Future<bool> showSettingsDialog(
   BuildContext context,
-  DashboardController controller,
-) => showDialog<void>(
-  context: context,
-  barrierDismissible: false,
-  builder: (_) => _SettingsDialog(controller: controller),
-);
+  NotifierProvider<SettingsController, SettingsState> provider,
+) async =>
+    await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _SettingsDialog(provider: provider),
+    ) ??
+    false;
 
-class _SettingsDialog extends StatefulWidget {
-  const _SettingsDialog({required this.controller});
+class _SettingsDialog extends ConsumerStatefulWidget {
+  const _SettingsDialog({required this.provider});
 
-  final DashboardController controller;
+  final NotifierProvider<SettingsController, SettingsState> provider;
 
   @override
-  State<_SettingsDialog> createState() => _SettingsDialogState();
+  ConsumerState<_SettingsDialog> createState() => _SettingsDialogState();
 }
 
-class _SettingsDialogState extends State<_SettingsDialog> {
-  late String theme = widget.controller.themePreference;
-  late String accent = widget.controller.accentPreference;
-  late double fontScale = widget.controller.fontScale;
-  late String fontFamily = widget.controller.fontFamilyPreference;
-  late double concurrency = widget.controller.concurrency.toDouble();
-  late double timeout = widget.controller.timeoutSeconds.toDouble();
-  late bool compact = widget.controller.compactCards;
-  late bool weeklyKeepAlive = widget.controller.weeklyKeepAliveEnabled;
+class _SettingsDialogState extends ConsumerState<_SettingsDialog> {
+  late String theme;
+  late String accent;
+  late double fontScale;
+  late String fontFamily;
+  late double concurrency;
+  late double timeout;
+  late bool compact;
+  late bool weeklyKeepAlive;
   final root = TextEditingController();
-  bool loadingRoot = true;
-  bool saving = false;
-  String? error;
 
   @override
   void initState() {
     super.initState();
-    widget.controller.database.setting('profiles_root_path').then((value) {
-      if (!mounted) return;
-      root.text = value ?? '';
-      setState(() => loadingRoot = false);
-    });
+    final preferences = ref.read(widget.provider).preferences;
+    theme = preferences.theme;
+    accent = preferences.accent;
+    fontScale = preferences.fontScale;
+    fontFamily = preferences.fontFamily;
+    concurrency = preferences.concurrency.toDouble();
+    timeout = preferences.timeoutSeconds.toDouble();
+    compact = preferences.compactCards;
+    weeklyKeepAlive = preferences.weeklyKeepAliveEnabled;
+    root.text = preferences.profilesRoot;
   }
 
   @override
@@ -51,35 +58,29 @@ class _SettingsDialogState extends State<_SettingsDialog> {
   }
 
   Future<void> save() async {
-    setState(() {
-      saving = true;
-      error = null;
-    });
-    try {
-      await widget.controller.saveSettings(
-        theme: theme,
-        accent: accent,
-        fontScale: fontScale,
-        fontFamily: fontFamily,
-        concurrency: concurrency.round(),
-        timeoutSeconds: timeout.round(),
-        compactCards: compact,
-        weeklyKeepAliveEnabled: weeklyKeepAlive,
-        profilesRoot: root.text,
-      );
-      if (mounted) Navigator.pop(context);
-    } catch (exception) {
-      if (mounted) {
-        setState(() {
-          error = exception.toString().replaceFirst('Bad state: ', '');
-          saving = false;
-        });
-      }
-    }
+    final saved = await ref
+        .read(widget.provider.notifier)
+        .save(
+          AppPreferences(
+            theme: theme,
+            accent: accent,
+            fontScale: fontScale,
+            fontFamily: fontFamily,
+            concurrency: concurrency.round(),
+            timeoutSeconds: timeout.round(),
+            compactCards: compact,
+            weeklyKeepAliveEnabled: weeklyKeepAlive,
+            profilesRoot: root.text,
+          ),
+        );
+    if (mounted && saved) Navigator.pop(context, true);
   }
 
   @override
   Widget build(BuildContext context) {
+    final settingsState = ref.watch(widget.provider);
+    final saving = settingsState.isSaving;
+    final error = settingsState.errorMessage;
     final colors = Theme.of(context).colorScheme;
     return AlertDialog(
       title: const Text('Configuración'),
@@ -238,7 +239,7 @@ class _SettingsDialogState extends State<_SettingsDialog> {
               const SizedBox(height: 9),
               TextField(
                 controller: root,
-                enabled: !loadingRoot,
+                enabled: !saving,
                 decoration: const InputDecoration(
                   labelText: 'Directorio de perfiles',
                   hintText: '~/MultiCliProfiles',
@@ -248,7 +249,7 @@ class _SettingsDialogState extends State<_SettingsDialog> {
               ),
               if (error != null) ...[
                 const SizedBox(height: 12),
-                Text(error!, style: TextStyle(color: colors.error)),
+                Text(error, style: TextStyle(color: colors.error)),
               ],
             ],
           ),
@@ -256,7 +257,7 @@ class _SettingsDialogState extends State<_SettingsDialog> {
       ),
       actions: [
         TextButton(
-          onPressed: saving ? null : () => Navigator.pop(context),
+          onPressed: saving ? null : () => Navigator.pop(context, false),
           child: const Text('Cancelar'),
         ),
         FilledButton.icon(

@@ -2,9 +2,15 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:multi_cli_ai/core/database/app_database.dart';
 import 'package:multi_cli_ai/core/process/process_runner.dart';
-import 'package:multi_cli_ai/features/accounts/data/account_repository.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account_models.dart';
-import 'package:multi_cli_ai/features/usage/data/usage_refresh_service.dart';
+import 'package:multi_cli_ai/features/accounts/data/account_mapper.dart';
+import 'package:multi_cli_ai/features/accounts/data/drift_account_repository.dart';
+import 'package:multi_cli_ai/features/accounts/domain/account.dart';
+import 'package:multi_cli_ai/providers/codex/codex_app_server_models.dart';
+import 'package:multi_cli_ai/features/profiles/data/profile_mapper.dart';
+import 'package:multi_cli_ai/features/usage/application/usage_refresh.dart';
+import 'package:multi_cli_ai/features/usage/data/codex_usage_provider.dart';
+import 'package:multi_cli_ai/features/usage/data/drift_usage_snapshot_repository.dart';
+import 'package:multi_cli_ai/features/usage/data/process_usage_activity_recorder.dart';
 import 'package:multi_cli_ai/providers/codex/codex_app_server_client.dart';
 
 void main() {
@@ -53,13 +59,20 @@ void main() {
           ),
         );
 
-    final account = (await AccountRepository(database).loadAccounts()).single;
+    final account = (await DriftAccountRepository(database).loadAll()).single;
 
-    expect(account.currentCheck?.id, 'partial-check');
+    expect(
+      account.currentCheck?.startedAt.millisecondsSinceEpoch,
+      latest.millisecondsSinceEpoch,
+    );
     expect(account.currentWindows, isEmpty);
-    expect(account.lastSuccessfulCheck?.id, 'successful-check');
-    expect(account.visibleWindows.single.id, 'weekly-window');
-    expect(account.currentIssue, UsageIssue.network);
+    expect(
+      account.lastSuccessfulCheck?.startedAt.millisecondsSinceEpoch,
+      earlier.millisecondsSinceEpoch,
+    );
+    expect(account.visibleWindows.single.windowType, 'secondary');
+    expect(account.visibleWindows.single.usedPercent, 12);
+    expect(account.currentIssue, AccountUsageIssue.network);
   });
 
   test('stored provider errors expose a descriptive account issue', () {
@@ -68,22 +81,22 @@ void main() {
         code: 'PARTIAL_METADATA',
         message: 'code: token_expired',
       ).currentIssue,
-      UsageIssue.credentialExpired,
+      AccountUsageIssue.credentialExpired,
     );
     expect(
       _accountWithError(
         code: 'PARTIAL_METADATA',
         message: 'code: token_invalidated',
       ).currentIssue,
-      UsageIssue.credentialInvalidated,
+      AccountUsageIssue.credentialInvalidated,
     );
     expect(
       _accountWithError(code: 'NETWORK_ERROR').currentIssue,
-      UsageIssue.network,
+      AccountUsageIssue.network,
     );
     expect(
       _accountWithError(code: 'PARTIAL_METADATA').currentIssue,
-      UsageIssue.partialMetadata,
+      AccountUsageIssue.partialMetadata,
     );
   });
 
@@ -93,21 +106,23 @@ void main() {
     final profile = _profile();
     await database.into(database.cliProfiles).insert(profile);
     final now = DateTime.utc(2026, 8, 20, 15, 13);
-    final service = UsageRefreshService(
-      database: database,
-      client: _StaticClient(
-        CodexRefreshResult(
-          state: UsageCheckState.partial,
-          startedAt: now,
-          completedAt: now,
-          errorCode: 'PARTIAL_METADATA',
-          errorMessage: 'error sending request',
+    final refresh = RefreshProfileUsage(
+      provider: CodexUsageProvider(
+        _StaticClient(
+          CodexRefreshResult(
+            state: UsageCheckState.partial,
+            startedAt: now,
+            completedAt: now,
+            errorCode: 'PARTIAL_METADATA',
+            errorMessage: 'error sending request',
+          ),
         ),
       ),
-      runner: ProcessRunner(database),
+      repository: DriftUsageSnapshotRepository(database),
+      activity: ProcessUsageActivityRecorder(ProcessRunner(database)),
     );
 
-    await service.refreshProfile(profile);
+    await refresh(ProfileMapper.fromRow(profile));
 
     final log = await database.select(database.commandLogs).getSingle();
     expect(log.status, 'error');
@@ -143,7 +158,7 @@ CliProfile _profile() {
   );
 }
 
-AccountCardData _accountWithError({String? code, String? message}) {
+Account _accountWithError({String? code, String? message}) {
   final profile = _profile();
   final check = UsageCheck(
     id: 'error-check',
@@ -154,7 +169,7 @@ AccountCardData _accountWithError({String? code, String? message}) {
     errorCode: code,
     errorMessage: message,
   );
-  return AccountCardData(
+  return AccountMapper.fromRows(
     profile: profile,
     metadata: null,
     costShares: const [],

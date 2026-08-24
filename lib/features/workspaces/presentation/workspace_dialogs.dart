@@ -1,33 +1,10 @@
-import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
-import 'package:multi_cli_ai/app/dashboard_controller.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
-
-Future<Workspace?> pickWorkspace(
-  BuildContext context,
-  DashboardController controller,
-) async {
-  final path = await getDirectoryPath(
-    initialDirectory:
-        controller.currentWorkspace?.path ?? controller.userHomeDirectory,
-    confirmButtonText: 'Usar workspace',
-    canCreateDirectories: true,
-  );
-  if (path == null) return null;
-  try {
-    return await controller.addWorkspace(path);
-  } catch (error) {
-    if (!context.mounted) return null;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(error.toString().replaceFirst('Bad state: ', ''))),
-    );
-    return null;
-  }
-}
+import 'package:multi_cli_ai/features/workspaces/domain/workspace.dart';
+import 'package:multi_cli_ai/features/workspaces/presentation/controllers/workspace_controller.dart';
 
 Future<void> renameWorkspace(
   BuildContext context,
-  DashboardController controller,
+  WorkspaceController controller,
   Workspace workspace,
 ) async {
   final nameController = TextEditingController(text: workspace.name);
@@ -56,21 +33,12 @@ Future<void> renameWorkspace(
   );
   nameController.dispose();
   if (name == null) return;
-  try {
-    await controller.renameWorkspace(workspace, name);
-  } catch (error) {
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(error.toString().replaceFirst('FormatException: ', '')),
-      ),
-    );
-  }
+  await controller.rename(workspaceId: workspace.id, name: name);
 }
 
 Future<void> forgetWorkspace(
   BuildContext context,
-  DashboardController controller,
+  WorkspaceController controller,
   Workspace workspace,
 ) async {
   final confirmed = await showDialog<bool>(
@@ -90,5 +58,5 @@ Future<void> forgetWorkspace(
       ],
     ),
   );
-  if (confirmed == true) await controller.forgetWorkspace(workspace);
+  if (confirmed == true) await controller.forget(workspace.id);
 }

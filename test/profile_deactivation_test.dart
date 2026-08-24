@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/features/accounts/data/account_repository.dart';
+import 'package:multi_cli_ai/features/accounts/data/drift_account_repository.dart';
 import 'package:multi_cli_ai/features/profiles/data/profile_discovery_service.dart';
 
 void main() {
@@ -42,9 +42,9 @@ void main() {
 
       var profiles = await discovery.discoverProfiles();
       var luis = profiles.singleWhere((profile) => profile.id == 'luis-id');
-      final account = (await AccountRepository(
+      final account = (await DriftAccountRepository(
         database,
-      ).loadAccounts()).singleWhere((item) => item.profile.id == 'luis-id');
+      ).loadAll()).singleWhere((item) => item.profile.id == 'luis-id');
 
       expect(luis.profileType, 'deactivated');
       expect(luis.isAvailable, isFalse);

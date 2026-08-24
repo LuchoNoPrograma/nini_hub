@@ -3,49 +3,266 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:multi_cli_ai/app/dashboard_controller.dart';
 import 'package:multi_cli_ai/app/providers.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
 import 'package:multi_cli_ai/core/formatters.dart';
 import 'package:multi_cli_ai/core/widgets/app_primitives.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account_models.dart';
+import 'package:multi_cli_ai/features/accounts/application/account_management.dart';
+import 'package:multi_cli_ai/features/accounts/domain/account.dart';
 import 'package:multi_cli_ai/features/accounts/presentation/account_dialogs.dart';
+import 'package:multi_cli_ai/features/accounts/presentation/controllers/accounts_controller.dart';
+import 'package:multi_cli_ai/features/accounts/presentation/state/accounts_state.dart';
+import 'package:multi_cli_ai/features/heartbeat/domain/heartbeat_policy.dart';
 import 'package:multi_cli_ai/features/profiles/domain/profile_provider.dart';
+import 'package:multi_cli_ai/features/profiles/presentation/profile_dialogs.dart';
 import 'package:multi_cli_ai/features/profiles/presentation/profile_provider_icon.dart';
 import 'package:multi_cli_ai/features/workspaces/presentation/launch_agent_dialog.dart';
 
-export 'package:multi_cli_ai/features/accounts/presentation/account_dialogs.dart'
-    show showCreateProfileDialog;
+Future<void> showCreateProfileFlow(BuildContext context, WidgetRef ref) async {
+  if (_profilesBusy(context, ref)) return;
+  final created = await showCreateProfileDialog(
+    context,
+    controller: ref.read(profilesControllerProvider.notifier),
+    readState: () => ref.read(profilesControllerProvider),
+  );
+  if (created == null || !context.mounted) return;
+  if (!await _reloadAccounts(context, ref)) return;
+  if (!context.mounted) return;
+  final account = ref
+      .read(accountsControllerProvider)
+      .snapshot
+      .findById(created.id);
+  if (account == null) {
+    _showProfileFlowError(
+      context,
+      StateError('El perfil se creó, pero la cuenta no pudo actualizarse.'),
+    );
+    return;
+  }
+  final provider = profileProvider(created.toolKey);
+  if (provider.supportsDeviceAuth && !account.profile.hasAuthFile) {
+    await _showDeviceAuth(context, ref, account);
+  }
+}
+
+Future<void> _renameProfileFlow(
+  BuildContext context,
+  WidgetRef ref,
+  Account account,
+) async {
+  if (_profilesBusy(context, ref)) return;
+  final renamed = await showRenameProfileDialog(
+    context,
+    controller: ref.read(profilesControllerProvider.notifier),
+    readState: () => ref.read(profilesControllerProvider),
+    profileId: account.profile.id,
+    toolKey: account.profile.toolKey,
+    profileName: account.profile.profileName,
+  );
+  if (renamed == null || !context.mounted) return;
+  await _reloadAccounts(context, ref);
+}
+
+Future<void> _deleteProfileFlow(
+  BuildContext context,
+  WidgetRef ref,
+  Account account,
+) async {
+  if (_profilesBusy(context, ref)) return;
+  final deleted = await showDeleteProfileDialog(
+    context,
+    controller: ref.read(profilesControllerProvider.notifier),
+    readState: () => ref.read(profilesControllerProvider),
+    profileId: account.profile.id,
+    displayName: account.profile.displayName,
+  );
+  if (!deleted || !context.mounted) return;
+  await _reloadAccounts(context, ref, removedProfileId: account.profile.id);
+}
+
+Future<bool> _reloadAccounts(
+  BuildContext context,
+  WidgetRef ref, {
+  String? removedProfileId,
+}) async {
+  final loaded = await ref
+      .read(accountsControllerProvider.notifier)
+      .load(removedProfileId: removedProfileId);
+  if (loaded) return true;
+  if (context.mounted) {
+    final message = ref.read(accountsControllerProvider).errorMessage;
+    _showProfileFlowError(
+      context,
+      StateError(message ?? 'No se pudieron cargar las cuentas.'),
+    );
+  }
+  return false;
+}
+
+Future<void> _showDeviceAuth(
+  BuildContext context,
+  WidgetRef ref,
+  Account account,
+) => showDeviceAuthDialog(
+  context,
+  account,
+  start: (account) async {
+    final session = await ref
+        .read(accountsControllerProvider.notifier)
+        .startDeviceAuth(account);
+    if (session != null) return session;
+    final state = ref.read(accountsControllerProvider);
+    throw state.failure ??
+        StateError(state.errorMessage ?? 'No se pudo iniciar la vinculación.');
+  },
+  complete: (account, success) async {
+    final completed = await ref
+        .read(accountsControllerProvider.notifier)
+        .completeDeviceAuth(account, success);
+    if (completed) return;
+    final state = ref.read(accountsControllerProvider);
+    throw state.failure ??
+        StateError(
+          state.errorMessage ?? 'No se pudo completar la vinculación.',
+        );
+  },
+);
+
+bool _profilesBusy(BuildContext context, WidgetRef ref) {
+  if (!ref.read(profilesControllerProvider).isBusy) return false;
+  ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(content: Text('Ya hay una operación de perfiles en curso.')),
+  );
+  return true;
+}
+
+void _showProfileFlowError(BuildContext context, Object error) {
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(content: Text(error.toString().replaceFirst('Bad state: ', ''))),
+  );
+}
+
+Future<void> _openLaunchAgentDialog(
+  BuildContext context,
+  WidgetRef ref, {
+  String? initialProfileId,
+}) async {
+  final state = ref.read(workspaceControllerProvider);
+  if (state.isBusy) return;
+  final loaded = await ref.read(workspaceControllerProvider.notifier).load();
+  if (!context.mounted) return;
+  if (!loaded) {
+    final message = ref.read(workspaceControllerProvider).errorMessage;
+    if (message != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    }
+    return;
+  }
+
+  await showDialog<void>(
+    context: context,
+    builder: (context) => Consumer(
+      builder: (context, dialogRef, _) {
+        dialogRef.listen(workspaceControllerProvider, (previous, next) {
+          final message = next.errorMessage;
+          if (message == null || identical(previous?.failure, next.failure)) {
+            return;
+          }
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(message)));
+        });
+        final accountsState = dialogRef.watch(accountsControllerProvider);
+        return LaunchAgentDialog(
+          controller: dialogRef.read(workspaceControllerProvider.notifier),
+          state: dialogRef.watch(workspaceControllerProvider),
+          profiles: accountsState.accounts.map(_launchProfileOption).toList(),
+          pickDirectory: dialogRef.read(workspaceDirectoryPickerProvider),
+          fallbackDirectory: dialogRef.read(workspaceFallbackDirectoryProvider),
+          onProfileSelected: dialogRef
+              .read(accountsControllerProvider.notifier)
+              .selectAccount,
+          initialProfileId: initialProfileId ?? accountsState.selectedProfileId,
+        );
+      },
+    ),
+  );
+}
+
+LaunchProfileOption _launchProfileOption(Account account) {
+  final provider = profileProvider(account.profile.toolKey);
+  return LaunchProfileOption(
+    id: account.profile.id,
+    toolKey: account.profile.toolKey,
+    displayName: account.profile.displayName,
+    subtitle: _launchProfileSubtitle(account, provider),
+    canLaunch: _canLaunchAccount(account, provider),
+    availablePercent: account.lowestAvailablePercent,
+  );
+}
+
+bool _canLaunchAccount(Account account, [ProfileProvider? accountProvider]) {
+  final provider = accountProvider ?? profileProvider(account.profile.toolKey);
+  return account.profile.isAvailable &&
+      (account.profile.hasAuthFile || !provider.supportsDeviceAuth);
+}
+
+String _launchProfileSubtitle(Account account, ProfileProvider provider) {
+  if (account.isDeactivated) return 'Desactivada en este equipo';
+  if (!account.profile.isAvailable) return 'Perfil no disponible';
+  if (!account.profile.hasAuthFile && provider.supportsDeviceAuth) {
+    return 'Cuenta sin vincular';
+  }
+  if (account.displayEmail.isNotEmpty) return account.displayEmail;
+  return account.profile.commandName ?? provider.executable;
+}
 
 class AccountsView extends ConsumerWidget {
   const AccountsView({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final controller = ref.watch(dashboardControllerProvider);
-    final ready = controller.accounts.where((item) {
-      final provider = profileProvider(item.profile.toolKey);
-      return item.profile.isAvailable && provider.supportsUsage
-          ? item.currentIsUsable
-          : item.profile.isAvailable && item.profile.hasAuthFile;
-    }).length;
-    final attention = controller.accounts.where((item) {
-      final provider = profileProvider(item.profile.toolKey);
-      final state = item.currentState;
-      return !item.profile.isAvailable ||
-          (provider.supportsUsage && state != null && !item.currentIsUsable);
-    }).length;
-    final unlinked = controller.accounts
-        .where((item) => item.profile.isAvailable && !item.profile.hasAuthFile)
-        .length;
-    final recent = controller.accounts
+    final accountsState = ref.watch(accountsControllerProvider);
+    final accountsController = ref.read(accountsControllerProvider.notifier);
+    final usageState = ref.watch(usageControllerProvider);
+    final heartbeatState = ref.watch(heartbeatControllerProvider);
+    final workspaceBusy = ref.watch(
+      workspaceControllerProvider.select((state) => state.isBusy),
+    );
+    final profilesBusy = ref.watch(
+      profilesControllerProvider.select((state) => state.isBusy),
+    );
+    final cardLayout = ref.watch(settingsCardLayoutProvider);
+    if (!accountsState.isInitialized) {
+      if (accountsState.isLoading) {
+        return const Center(child: CircularProgressIndicator());
+      }
+      return EmptyState(
+        icon: Icons.error_outline,
+        title: 'No se pudieron cargar las cuentas',
+        message:
+            accountsState.errorMessage ??
+            'Intenta cargar las cuentas otra vez.',
+        action: FilledButton.icon(
+          onPressed: accountsState.isBusy ? null : accountsController.load,
+          icon: const Icon(Icons.refresh),
+          label: const Text('Reintentar'),
+        ),
+      );
+    }
+    final accounts = accountsState.accounts;
+    final ready = accounts.where((item) => item.isReady).length;
+    final attention = accounts.where((item) => item.needsAttention).length;
+    final unlinked = accounts.where((item) => item.isUnlinked).length;
+    final recent = accounts
         .map((item) => item.currentCheck?.startedAt)
         .whereType<DateTime>()
         .fold<DateTime?>(null, (latest, value) {
           if (latest == null || value.isAfter(latest)) return value;
           return latest;
         });
-    final visibleAccounts = controller.visibleAccounts;
+    final visibleAccounts = accountsState.visibleAccounts;
 
     return CustomScrollView(
       slivers: [
@@ -59,16 +276,17 @@ class AccountsView extends ConsumerWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   FilledButton.icon(
-                    onPressed: controller.accounts.isEmpty
+                    onPressed: accounts.isEmpty || workspaceBusy
                         ? null
-                        : () => showLaunchAgentDialog(context, controller),
+                        : () => _openLaunchAgentDialog(context, ref),
                     icon: const Icon(Icons.terminal_rounded, size: 18),
                     label: const Text('Lanzar agente'),
                   ),
                   const SizedBox(width: 8),
                   OutlinedButton.icon(
-                    onPressed: () =>
-                        showCreateProfileDialog(context, controller),
+                    onPressed: profilesBusy
+                        ? null
+                        : () => showCreateProfileFlow(context, ref),
                     icon: const Icon(Icons.add, size: 18),
                     label: const Text('Nuevo perfil'),
                   ),
@@ -81,7 +299,7 @@ class AccountsView extends ConsumerWidget {
           padding: const EdgeInsets.fromLTRB(18, 14, 18, 0),
           sliver: SliverToBoxAdapter(
             child: _SummaryBand(
-              total: controller.accounts.length,
+              total: accounts.length,
               ready: ready,
               attention: attention,
               unlinked: unlinked,
@@ -92,26 +310,30 @@ class AccountsView extends ConsumerWidget {
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(18, 12, 18, 12),
           sliver: SliverToBoxAdapter(
-            child: _AccountFilters(controller: controller),
+            child: _AccountFilters(
+              controller: accountsController,
+              state: accountsState,
+            ),
           ),
         ),
         if (visibleAccounts.isEmpty)
           SliverFillRemaining(
             hasScrollBody: false,
             child: EmptyState(
-              icon: controller.accounts.isEmpty
+              icon: accounts.isEmpty
                   ? Icons.account_tree_outlined
                   : Icons.search_off,
-              title: controller.accounts.isEmpty
+              title: accounts.isEmpty
                   ? 'No hay perfiles de IA'
                   : 'No hay coincidencias',
-              message: controller.accounts.isEmpty
+              message: accounts.isEmpty
                   ? 'Crea una cuenta o redescubre el directorio de multi-cli.'
                   : 'Cambia la búsqueda o el filtro de estado.',
-              action: controller.accounts.isEmpty
+              action: accounts.isEmpty
                   ? FilledButton.icon(
-                      onPressed: () =>
-                          showCreateProfileDialog(context, controller),
+                      onPressed: profilesBusy
+                          ? null
+                          : () => showCreateProfileFlow(context, ref),
                       icon: const Icon(Icons.add),
                       label: const Text('Crear perfil'),
                     )
@@ -131,26 +353,99 @@ class AccountsView extends ConsumerWidget {
                     : 1;
                 const spacing = 10.0;
                 final extent = (width - spacing * (columns - 1)) / columns;
-                final densityScale = controller.fontScale.clamp(.9, 1.2);
+                final densityScale = cardLayout.fontScale.clamp(.9, 1.2);
                 return SliverGrid(
                   gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: columns,
                     crossAxisSpacing: spacing,
                     mainAxisSpacing: spacing,
                     mainAxisExtent:
-                        (controller.compactCards ? 213 : 246) * densityScale,
+                        (cardLayout.compactCards ? 213 : 246) * densityScale,
                   ),
                   delegate: SliverChildBuilderDelegate((context, index) {
                     final account = visibleAccounts[index];
+                    final supportsUsage = profileProvider(
+                      account.profile.toolKey,
+                    ).supportsUsage;
+                    final usageRefreshing =
+                        usageState.isRefreshingProfile(account.profile.id) ||
+                        (usageState.isRefreshingAll &&
+                            account.profile.isAvailable &&
+                            supportsUsage);
                     return SizedBox(
                           width: extent,
                           child: AccountCard(
                             account: account,
-                            refreshing: controller.refreshing.contains(
-                              account.profile.id,
+                            refreshing:
+                                heartbeatState.isRunningProfile(
+                                  account.profile.id,
+                                ) ||
+                                usageRefreshing,
+                            compact: cardLayout.compactCards,
+                            accountBusy:
+                                accountsState.operationProfileId ==
+                                account.profile.id,
+                            profileMutationBusy: profilesBusy,
+                            onEditAccount: () => showEditAccountDialog(
+                              context,
+                              accountsController,
+                              () => ref.read(accountsControllerProvider),
+                              account,
                             ),
-                            compact: controller.compactCards,
-                            controller: controller,
+                            onHeartbeat: (account) async {
+                              final profileId = account.profile.id;
+                              final completed = await ref
+                                  .read(heartbeatControllerProvider.notifier)
+                                  .run(
+                                    profileId: profileId,
+                                    expectedWindowMinutes:
+                                        _heartbeatWindowMinutes(account),
+                                  );
+                              if (!completed) {
+                                final state = ref.read(
+                                  heartbeatControllerProvider,
+                                );
+                                throw StateError(
+                                  state.failureForProfile(profileId)?.message ??
+                                      state
+                                          .resultForProfile(profileId)
+                                          ?.message ??
+                                      'No se pudo completar el heartbeat.',
+                                );
+                              }
+                              await ref.read(heartbeatPostRunRefreshProvider)(
+                                profileId,
+                              );
+                              if (!context.mounted) return;
+                              final message = ref
+                                  .read(heartbeatControllerProvider)
+                                  .resultForProfile(profileId)
+                                  ?.message;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    message ?? 'Heartbeat completado.',
+                                  ),
+                                ),
+                              );
+                            },
+                            onRefresh: (account) async {
+                              await ref
+                                  .read(usageRefreshCoordinatorProvider)
+                                  .refreshOne(account.profile.id);
+                            },
+                            onDeviceAuth: (account) =>
+                                _showDeviceAuth(context, ref, account),
+                            onRenameProfile: (account) =>
+                                _renameProfileFlow(context, ref, account),
+                            onDeleteProfile: (account) =>
+                                _deleteProfileFlow(context, ref, account),
+                            onLaunchAgent: (profileId) =>
+                                _openLaunchAgentDialog(
+                                  context,
+                                  ref,
+                                  initialProfileId: profileId,
+                                ),
                           ),
                         )
                         .animate(delay: (index * 45).ms)
@@ -164,6 +459,19 @@ class AccountsView extends ConsumerWidget {
       ],
     );
   }
+}
+
+int? _heartbeatWindowMinutes(Account account) {
+  int? fallback;
+  for (final window in account.visibleWindows) {
+    final duration = window.windowDurationMinutes;
+    if (duration != null &&
+        (duration - HeartbeatPolicy.weeklyMinutes).abs() <= 60) {
+      return duration;
+    }
+    if (window.limitId.toLowerCase() == 'codex') fallback ??= duration;
+  }
+  return fallback;
 }
 
 class _SummaryBand extends StatelessWidget {
@@ -231,9 +539,10 @@ class _SummaryBand extends StatelessWidget {
 }
 
 class _AccountFilters extends StatelessWidget {
-  const _AccountFilters({required this.controller});
+  const _AccountFilters({required this.controller, required this.state});
 
-  final DashboardController controller;
+  final AccountsController controller;
+  final AccountsState state;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
@@ -241,7 +550,7 @@ class _AccountFilters extends StatelessWidget {
       final search = SizedBox(
         width: constraints.maxWidth < 680 ? constraints.maxWidth : 280,
         child: TextField(
-          onChanged: controller.setQuery,
+          onChanged: controller.setSearch,
           decoration: const InputDecoration(
             hintText: 'Buscar nombre, perfil o correo',
             prefixIcon: Icon(Icons.search, size: 15),
@@ -253,23 +562,25 @@ class _AccountFilters extends StatelessWidget {
         children: [
           _FilterItem(
             label: 'Todos',
-            selected: controller.statusFilter == 'all',
-            onTap: () => controller.setStatusFilter('all'),
+            selected: state.query.status == AccountStatusFilter.all,
+            onTap: () => controller.setStatusFilter(AccountStatusFilter.all),
           ),
           _FilterItem(
             label: 'Listos',
-            selected: controller.statusFilter == 'ready',
-            onTap: () => controller.setStatusFilter('ready'),
+            selected: state.query.status == AccountStatusFilter.ready,
+            onTap: () => controller.setStatusFilter(AccountStatusFilter.ready),
           ),
           _FilterItem(
             label: 'Atención',
-            selected: controller.statusFilter == 'attention',
-            onTap: () => controller.setStatusFilter('attention'),
+            selected: state.query.status == AccountStatusFilter.attention,
+            onTap: () =>
+                controller.setStatusFilter(AccountStatusFilter.attention),
           ),
           _FilterItem(
             label: 'Sin vincular',
-            selected: controller.statusFilter == 'unlinked',
-            onTap: () => controller.setStatusFilter('unlinked'),
+            selected: state.query.status == AccountStatusFilter.unlinked,
+            onTap: () =>
+                controller.setStatusFilter(AccountStatusFilter.unlinked),
           ),
         ],
       );
@@ -286,29 +597,29 @@ class _AccountFilters extends StatelessWidget {
           _FilterItem(
             label: 'Nombre',
             icon: Icons.sort_by_alpha,
-            selected: controller.accountSort == AccountSort.name,
-            onTap: () => controller.setAccountSort(AccountSort.name),
+            selected: state.query.sort == AccountSortMode.name,
+            onTap: () => controller.setSort(AccountSortMode.name),
           ),
           const SizedBox(width: 6),
           _FilterItem(
             label: 'Disponibilidad',
             icon: Icons.percent,
-            selected: controller.accountSort == AccountSort.availability,
-            onTap: () => controller.setAccountSort(AccountSort.availability),
+            selected: state.query.sort == AccountSortMode.availability,
+            onTap: () => controller.setSort(AccountSortMode.availability),
           ),
           const SizedBox(width: 6),
           _FilterItem(
             label: 'Renovación',
             icon: Icons.event_repeat,
-            selected: controller.accountSort == AccountSort.renewal,
-            onTap: () => controller.setAccountSort(AccountSort.renewal),
+            selected: state.query.sort == AccountSortMode.renewal,
+            onTap: () => controller.setSort(AccountSortMode.renewal),
           ),
           const SizedBox(width: 6),
           _FilterItem(
             label: 'Reinicio próximo',
             icon: Icons.update,
-            selected: controller.accountSort == AccountSort.reset,
-            onTap: () => controller.setAccountSort(AccountSort.reset),
+            selected: state.query.sort == AccountSortMode.reset,
+            onTap: () => controller.setSort(AccountSortMode.reset),
           ),
         ],
       );
@@ -407,14 +718,30 @@ class AccountCard extends StatefulWidget {
     required this.account,
     required this.refreshing,
     required this.compact,
-    required this.controller,
+    required this.accountBusy,
+    required this.profileMutationBusy,
+    required this.onEditAccount,
+    required this.onHeartbeat,
+    required this.onRefresh,
+    required this.onDeviceAuth,
+    required this.onRenameProfile,
+    required this.onDeleteProfile,
+    required this.onLaunchAgent,
     super.key,
   });
 
-  final AccountCardData account;
+  final Account account;
   final bool refreshing;
   final bool compact;
-  final DashboardController controller;
+  final bool accountBusy;
+  final bool profileMutationBusy;
+  final Future<void> Function() onEditAccount;
+  final Future<void> Function(Account account) onHeartbeat;
+  final Future<void> Function(Account account) onRefresh;
+  final Future<void> Function(Account account) onDeviceAuth;
+  final Future<void> Function(Account account) onRenameProfile;
+  final Future<void> Function(Account account) onDeleteProfile;
+  final ValueChanged<String> onLaunchAgent;
 
   @override
   State<AccountCard> createState() => _AccountCardState();
@@ -443,13 +770,7 @@ class _AccountCardState extends State<AccountCard> {
     );
     if (!confirmed || !mounted) return;
     try {
-      final message = await widget.controller.startCodexHeartbeat(
-        widget.account,
-      );
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(message)));
+      await widget.onHeartbeat(widget.account);
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -465,7 +786,7 @@ class _AccountCardState extends State<AccountCard> {
     final theme = Theme.of(context);
     final account = widget.account;
     final provider = profileProvider(account.profile.toolKey);
-    final launchable = canLaunchAccount(account);
+    final launchable = _canLaunchAccount(account, provider);
     final stateColor = _stateColor(context, account);
     final windows = account.visibleWindows
         .take(widget.compact ? 1 : 2)
@@ -576,11 +897,9 @@ class _AccountCardState extends State<AccountCard> {
                 AppIconButton(
                   icon: Icons.edit_outlined,
                   tooltip: 'Editar perfil',
-                  onPressed: () => showEditAccountDialog(
-                    context,
-                    widget.controller,
-                    account,
-                  ),
+                  onPressed: widget.accountBusy
+                      ? null
+                      : () => unawaited(widget.onEditAccount()),
                 ),
                 const SizedBox(width: 2),
                 SizedBox(
@@ -600,17 +919,9 @@ class _AccountCardState extends State<AccountCard> {
                     constraints: const BoxConstraints.tightFor(width: 196),
                     onSelected: (value) {
                       if (value == 'rename') {
-                        showRenameProfileDialog(
-                          context,
-                          widget.controller,
-                          account,
-                        );
+                        unawaited(widget.onRenameProfile(account));
                       } else if (value == 'delete') {
-                        showDeleteProfileDialog(
-                          context,
-                          widget.controller,
-                          account,
-                        );
+                        unawaited(widget.onDeleteProfile(account));
                       } else if (value == 'heartbeat') {
                         unawaited(_startHeartbeat());
                       }
@@ -642,7 +953,8 @@ class _AccountCardState extends State<AccountCard> {
                       PopupMenuItem(
                         value: 'rename',
                         enabled:
-                            account.profile.profileSource == 'multicli' &&
+                            !widget.profileMutationBusy &&
+                            account.profile.isManagedByMultiCli &&
                             !account.isDeactivated,
                         height: 38,
                         padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -663,7 +975,8 @@ class _AccountCardState extends State<AccountCard> {
                       PopupMenuItem(
                         value: 'delete',
                         enabled:
-                            account.profile.profileSource == 'multicli' &&
+                            !widget.profileMutationBusy &&
+                            account.profile.isManagedByMultiCli &&
                             !account.isDeactivated,
                         height: 38,
                         padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -691,7 +1004,7 @@ class _AccountCardState extends State<AccountCard> {
               ],
             ),
             if (account.isDeactivated ||
-                account.currentState != UsageCheckState.success) ...[
+                account.currentCheck?.state != AccountUsageState.success) ...[
               const SizedBox(height: 5),
               _StateLine(account: account, color: stateColor, showBadge: false),
             ],
@@ -733,11 +1046,9 @@ class _AccountCardState extends State<AccountCard> {
                   AppIconButton(
                     icon: Icons.link,
                     tooltip: 'Vincular cuenta',
-                    onPressed: () => showDeviceAuthDialog(
-                      context,
-                      widget.controller,
-                      account,
-                    ),
+                    onPressed: widget.accountBusy
+                        ? null
+                        : () => unawaited(widget.onDeviceAuth(account)),
                   ),
                 AppIconButton(
                   icon: Icons.terminal_rounded,
@@ -746,11 +1057,7 @@ class _AccountCardState extends State<AccountCard> {
                       ? theme.colorScheme.primary
                       : theme.disabledColor,
                   onPressed: launchable
-                      ? () => showLaunchAgentDialog(
-                          context,
-                          widget.controller,
-                          initialProfileId: account.profile.id,
-                        )
+                      ? () => widget.onLaunchAgent(account.profile.id)
                       : null,
                 ),
                 if (widget.refreshing && provider.supportsUsage)
@@ -769,8 +1076,7 @@ class _AccountCardState extends State<AccountCard> {
                   AppIconButton(
                     icon: Icons.refresh,
                     tooltip: 'Consultar sólo esta cuenta',
-                    onPressed: () =>
-                        _guard(widget.controller.refreshOne(account)),
+                    onPressed: () => _guard(widget.onRefresh(account)),
                   ),
               ],
             ),
@@ -788,7 +1094,7 @@ class _StateLine extends StatelessWidget {
     this.showBadge = true,
   });
 
-  final AccountCardData account;
+  final Account account;
   final Color color;
   final bool showBadge;
 
@@ -828,7 +1134,7 @@ class _StateLine extends StatelessWidget {
 class _StateBadge extends StatelessWidget {
   const _StateBadge({required this.account, required this.color});
 
-  final AccountCardData account;
+  final Account account;
   final Color color;
 
   @override
@@ -875,7 +1181,7 @@ class _InlineInfo extends StatelessWidget {
 class _NoUsageData extends StatelessWidget {
   const _NoUsageData({required this.account});
 
-  final AccountCardData account;
+  final Account account;
 
   @override
   Widget build(BuildContext context) {
@@ -903,7 +1209,7 @@ class _NoUsageData extends StatelessWidget {
   }
 }
 
-List<String> _quotaWindowTitles(List<QuotaWindow> windows) {
+List<String> _quotaWindowTitles(List<AccountQuotaWindow> windows) {
   final baseTitles = [
     for (final window in windows)
       formatQuotaWindowLabel(window.windowDurationMinutes, window.windowType),
@@ -919,8 +1225,8 @@ List<String> _quotaWindowTitles(List<QuotaWindow> windows) {
 }
 
 String _quotaWindowQualifier(
-  QuotaWindow window,
-  List<QuotaWindow> windows,
+  AccountQuotaWindow window,
+  List<AccountQuotaWindow> windows,
   String baseTitle,
   List<String> baseTitles,
 ) {
@@ -928,7 +1234,7 @@ String _quotaWindowQualifier(
     for (var index = 0; index < windows.length; index++)
       if (baseTitles[index] == baseTitle) windows[index],
   ];
-  String source(QuotaWindow item) =>
+  String source(AccountQuotaWindow item) =>
       _nonEmpty(item.limitName) ?? _nonEmpty(item.limitId) ?? '';
   final preferredSources = colliding.map(source).toList();
   if (_areDistinct(preferredSources)) return source(window);
@@ -954,7 +1260,7 @@ bool _areDistinct(List<String> values) =>
 class _QuotaBar extends StatelessWidget {
   const _QuotaBar({required this.window, required this.title});
 
-  final QuotaWindow window;
+  final AccountQuotaWindow window;
   final String title;
 
   @override
@@ -1055,7 +1361,7 @@ class _QuotaBar extends StatelessWidget {
 class _BillingLine extends StatelessWidget {
   const _BillingLine({required this.account});
 
-  final AccountCardData account;
+  final Account account;
 
   @override
   Widget build(BuildContext context) {
@@ -1099,7 +1405,7 @@ class _BillingLine extends StatelessWidget {
   }
 }
 
-Color _stateColor(BuildContext context, AccountCardData account) {
+Color _stateColor(BuildContext context, Account account) {
   final provider = profileProvider(account.profile.toolKey);
   if (account.isDeactivated) {
     return Theme.of(context).colorScheme.onSurfaceVariant;
@@ -1109,34 +1415,34 @@ Color _stateColor(BuildContext context, AccountCardData account) {
     return Theme.of(context).colorScheme.onSurfaceVariant;
   }
   if (!provider.supportsUsage) return const Color(0xFF58E2AD);
-  return switch (account.currentState) {
-    UsageCheckState.success => const Color(0xFF58E2AD),
-    UsageCheckState.partial => Theme.of(context).colorScheme.tertiary,
+  return switch (account.currentCheck?.state) {
+    AccountUsageState.success => const Color(0xFF58E2AD),
+    AccountUsageState.partial => Theme.of(context).colorScheme.tertiary,
     null => Theme.of(context).colorScheme.primary,
     _ => Theme.of(context).colorScheme.error,
   };
 }
 
-String _stateLabel(AccountCardData account) {
+String _stateLabel(Account account) {
   final provider = profileProvider(account.profile.toolKey);
   if (account.isDeactivated) return 'DESACTIVADA';
   if (!account.profile.isAvailable) return 'NO DISPONIBLE';
   if (!account.profile.hasAuthFile) return 'SIN VINCULAR';
   if (!provider.supportsUsage) return 'LISTA';
-  return switch (account.currentState) {
-    UsageCheckState.success => 'ACTIVA',
-    UsageCheckState.partial => 'ATENCIÓN',
-    UsageCheckState.timeout => 'TIEMPO AGOTADO',
-    UsageCheckState.authRequired => 'REQUIERE ACCESO',
-    UsageCheckState.toolMissing => 'CLI AUSENTE',
-    UsageCheckState.profileMissing => 'PERFIL AUSENTE',
-    UsageCheckState.unavailable => 'NO DISPONIBLE',
-    UsageCheckState.error => 'ERROR',
+  return switch (account.currentCheck?.state) {
+    AccountUsageState.success => 'ACTIVA',
+    AccountUsageState.partial => 'ATENCIÓN',
+    AccountUsageState.timeout => 'TIEMPO AGOTADO',
+    AccountUsageState.authRequired => 'REQUIERE ACCESO',
+    AccountUsageState.toolMissing => 'CLI AUSENTE',
+    AccountUsageState.profileMissing => 'PERFIL AUSENTE',
+    AccountUsageState.unavailable => 'NO DISPONIBLE',
+    AccountUsageState.error => 'ERROR',
     null => 'SIN CONSULTAR',
   };
 }
 
-String _stateDetail(AccountCardData account) {
+String _stateDetail(Account account) {
   final provider = profileProvider(account.profile.toolKey);
   final check = account.currentCheck;
   if (account.isDeactivated) {
@@ -1151,15 +1457,15 @@ String _stateDetail(AccountCardData account) {
   }
   if (check == null) return 'Aún no se consultó el app-server';
   final issueDetail = switch (account.currentIssue) {
-    UsageIssue.network =>
+    AccountUsageIssue.network =>
       account.lastSuccessfulWindows.isNotEmpty
           ? 'Falló la conexión; se muestra el último dato válido'
           : 'No se pudo conectar con ChatGPT',
-    UsageIssue.credentialExpired =>
+    AccountUsageIssue.credentialExpired =>
       'La credencial venció; vuelve a iniciar sesión',
-    UsageIssue.credentialInvalidated =>
+    AccountUsageIssue.credentialInvalidated =>
       'ChatGPT revocó la credencial; vuelve a vincularla',
-    UsageIssue.partialMetadata =>
+    AccountUsageIssue.partialMetadata =>
       account.currentWindows.isNotEmpty
           ? 'Se obtuvieron cuotas, pero faltan datos complementarios'
           : account.lastSuccessfulWindows.isNotEmpty

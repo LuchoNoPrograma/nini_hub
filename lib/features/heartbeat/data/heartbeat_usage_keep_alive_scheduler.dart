@@ -1,0 +1,43 @@
+import 'package:multi_cli_ai/core/process/process_runner.dart';
+import 'package:multi_cli_ai/features/heartbeat/data/dart_heartbeat_scheduler.dart';
+import 'package:multi_cli_ai/features/profiles/domain/profile.dart';
+import 'package:multi_cli_ai/features/usage/domain/usage.dart';
+import 'package:multi_cli_ai/features/usage/domain/usage_ports.dart';
+
+typedef HeartbeatUsageObservation =
+    Future<void> Function({
+      required Profile profile,
+      required UsageSnapshot snapshot,
+    });
+
+final class HeartbeatUsageKeepAliveScheduler
+    implements UsageKeepAliveScheduler {
+  const HeartbeatUsageKeepAliveScheduler({
+    required this.scheduler,
+    required this.runner,
+    required this.observe,
+  });
+
+  final DartHeartbeatScheduler scheduler;
+  final ProcessRunner runner;
+  final HeartbeatUsageObservation observe;
+
+  @override
+  bool scheduleIfEligible({
+    required Profile profile,
+    required UsageSnapshot snapshot,
+  }) {
+    if (profile.toolKey != 'codex') return false;
+    return scheduler.enqueueBackgroundOperation(
+      profileId: profile.id,
+      operation: () => observe(profile: profile, snapshot: snapshot),
+      onError: (error, _) => runner.addInternalLog(
+        summary: 'Revisar heartbeat de ${profile.displayName}',
+        status: 'error',
+        output: ProcessRunner.sanitizeOutput(error.toString()),
+        profileId: profile.id,
+        command: 'heartbeat automatic observation',
+      ),
+    );
+  }
+}

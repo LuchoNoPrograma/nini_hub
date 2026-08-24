@@ -1,17 +1,17 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:drift/native.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/app/dashboard_controller.dart';
+import 'package:multi_cli_ai/app/providers.dart';
 import 'package:multi_cli_ai/core/database/app_database.dart';
 import 'package:multi_cli_ai/core/process/process_runner.dart';
-import 'package:multi_cli_ai/features/accounts/data/account_repository.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account_models.dart';
-import 'package:multi_cli_ai/features/profiles/data/multi_cli_gateway.dart';
+import 'package:multi_cli_ai/providers/codex/codex_app_server_models.dart';
 import 'package:multi_cli_ai/features/profiles/data/profile_discovery_service.dart';
-import 'package:multi_cli_ai/features/usage/data/usage_refresh_service.dart';
-import 'package:multi_cli_ai/features/workspaces/data/workspace_repository.dart';
+import 'package:multi_cli_ai/features/usage/domain/usage_failure.dart';
 import 'package:multi_cli_ai/providers/codex/codex_app_server_client.dart';
+import 'package:multi_cli_ai/providers/codex/codex_client_runtime.dart';
 
 void main() {
   test('usage refresh rediscovers profiles before starting Codex', () async {
@@ -47,46 +47,96 @@ void main() {
 
     final runner = ProcessRunner(database);
     final client = _RecordingCodexClient();
-    final controller = DashboardController(
-      database: database,
-      discovery: ProfileDiscoveryService(database),
-      multiCli: MultiCliGateway(database, runner),
-      accountsRepository: AccountRepository(database),
-      workspaceRepository: WorkspaceRepository(database),
-      usage: UsageRefreshService(
-        database: database,
-        client: client,
-        runner: runner,
-      ),
-      runner: runner,
+    final codexRuntime = CodexClientRuntime(initialClient: client);
+    final container = ProviderContainer(
+      overrides: [
+        databaseProvider.overrideWithValue(database),
+        processRunnerProvider.overrideWithValue(runner),
+        codexClientRuntimeProvider.overrideWithValue(codexRuntime),
+      ],
     );
-    await controller.reload();
-    final staleAccount = controller.accounts.singleWhere(
-      (item) => item.profile.id == 'willy',
-    );
-    expect(staleAccount.profile.isAvailable, isTrue);
+    addTearDown(container.dispose);
+    final controller = container.read(usageControllerProvider.notifier);
 
-    await controller.refreshAll();
+    expect(await controller.refreshAll(), isTrue);
 
     expect(client.profileHomes, isNot(contains(staleHome)));
     expect(
-      controller.accounts
-          .singleWhere((item) => item.profile.id == 'willy')
-          .profile
-          .isAvailable,
+      (await (database.select(
+        database.cliProfiles,
+      )..where((row) => row.id.equals('willy'))).getSingle()).isAvailable,
       isFalse,
     );
-    await expectLater(
-      controller.refreshOne(staleAccount),
-      throwsA(
-        isA<StateError>().having(
-          (error) => error.message,
-          'message',
-          contains('No se realizó ninguna consulta'),
-        ),
-      ),
+    expect(await controller.refreshOne('willy'), isFalse);
+    expect(
+      container.read(usageControllerProvider).failureForProfile('willy')?.cause,
+      isA<UsageProfileUnavailableFailure>(),
     );
     expect(client.profileHomes, isNot(contains(staleHome)));
+  });
+
+  test('refresh all reads concurrency from composed settings', () async {
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    await database.saveSetting('concurrency', '4');
+    final now = DateTime.now().toUtc();
+    await database.batch((batch) {
+      for (var index = 0; index < 6; index++) {
+        batch.insert(
+          database.cliProfiles,
+          CliProfile(
+            id: 'profile-$index',
+            toolKey: 'codex',
+            profileName: 'profile-$index',
+            commandName: 'codex-profile-$index',
+            displayName: 'Profile $index',
+            profileHome: '/tmp/profile-$index',
+            profileSource: 'multicli',
+            profileType: 'full',
+            hasAuthFile: true,
+            isAvailable: true,
+            isFavorite: false,
+            createdAt: now,
+            lastDiscoveredAt: now,
+          ),
+        );
+      }
+    });
+    final runner = ProcessRunner(database);
+    final client = _GatedCodexClient();
+    final codexRuntime = CodexClientRuntime(
+      initialClient: client,
+      clientFactory: (_) => client,
+    );
+    final container = ProviderContainer(
+      overrides: [
+        databaseProvider.overrideWithValue(database),
+        processRunnerProvider.overrideWithValue(runner),
+        profileDiscoveryProvider.overrideWithValue(
+          _StaticProfileDiscovery(database),
+        ),
+        codexClientRuntimeProvider.overrideWithValue(codexRuntime),
+      ],
+    );
+    addTearDown(container.dispose);
+    expect(await container.read(settingsBootstrapProvider.future), isTrue);
+    expect(
+      container.read(settingsControllerProvider).preferences.concurrency,
+      4,
+    );
+    final refresh = container
+        .read(usageControllerProvider.notifier)
+        .refreshAll();
+    try {
+      for (var attempt = 0; attempt < 100 && client.maxActive < 4; attempt++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      expect(client.maxActive, 4);
+    } finally {
+      client.release.complete();
+    }
+
+    expect(await refresh, isTrue);
   });
 }
 
@@ -96,11 +146,42 @@ class _RecordingCodexClient extends CodexAppServerClient {
   @override
   Future<CodexRefreshResult> refresh(String profileHome) async {
     profileHomes.add(profileHome);
-    final now = DateTime.now().toUtc();
-    return CodexRefreshResult(
-      state: UsageCheckState.success,
-      startedAt: now,
-      completedAt: now,
-    );
+    return _result();
   }
+}
+
+final class _GatedCodexClient extends _RecordingCodexClient {
+  final Completer<void> release = Completer<void>();
+  int active = 0;
+  int maxActive = 0;
+
+  @override
+  Future<CodexRefreshResult> refresh(String profileHome) async {
+    profileHomes.add(profileHome);
+    active++;
+    if (active > maxActive) maxActive = active;
+    try {
+      await release.future;
+      return _result();
+    } finally {
+      active--;
+    }
+  }
+}
+
+final class _StaticProfileDiscovery extends ProfileDiscoveryService {
+  _StaticProfileDiscovery(super.database);
+
+  @override
+  Future<List<CliProfile>> discoverProfiles() =>
+      database.select(database.cliProfiles).get();
+}
+
+CodexRefreshResult _result() {
+  final now = DateTime.now().toUtc();
+  return CodexRefreshResult(
+    state: UsageCheckState.success,
+    startedAt: now,
+    completedAt: now,
+  );
 }

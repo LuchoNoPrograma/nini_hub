@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:multi_cli_ai/app/dashboard_controller.dart';
+import 'package:multi_cli_ai/app/app_startup.dart';
 import 'package:multi_cli_ai/app/providers.dart';
 import 'package:multi_cli_ai/core/widgets/app_primitives.dart';
 import 'package:multi_cli_ai/features/accounts/presentation/accounts_view.dart';
@@ -8,53 +8,98 @@ import 'package:multi_cli_ai/features/activity/presentation/activity_view.dart';
 import 'package:multi_cli_ai/features/settings/presentation/settings_dialog.dart';
 import 'package:multi_cli_ai/features/usage/presentation/calendar_view.dart';
 
-class DashboardShell extends ConsumerWidget {
-  const DashboardShell({super.key});
+enum DashboardSection { accounts, calendar, activity }
+
+class DashboardShell extends ConsumerStatefulWidget {
+  const DashboardShell({
+    super.key,
+    this.initialSection = DashboardSection.accounts,
+  });
+
+  final DashboardSection initialSection;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final controller = ref.watch(dashboardControllerProvider);
+  ConsumerState<DashboardShell> createState() => _DashboardShellState();
+}
+
+class _DashboardShellState extends ConsumerState<DashboardShell> {
+  late DashboardSection section;
+
+  @override
+  void initState() {
+    super.initState();
+    section = widget.initialSection;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final startup = ref.watch(appStartupProvider);
+    final profilesBusy = ref.watch(
+      profilesControllerProvider.select((state) => state.isBusy),
+    );
+    final accountsBusy = ref.watch(
+      accountsControllerProvider.select((state) => state.isBusy),
+    );
+    final usageBusy = ref.watch(
+      usageControllerProvider.select((state) => state.isRefreshing),
+    );
+    final heartbeatBusy = ref.watch(
+      heartbeatControllerProvider.select((state) => state.isBusy),
+    );
     return Scaffold(
       body: SafeArea(
         child: Column(
           children: [
-            _OperationsBar(controller: controller),
-            if (controller.loading || controller.refreshing.isNotEmpty)
-              LinearProgressIndicator(
+            _OperationsBar(
+              startupBusy: startup.isLoading,
+              section: section,
+              onSectionChanged: (value) => setState(() => section = value),
+            ),
+            if (startup.isLoading ||
+                usageBusy ||
+                heartbeatBusy ||
+                profilesBusy ||
+                accountsBusy)
+              const LinearProgressIndicator(
                 minHeight: 2,
                 backgroundColor: Colors.transparent,
-                value: controller.refreshing.length <= 1 ? null : null,
               ),
-            Expanded(child: _body(context, controller)),
+            Expanded(child: _body(context, ref, startup)),
           ],
         ),
       ),
     );
   }
 
-  Widget _body(BuildContext context, DashboardController controller) {
-    if (controller.fatalError != null && !controller.initialized) {
-      final failure = controller.fatalError!;
+  Widget _body(BuildContext context, WidgetRef ref, AsyncValue<void> startup) {
+    if (startup.hasError) {
+      final failure = AppStartupFailure.from(startup.error!);
       return EmptyState(
-        icon: failure.kind == StartupFailureKind.updateRequired
+        icon: failure.kind == AppStartupFailureKind.updateRequired
             ? Icons.system_update_alt
             : Icons.error_outline,
         title: failure.title,
         message: failure.message,
         action: FilledButton.icon(
-          onPressed: controller.initialize,
+          onPressed: () => ref.invalidate(appStartupProvider),
           icon: const Icon(Icons.refresh),
           label: const Text('Reintentar'),
         ),
       );
     }
-    if (!controller.initialized) {
+    if (startup.isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
-    final content = switch (controller.section) {
-      AppSection.accounts => const AccountsView(key: ValueKey('accounts')),
-      AppSection.calendar => const UsageCalendarView(key: ValueKey('calendar')),
-      AppSection.activity => const ActivityView(key: ValueKey('activity')),
+    final content = switch (section) {
+      DashboardSection.accounts => const AccountsView(
+        key: ValueKey('accounts'),
+      ),
+      DashboardSection.calendar => const UsageCalendarView(
+        key: ValueKey('calendar'),
+      ),
+      DashboardSection.activity => const ActivityView(
+        key: ValueKey('activity'),
+      ),
     };
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 260),
@@ -75,10 +120,16 @@ class DashboardShell extends ConsumerWidget {
   }
 }
 
-class _OperationsBar extends StatelessWidget {
-  const _OperationsBar({required this.controller});
+class _OperationsBar extends ConsumerWidget {
+  const _OperationsBar({
+    required this.startupBusy,
+    required this.section,
+    required this.onSectionChanged,
+  });
 
-  final DashboardController controller;
+  final bool startupBusy;
+  final DashboardSection section;
+  final ValueChanged<DashboardSection> onSectionChanged;
 
   Future<void> _guard(BuildContext context, Future<void> future) async {
     try {
@@ -93,9 +144,71 @@ class _OperationsBar extends StatelessWidget {
     }
   }
 
+  Future<void> _openSettings(BuildContext context, WidgetRef ref) async {
+    final settingsController = ref.read(settingsControllerProvider.notifier);
+    final initialState = ref.read(settingsControllerProvider);
+    if (!initialState.isInitialized) {
+      final loaded = initialState.isLoading
+          ? await ref.read(settingsBootstrapProvider.future)
+          : await settingsController.load();
+      if (!context.mounted) return;
+      if (!loaded) {
+        final message = ref.read(settingsControllerProvider).errorMessage;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message ?? 'No se pudo cargar la configuración.'),
+          ),
+        );
+        return;
+      }
+    }
+    await showSettingsDialog(context, settingsControllerProvider);
+  }
+
+  Future<void> _rediscoverProfiles(BuildContext context, WidgetRef ref) async {
+    final controller = ref.read(profilesControllerProvider.notifier);
+    final loaded = await controller.load();
+    if (!context.mounted) return;
+    if (!loaded) {
+      final message = ref.read(profilesControllerProvider).errorMessage;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message ?? 'No se pudieron cargar los perfiles.'),
+        ),
+      );
+      return;
+    }
+    final accountsLoaded = await ref
+        .read(accountsControllerProvider.notifier)
+        .load();
+    if (!accountsLoaded && context.mounted) {
+      final message = ref.read(accountsControllerProvider).errorMessage;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message ?? 'No se pudieron cargar las cuentas.'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _refreshAll(BuildContext context, WidgetRef ref) async {
+    await ref.read(usageRefreshCoordinatorProvider).refreshAll();
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+    final profilesBusy = ref.watch(
+      profilesControllerProvider.select((state) => state.isBusy),
+    );
+    final accountsBusy = ref.watch(
+      accountsControllerProvider.select((state) => state.isBusy),
+    );
+    final usageState = ref.watch(usageControllerProvider);
+    final heartbeatState = ref.watch(heartbeatControllerProvider);
+    final refreshingCount =
+        usageState.refreshingProfileIds.length +
+        heartbeatState.runningProfileIds.length;
     return Container(
       height: 48,
       padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -125,25 +238,27 @@ class _OperationsBar extends StatelessWidget {
           ),
           _TopMenuItem(
             label: 'Cuentas',
-            selected: controller.section == AppSection.accounts,
-            onTap: () => controller.setSection(AppSection.accounts),
+            selected: section == DashboardSection.accounts,
+            onTap: () => onSectionChanged(DashboardSection.accounts),
           ),
           _TopMenuItem(
             label: 'Estadísticas',
-            selected: controller.section == AppSection.calendar,
-            onTap: () => controller.setSection(AppSection.calendar),
+            selected: section == DashboardSection.calendar,
+            onTap: () => onSectionChanged(DashboardSection.calendar),
           ),
           _TopMenuItem(
             label: 'Log',
-            selected: controller.section == AppSection.activity,
-            onTap: () => controller.setSection(AppSection.activity),
+            selected: section == DashboardSection.activity,
+            onTap: () => onSectionChanged(DashboardSection.activity),
           ),
           const Spacer(),
-          if (controller.refreshing.isNotEmpty)
+          if (usageState.isRefreshingAll || refreshingCount > 0)
             Padding(
               padding: const EdgeInsets.only(right: 7),
               child: Text(
-                '${controller.refreshing.length} en consulta',
+                usageState.isRefreshingAll
+                    ? '${usageState.completedBatchByProfile.length} completadas'
+                    : '$refreshingCount en consulta',
                 style: theme.textTheme.labelSmall?.copyWith(
                   color: theme.colorScheme.primary,
                 ),
@@ -152,21 +267,26 @@ class _OperationsBar extends StatelessWidget {
           AppIconButton(
             icon: Icons.sync,
             tooltip: 'Redescubrir perfiles',
-            onPressed: controller.loading
+            onPressed: startupBusy || profilesBusy || accountsBusy
                 ? null
-                : () => _guard(context, controller.rescanProfiles()),
+                : () => _rediscoverProfiles(context, ref),
           ),
           AppIconButton(
             icon: Icons.refresh,
             tooltip: 'Actualizar todas las cuentas',
-            onPressed: controller.refreshing.isEmpty
-                ? () => _guard(context, controller.refreshAll())
+            onPressed:
+                !usageState.isRefreshing &&
+                    !heartbeatState.isBusy &&
+                    !accountsBusy
+                ? () => _guard(context, _refreshAll(context, ref))
                 : null,
           ),
           AppIconButton(
             icon: Icons.person_add_alt_1_outlined,
             tooltip: 'Crear perfil',
-            onPressed: () => showCreateProfileDialog(context, controller),
+            onPressed: profilesBusy
+                ? null
+                : () => showCreateProfileFlow(context, ref),
           ),
           Container(
             width: 1,
@@ -177,7 +297,7 @@ class _OperationsBar extends StatelessWidget {
           AppIconButton(
             icon: Icons.settings_outlined,
             tooltip: 'Configuración',
-            onPressed: () => showSettingsDialog(context, controller),
+            onPressed: () => _openSettings(context, ref),
           ),
         ],
       ),

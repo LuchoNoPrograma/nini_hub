@@ -7,7 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:multi_cli_ai/app/providers.dart';
 import 'package:multi_cli_ai/core/formatters.dart';
 import 'package:multi_cli_ai/core/widgets/app_primitives.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account_models.dart';
+import 'package:multi_cli_ai/features/usage/domain/usage.dart';
 import 'package:table_calendar/table_calendar.dart';
 
 class UsageCalendarView extends ConsumerStatefulWidget {
@@ -23,7 +23,7 @@ class _UsageCalendarViewState extends ConsumerState<UsageCalendarView> {
   @override
   void initState() {
     super.initState();
-    focusedDay = _day(ref.read(dashboardControllerProvider).selectedDay);
+    focusedDay = _day(ref.read(usageControllerProvider).selectedDay);
   }
 
   void _focusMonth(DateTime day) {
@@ -37,20 +37,38 @@ class _UsageCalendarViewState extends ConsumerState<UsageCalendarView> {
   void _selectDay(DateTime day) {
     final selected = _day(day);
     _focusMonth(selected);
-    ref.read(dashboardControllerProvider).selectDay(selected);
+    ref.read(usageControllerProvider.notifier).selectDay(selected);
   }
 
   void _goToday() {
     final today = _day(DateTime.now());
     _focusMonth(today);
-    ref.read(dashboardControllerProvider).selectDay(today);
+    ref.read(usageControllerProvider.notifier).selectDay(today);
   }
 
   @override
   Widget build(BuildContext context) {
-    final controller = ref.watch(dashboardControllerProvider);
-    final selected = _day(controller.selectedDay);
-    final monthData = controller.calendar.entries
+    final state = ref.watch(usageControllerProvider);
+    final controller = ref.read(usageControllerProvider.notifier);
+    if (!state.isCalendarInitialized) {
+      final failure = state.calendarFailure;
+      if (failure != null) {
+        return EmptyState(
+          icon: Icons.error_outline,
+          title: 'No se pudo cargar el calendario',
+          message: failure.message,
+          action: FilledButton.icon(
+            onPressed: state.isCalendarLoading ? null : controller.loadCalendar,
+            icon: const Icon(Icons.refresh),
+            label: const Text('Reintentar'),
+          ),
+        );
+      }
+      return const Center(child: CircularProgressIndicator());
+    }
+    final calendar = state.calendar.days;
+    final selected = _day(state.selectedDay);
+    final monthData = calendar.entries
         .where(
           (entry) =>
               entry.key.year == focusedDay.year &&
@@ -67,7 +85,7 @@ class _UsageCalendarViewState extends ConsumerState<UsageCalendarView> {
       0,
       (sum, item) => sum + item.successfulChecks + item.failedChecks,
     );
-    final nextReset = controller.calendar.values
+    final nextReset = calendar.values
         .where(
           (item) =>
               item.resetCount > 0 && !item.day.isBefore(_day(DateTime.now())),
@@ -87,6 +105,18 @@ class _UsageCalendarViewState extends ConsumerState<UsageCalendarView> {
             title: 'Estadísticas de uso',
             subtitle: 'Compara el uso diario, las cuentas y su evolución.',
           ),
+          if (state.isCalendarLoading)
+            const LinearProgressIndicator(
+              minHeight: 2,
+              backgroundColor: Colors.transparent,
+            ),
+          if (state.calendarFailure != null)
+            _UsageCalendarFailureBanner(
+              message: state.calendarFailure!.message,
+              busy: state.isCalendarLoading,
+              onRetry: controller.loadCalendar,
+              onDismiss: controller.clearCalendarFailure,
+            ),
           const SizedBox(height: 14),
           Container(
             width: double.infinity,
@@ -131,7 +161,7 @@ class _UsageCalendarViewState extends ConsumerState<UsageCalendarView> {
           LayoutBuilder(
             builder: (context, constraints) {
               final calendar = _CalendarPanel(
-                data: controller.calendar,
+                data: state.calendar.days,
                 focusedDay: focusedDay,
                 selectedDay: selected,
                 onSelected: _selectDay,
@@ -142,7 +172,7 @@ class _UsageCalendarViewState extends ConsumerState<UsageCalendarView> {
               );
               final inspector = _DayInspector(
                 day: selected,
-                data: controller.calendar[selected],
+                data: state.calendar[selected],
               );
               if (constraints.maxWidth >= 840) {
                 return SizedBox(
@@ -168,13 +198,61 @@ class _UsageCalendarViewState extends ConsumerState<UsageCalendarView> {
           ),
           const SizedBox(height: 14),
           _UsageTrend(
-                data: controller.calendar,
+                data: state.calendar.days,
                 anchorDay: selected,
                 onDaySelected: _selectDay,
               )
               .animate()
               .fadeIn(duration: 300.ms, delay: 80.ms)
               .moveY(begin: 8, end: 0),
+        ],
+      ),
+    );
+  }
+}
+
+class _UsageCalendarFailureBanner extends StatelessWidget {
+  const _UsageCalendarFailureBanner({
+    required this.message,
+    required this.busy,
+    required this.onRetry,
+    required this.onDismiss,
+  });
+
+  final String message;
+  final bool busy;
+  final Future<bool> Function() onRetry;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.fromLTRB(12, 7, 6, 7),
+      color: theme.colorScheme.errorContainer,
+      child: Row(
+        children: [
+          Icon(Icons.error_outline, color: theme.colorScheme.onErrorContainer),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              message,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onErrorContainer,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: busy ? null : onRetry,
+            child: const Text('Reintentar'),
+          ),
+          IconButton(
+            tooltip: 'Cerrar mensaje',
+            onPressed: onDismiss,
+            icon: const Icon(Icons.close, size: 17),
+          ),
         ],
       ),
     );
@@ -193,7 +271,7 @@ class _CalendarPanel extends StatelessWidget {
     required this.onToday,
   });
 
-  final Map<DateTime, CalendarDayData> data;
+  final Map<DateTime, UsageCalendarDay> data;
   final DateTime focusedDay;
   final DateTime selectedDay;
   final ValueChanged<DateTime> onSelected;
@@ -244,7 +322,7 @@ class _CalendarPanel extends StatelessWidget {
             ),
           ),
           Divider(height: 1, color: theme.colorScheme.outlineVariant),
-          TableCalendar<CalendarDayData>(
+          TableCalendar<UsageCalendarDay>(
             locale: 'es',
             firstDay: DateTime.utc(2023),
             lastDay: DateTime.now().add(const Duration(days: 730)),
@@ -302,7 +380,7 @@ class _CalendarCell extends StatelessWidget {
   });
 
   final DateTime day;
-  final CalendarDayData? data;
+  final UsageCalendarDay? data;
   final bool today;
   final bool selected;
 
@@ -456,12 +534,12 @@ class _DayInspector extends StatelessWidget {
   const _DayInspector({required this.day, required this.data});
 
   final DateTime day;
-  final CalendarDayData? data;
+  final UsageCalendarDay? data;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final accounts = data?.accounts ?? const <AccountDayUsage>[];
+    final accounts = data?.accounts ?? const <UsageAccountDay>[];
     final checks = (data?.successfulChecks ?? 0) + (data?.failedChecks ?? 0);
     final isToday = isSameDay(day, DateTime.now());
     return Semantics(
@@ -686,7 +764,7 @@ class _TodayBadge extends StatelessWidget {
 class _AccountDayRow extends StatelessWidget {
   const _AccountDayRow({required this.account});
 
-  final AccountDayUsage account;
+  final UsageAccountDay account;
 
   @override
   Widget build(BuildContext context) {
@@ -881,7 +959,7 @@ class _UsageTrend extends StatefulWidget {
     required this.onDaySelected,
   });
 
-  final Map<DateTime, CalendarDayData> data;
+  final Map<DateTime, UsageCalendarDay> data;
   final DateTime anchorDay;
   final ValueChanged<DateTime> onDaySelected;
 

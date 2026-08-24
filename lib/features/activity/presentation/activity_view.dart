@@ -3,9 +3,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:multi_cli_ai/app/providers.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
 import 'package:multi_cli_ai/core/formatters.dart';
 import 'package:multi_cli_ai/core/widgets/app_primitives.dart';
+import 'package:multi_cli_ai/features/activity/domain/activity_log.dart';
+import 'package:multi_cli_ai/features/activity/presentation/controllers/activity_controller.dart';
+import 'package:multi_cli_ai/features/activity/presentation/state/activity_state.dart';
 
 class ActivityView extends ConsumerStatefulWidget {
   const ActivityView({super.key});
@@ -16,8 +18,6 @@ class ActivityView extends ConsumerStatefulWidget {
 
 class _ActivityViewState extends ConsumerState<ActivityView> {
   final searchController = TextEditingController();
-  String status = 'all';
-  String? selectedId;
 
   @override
   void dispose() {
@@ -27,18 +27,10 @@ class _ActivityViewState extends ConsumerState<ActivityView> {
 
   @override
   Widget build(BuildContext context) {
-    final controller = ref.watch(dashboardControllerProvider);
-    final search = searchController.text.trim().toLowerCase();
-    final logs = controller.logs.where((log) {
-      final stateMatches = status == 'all' || log.status == status;
-      final textMatches =
-          search.isEmpty ||
-          log.summary.toLowerCase().contains(search) ||
-          log.command.toLowerCase().contains(search) ||
-          log.output.toLowerCase().contains(search);
-      return stateMatches && textMatches;
-    }).toList();
-    final selected = _selectedLog(logs);
+    final state = ref.watch(activityControllerProvider);
+    final controller = ref.read(activityControllerProvider.notifier);
+    final logs = state.visibleLogs;
+    final selected = state.selectedLog;
 
     return Column(
       children: [
@@ -49,30 +41,58 @@ class _ActivityViewState extends ConsumerState<ActivityView> {
             subtitle: 'Comandos ejecutados y su salida técnica.',
             trailing: AppIconButton(
               tooltip: 'Limpiar historial',
-              onPressed: controller.logs.isEmpty
+              onPressed: state.logs.isEmpty || state.isBusy
                   ? null
                   : () => _clear(controller),
               icon: Icons.delete_sweep_outlined,
             ),
           ),
         ),
+        if (state.isBusy)
+          const LinearProgressIndicator(
+            minHeight: 2,
+            backgroundColor: Colors.transparent,
+          ),
+        if (state.isInitialized && state.errorMessage != null)
+          _ActivityFailureBanner(
+            message: state.errorMessage!,
+            busy: state.isBusy,
+            onRetry: controller.load,
+            onDismiss: controller.clearFailure,
+          ),
         _ActivityToolbar(
           searchController: searchController,
-          status: status,
+          status: state.statusFilter,
           visibleCount: logs.length,
-          totalCount: controller.logs.length,
-          onSearchChanged: (_) => setState(() {}),
-          onClearSearch: () => setState(searchController.clear),
-          onStatusChanged: (value) => setState(() => status = value),
+          totalCount: state.logs.length,
+          onSearchChanged: controller.setSearch,
+          onClearSearch: () {
+            searchController.clear();
+            controller.setSearch('');
+          },
+          onStatusChanged: controller.setStatusFilter,
         ),
         Expanded(
-          child: logs.isEmpty
+          child: !state.isInitialized
+              ? state.errorMessage != null
+                    ? EmptyState(
+                        icon: Icons.error_outline,
+                        title: 'No se pudo cargar el historial',
+                        message: state.errorMessage!,
+                        action: FilledButton.icon(
+                          onPressed: state.isBusy ? null : controller.load,
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Reintentar'),
+                        ),
+                      )
+                    : const Center(child: CircularProgressIndicator())
+              : logs.isEmpty
               ? EmptyState(
                   icon: Icons.history_outlined,
-                  title: controller.logs.isEmpty
+                  title: state.logs.isEmpty
                       ? 'Aún no hay registros'
                       : 'No hay coincidencias',
-                  message: controller.logs.isEmpty
+                  message: state.logs.isEmpty
                       ? 'Los comandos y sus resultados aparecerán aquí.'
                       : 'Ajusta la búsqueda o muestra todos los estados.',
                 )
@@ -83,7 +103,7 @@ class _ActivityViewState extends ConsumerState<ActivityView> {
                       logs: logs,
                       selectedId: selected?.id,
                       onSelected: (log) {
-                        setState(() => selectedId = log.id);
+                        controller.selectLog(log.id);
                         if (!splitView) _showLogDetails(log);
                       },
                     );
@@ -107,15 +127,7 @@ class _ActivityViewState extends ConsumerState<ActivityView> {
     );
   }
 
-  CommandLog? _selectedLog(List<CommandLog> logs) {
-    if (logs.isEmpty) return null;
-    for (final log in logs) {
-      if (log.id == selectedId) return log;
-    }
-    return logs.first;
-  }
-
-  void _showLogDetails(CommandLog log) {
+  void _showLogDetails(ActivityLog log) {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -129,7 +141,7 @@ class _ActivityViewState extends ConsumerState<ActivityView> {
     );
   }
 
-  Future<void> _clear(dynamic controller) async {
+  Future<void> _clear(ActivityController controller) async {
     final accepted = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -150,7 +162,54 @@ class _ActivityViewState extends ConsumerState<ActivityView> {
         ],
       ),
     );
-    if (accepted == true) await controller.clearLogs();
+    if (accepted == true) await controller.clear();
+  }
+}
+
+class _ActivityFailureBanner extends StatelessWidget {
+  const _ActivityFailureBanner({
+    required this.message,
+    required this.busy,
+    required this.onRetry,
+    required this.onDismiss,
+  });
+
+  final String message;
+  final bool busy;
+  final Future<bool> Function() onRetry;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(18, 8, 10, 8),
+      color: theme.colorScheme.errorContainer,
+      child: Row(
+        children: [
+          Icon(Icons.error_outline, color: theme.colorScheme.onErrorContainer),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              message,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onErrorContainer,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: busy ? null : onRetry,
+            child: const Text('Reintentar'),
+          ),
+          IconButton(
+            tooltip: 'Cerrar mensaje',
+            onPressed: onDismiss,
+            icon: const Icon(Icons.close, size: 17),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -166,12 +225,12 @@ class _ActivityToolbar extends StatelessWidget {
   });
 
   final TextEditingController searchController;
-  final String status;
+  final ActivityStatusFilter status;
   final int visibleCount;
   final int totalCount;
   final ValueChanged<String> onSearchChanged;
   final VoidCallback onClearSearch;
-  final ValueChanged<String> onStatusChanged;
+  final ValueChanged<ActivityStatusFilter> onStatusChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -236,26 +295,35 @@ class _ActivityToolbar extends StatelessWidget {
 class _StatusMenu extends StatelessWidget {
   const _StatusMenu({required this.value, required this.onChanged});
 
-  final String value;
-  final ValueChanged<String> onChanged;
+  final ActivityStatusFilter value;
+  final ValueChanged<ActivityStatusFilter> onChanged;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final label = switch (value) {
-      'running' => 'En curso',
-      'error' => 'Con errores',
-      _ => 'Todos los estados',
+      ActivityStatusFilter.running => 'En curso',
+      ActivityStatusFilter.error => 'Con errores',
+      ActivityStatusFilter.all => 'Todos los estados',
     };
-    return PopupMenuButton<String>(
+    return PopupMenuButton<ActivityStatusFilter>(
       tooltip: 'Filtrar por estado',
       initialValue: value,
       onSelected: onChanged,
       position: PopupMenuPosition.under,
       itemBuilder: (_) => const [
-        PopupMenuItem(value: 'all', child: Text('Todos los estados')),
-        PopupMenuItem(value: 'running', child: Text('En curso')),
-        PopupMenuItem(value: 'error', child: Text('Con errores')),
+        PopupMenuItem(
+          value: ActivityStatusFilter.all,
+          child: Text('Todos los estados'),
+        ),
+        PopupMenuItem(
+          value: ActivityStatusFilter.running,
+          child: Text('En curso'),
+        ),
+        PopupMenuItem(
+          value: ActivityStatusFilter.error,
+          child: Text('Con errores'),
+        ),
       ],
       child: Container(
         height: 38,
@@ -295,9 +363,9 @@ class _ActivityTimeline extends StatelessWidget {
     required this.onSelected,
   });
 
-  final List<CommandLog> logs;
+  final List<ActivityLog> logs;
   final String? selectedId;
-  final ValueChanged<CommandLog> onSelected;
+  final ValueChanged<ActivityLog> onSelected;
 
   @override
   Widget build(BuildContext context) => ListView.builder(
@@ -324,7 +392,7 @@ class _ActivityRow extends StatelessWidget {
     required this.onTap,
   });
 
-  final CommandLog log;
+  final ActivityLog log;
   final bool selected;
   final VoidCallback onTap;
 
@@ -359,7 +427,10 @@ class _ActivityRow extends StatelessWidget {
             ),
             child: Row(
               children: [
-                _StatusIcon(visual: visual, running: log.status == 'running'),
+                _StatusIcon(
+                  visual: visual,
+                  running: log.status == ActivityLogStatus.running,
+                ),
                 const SizedBox(width: 11),
                 Expanded(
                   child: Column(
@@ -447,7 +518,7 @@ class _StatusIcon extends StatelessWidget {
 class _LogInspector extends StatelessWidget {
   const _LogInspector({required this.log, this.sheet = false});
 
-  final CommandLog? log;
+  final ActivityLog? log;
   final bool sheet;
 
   @override
@@ -565,7 +636,7 @@ class _LogInspector extends StatelessWidget {
                 child: SelectableText(
                   item.output.isNotEmpty
                       ? item.output
-                      : item.status == 'running'
+                      : item.status == ActivityLogStatus.running
                       ? 'Esperando salida…'
                       : 'La operación no produjo salida.',
                   style: theme.textTheme.bodyMedium?.copyWith(
@@ -584,7 +655,7 @@ class _LogInspector extends StatelessWidget {
     );
   }
 
-  Future<void> _copyOutput(BuildContext context, CommandLog item) async {
+  Future<void> _copyOutput(BuildContext context, ActivityLog item) async {
     await Clipboard.setData(
       ClipboardData(text: item.output.isEmpty ? item.command : item.output),
     );
@@ -649,14 +720,14 @@ class _LogStatusVisual {
   final Color color;
 }
 
-_LogStatusVisual _statusVisual(ThemeData theme, String status) =>
+_LogStatusVisual _statusVisual(ThemeData theme, ActivityLogStatus status) =>
     switch (status) {
-      'success' => const _LogStatusVisual(
+      ActivityLogStatus.success => const _LogStatusVisual(
         'Completado',
         Icons.check_rounded,
         Color(0xFF58E2AD),
       ),
-      'running' => _LogStatusVisual(
+      ActivityLogStatus.running => _LogStatusVisual(
         'En curso',
         Icons.sync_rounded,
         theme.colorScheme.tertiary,
@@ -680,7 +751,7 @@ String _formatDuration(Duration duration) {
   return seconds == 0 ? '$minutes min' : '$minutes min $seconds s';
 }
 
-Duration? _measuredDuration(CommandLog log) {
+Duration? _measuredDuration(ActivityLog log) {
   final completedAt = log.completedAt;
   if (completedAt == null ||
       log.output.startsWith('Proceso iniciado en una terminal separada.')) {

@@ -2,57 +2,35 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:multi_cli_ai/app/dashboard_controller.dart';
 import 'package:multi_cli_ai/core/currency_catalog.dart';
 import 'package:multi_cli_ai/core/formatters.dart';
-import 'package:multi_cli_ai/features/accounts/data/account_repository.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account_models.dart';
-import 'package:multi_cli_ai/features/profiles/data/multi_cli_gateway.dart';
+import 'package:multi_cli_ai/features/accounts/application/account_management.dart';
+import 'package:multi_cli_ai/features/accounts/domain/account.dart';
+import 'package:multi_cli_ai/features/accounts/domain/account_device_auth.dart';
+import 'package:multi_cli_ai/features/accounts/presentation/controllers/accounts_controller.dart';
+import 'package:multi_cli_ai/features/accounts/presentation/state/accounts_state.dart';
 import 'package:multi_cli_ai/features/profiles/domain/profile_provider.dart';
-import 'package:multi_cli_ai/features/profiles/presentation/profile_provider_icon.dart';
-import 'package:multi_cli_ai/providers/codex/codex_app_server_client.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
 
-Future<void> showCreateProfileDialog(
-  BuildContext context,
-  DashboardController controller,
-) async {
-  final created = await showDialog<AccountCardData>(
-    context: context,
-    barrierDismissible: false,
-    builder: (_) => _CreateProfileDialog(controller: controller),
-  );
-  if (created == null || !context.mounted) return;
-  final provider = profileProvider(created.profile.toolKey);
-  if (provider.supportsDeviceAuth && !created.profile.hasAuthFile) {
-    await showDeviceAuthDialog(context, controller, created);
-  }
-}
-
 Future<void> showEditAccountDialog(
   BuildContext context,
-  DashboardController controller,
-  AccountCardData account,
+  AccountsController controller,
+  AccountsState Function() readState,
+  Account account,
 ) => showDialog<void>(
   context: context,
   barrierDismissible: false,
-  builder: (_) => _EditAccountDialog(controller: controller, account: account),
-);
-
-Future<void> showRenameProfileDialog(
-  BuildContext context,
-  DashboardController controller,
-  AccountCardData account,
-) => showDialog<void>(
-  context: context,
-  builder: (_) =>
-      _RenameProfileDialog(controller: controller, account: account),
+  builder: (_) => _EditAccountDialog(
+    controller: controller,
+    readState: readState,
+    account: account,
+  ),
 );
 
 Future<bool> showCodexHeartbeatConfirmation(
   BuildContext context,
-  AccountCardData account,
+  Account account,
 ) async =>
     await showDialog<bool>(
       context: context,
@@ -81,61 +59,15 @@ Future<bool> showCodexHeartbeatConfirmation(
     ) ??
     false;
 
-Future<void> showDeleteProfileDialog(
-  BuildContext context,
-  DashboardController controller,
-  AccountCardData account,
-) async {
-  final confirmed = await showDialog<bool>(
-    context: context,
-    builder: (dialogContext) => AlertDialog(
-      icon: Icon(
-        Icons.delete_outline,
-        color: Theme.of(context).colorScheme.error,
-      ),
-      title: Text('Eliminar ${account.profile.displayName}'),
-      content: const SizedBox(
-        width: 430,
-        child: Text(
-          'Multi CLI eliminará el perfil físico y su credencial local. El historial '
-          'de esta aplicación también se borrará. Esta acción no cierra ni cancela '
-          'ninguna suscripción.',
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(dialogContext, false),
-          child: const Text('Cancelar'),
-        ),
-        FilledButton(
-          style: FilledButton.styleFrom(
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-          onPressed: () => Navigator.pop(dialogContext, true),
-          child: const Text('Eliminar perfil'),
-        ),
-      ],
-    ),
-  );
-  if (confirmed != true || !context.mounted) return;
-  try {
-    await controller.deleteProfile(account);
-  } catch (error) {
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(_cleanError(error))));
-  }
-}
-
 Future<void> showDeviceAuthDialog(
   BuildContext context,
-  DashboardController controller,
-  AccountCardData account,
-) async {
-  CodexDeviceAuthSession session;
+  Account account, {
+  required Future<AccountDeviceAuthSession> Function(Account account) start,
+  required Future<void> Function(Account account, bool success) complete,
+}) async {
+  AccountDeviceAuthSession session;
   try {
-    session = await controller.startDeviceAuth(account);
+    session = await start(account);
   } catch (error) {
     if (!context.mounted) return;
     ScaffoldMessenger.of(
@@ -151,391 +83,23 @@ Future<void> showDeviceAuthDialog(
     context: context,
     barrierDismissible: false,
     builder: (_) => _DeviceAuthDialog(
-      controller: controller,
       account: account,
       session: session,
+      complete: complete,
     ),
   );
 }
 
-class _CreateProfileDialog extends StatefulWidget {
-  const _CreateProfileDialog({required this.controller});
-
-  final DashboardController controller;
-
-  @override
-  State<_CreateProfileDialog> createState() => _CreateProfileDialogState();
-}
-
-class _CreateProfileDialogState extends State<_CreateProfileDialog> {
-  final formKey = GlobalKey<FormState>();
-  final name = TextEditingController();
-  final displayName = TextEditingController();
-  String toolKey = 'codex';
-  String setupMode = 'shared';
-  bool saving = false;
-  String? error;
-
-  @override
-  void dispose() {
-    name.dispose();
-    displayName.dispose();
-    super.dispose();
-  }
-
-  Future<void> submit() async {
-    if (!formKey.currentState!.validate()) return;
-    setState(() {
-      saving = true;
-      error = null;
-    });
-    try {
-      var created = await widget.controller.createProfile(
-        ProfileCreateRequest(
-          toolKey: toolKey,
-          name: name.text,
-          displayName: displayName.text,
-          profileType: setupMode,
-          seedFromBase: false,
-        ),
-      );
-      if (displayName.text.trim().isNotEmpty) {
-        await widget.controller.multiCli.saveDisplayData(
-          profile: created.profile,
-          displayName: displayName.text,
-          favorite: false,
-        );
-        await widget.controller.reload();
-        created = widget.controller.accounts
-            .where((item) => item.profile.id == created.profile.id)
-            .first;
-      }
-      if (mounted) Navigator.pop(context, created);
-    } catch (exception) {
-      if (mounted) setState(() => error = _cleanError(exception));
-    } finally {
-      if (mounted) setState(() => saving = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final provider = profileProvider(toolKey);
-    final alias = name.text.trim().isEmpty ? 'alias' : name.text.trim();
-    return AlertDialog(
-      scrollable: true,
-      title: const Text('Nuevo perfil'),
-      content: SizedBox(
-        width: 540,
-        child: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              DropdownButtonFormField<String>(
-                initialValue: toolKey,
-                decoration: const InputDecoration(labelText: 'Herramienta'),
-                items: supportedProfileProviders
-                    .map(
-                      (item) => DropdownMenuItem(
-                        value: item.toolKey,
-                        child: Row(
-                          children: [
-                            ProfileProviderIcon(
-                              toolKey: item.toolKey,
-                              size: 22,
-                            ),
-                            const SizedBox(width: 9),
-                            Text('${item.displayName} · ${item.productName}'),
-                          ],
-                        ),
-                      ),
-                    )
-                    .toList(),
-                onChanged: saving
-                    ? null
-                    : (value) => setState(() => toolKey = value ?? toolKey),
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: name,
-                autofocus: true,
-                onChanged: (_) => setState(() {}),
-                decoration: InputDecoration(
-                  labelText: 'Alias físico',
-                  prefixText: provider.commandPrefix,
-                  helperText: 'Nombre del perfil en multi-cli y del comando.',
-                ),
-                validator: (value) {
-                  try {
-                    MultiCliGateway.validateName(value ?? '');
-                    return null;
-                  } catch (error) {
-                    return _cleanError(error);
-                  }
-                },
-              ),
-              const SizedBox(height: 14),
-              TextFormField(
-                controller: displayName,
-                decoration: const InputDecoration(
-                  labelText: 'Nombre visible',
-                  hintText: 'Nexo',
-                ),
-              ),
-              const SizedBox(height: 18),
-              Text(
-                'Cómo empezar',
-                style: Theme.of(context).textTheme.labelLarge,
-              ),
-              const SizedBox(height: 4),
-              RadioGroup<String>(
-                groupValue: setupMode,
-                onChanged: saving
-                    ? (_) {}
-                    : (value) {
-                        if (value != null) setState(() => setupMode = value);
-                      },
-                child: Column(
-                  children: const [
-                    RadioListTile<String>(
-                      value: 'shared',
-                      contentPadding: EdgeInsets.zero,
-                      visualDensity: VisualDensity.compact,
-                      title: Text('Compartir ajustes'),
-                      subtitle: Text(
-                        'Usa las reglas, skills y configuración principal. La cuenta y el historial quedan separados.',
-                      ),
-                    ),
-                    RadioListTile<String>(
-                      value: 'full',
-                      contentPadding: EdgeInsets.zero,
-                      visualDensity: VisualDensity.compact,
-                      title: Text('Independiente'),
-                      subtitle: Text(
-                        'Crea un perfil independiente, sin historial ni ajustes anteriores.',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 11,
-                  vertical: 10,
-                ),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surfaceContainerLow,
-                  border: Border(
-                    left: BorderSide(
-                      width: 3,
-                      color: provider.supportsDeviceAuth
-                          ? Theme.of(context).colorScheme.primary
-                          : Theme.of(context).colorScheme.outline,
-                    ),
-                  ),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(
-                      provider.supportsDeviceAuth
-                          ? Icons.phonelink_lock_outlined
-                          : Icons.login,
-                      size: 19,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: 9),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            provider.supportsDeviceAuth
-                                ? 'Acceso mediante Codex Device Auth'
-                                : 'Acceso de Claude Code',
-                            style: Theme.of(context).textTheme.labelLarge,
-                          ),
-                          const SizedBox(height: 3),
-                          Text(
-                            provider.supportsDeviceAuth
-                                ? 'Antes de continuar, abre Configuración > Seguridad en ChatGPT y habilita el acceso mediante código de dispositivo. Después de crear el perfil se abrirá el navegador y aparecerá el código para vincular la cuenta.'
-                                : 'La vinculación automática todavía no está disponible para Claude. Después de crear el perfil, ábrelo y completa el acceso desde Claude Code.',
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.onSurfaceVariant,
-                                ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 10),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 11,
-                  vertical: 9,
-                ),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.terminal_outlined,
-                      size: 16,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'multi-cli new ${provider.profileSpec(alias)}',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          fontFamily: 'monospace',
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (error != null) ...[
-                const SizedBox(height: 8),
-                Text(
-                  error!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: saving ? null : () => Navigator.pop(context),
-          child: const Text('Cancelar'),
-        ),
-        FilledButton.icon(
-          onPressed: saving ? null : submit,
-          icon: saving
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.add, size: 18),
-          label: Text(
-            provider.supportsDeviceAuth
-                ? 'Crear y vincular'
-                : 'Crear en ${provider.displayName}',
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _RenameProfileDialog extends StatefulWidget {
-  const _RenameProfileDialog({required this.controller, required this.account});
-
-  final DashboardController controller;
-  final AccountCardData account;
-
-  @override
-  State<_RenameProfileDialog> createState() => _RenameProfileDialogState();
-}
-
-class _RenameProfileDialogState extends State<_RenameProfileDialog> {
-  late final TextEditingController name = TextEditingController(
-    text: widget.account.profile.profileName,
-  );
-  bool saving = false;
-  String? error;
-
-  @override
-  void dispose() {
-    name.dispose();
-    super.dispose();
-  }
-
-  Future<void> submit() async {
-    setState(() {
-      saving = true;
-      error = null;
-    });
-    try {
-      await widget.controller.renameProfile(widget.account, name.text);
-      if (mounted) Navigator.pop(context);
-    } catch (exception) {
-      if (mounted) setState(() => error = _cleanError(exception));
-    } finally {
-      if (mounted) setState(() => saving = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final provider = profileProvider(widget.account.profile.toolKey);
-    return AlertDialog(
-      title: const Text('Renombrar alias físico'),
-      content: SizedBox(
-        width: 480,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TextField(
-              controller: name,
-              autofocus: true,
-              decoration: InputDecoration(prefixText: provider.commandPrefix),
-              onSubmitted: (_) => saving ? null : submit(),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Multi CLI moverá el directorio y creará el comando nuevo. La credencial '
-              'local no se modifica, por lo que la cuenta vinculada conserva su acceso.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-            if (error != null) ...[
-              const SizedBox(height: 10),
-              Text(
-                error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
-            ],
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: saving ? null : () => Navigator.pop(context),
-          child: const Text('Cancelar'),
-        ),
-        FilledButton(
-          onPressed: saving ? null : submit,
-          child: const Text('Renombrar'),
-        ),
-      ],
-    );
-  }
-}
-
 class _EditAccountDialog extends StatefulWidget {
-  const _EditAccountDialog({required this.controller, required this.account});
+  const _EditAccountDialog({
+    required this.controller,
+    required this.readState,
+    required this.account,
+  });
 
-  final DashboardController controller;
-  final AccountCardData account;
+  final AccountsController controller;
+  final AccountsState Function() readState;
+  final Account account;
 
   @override
   State<_EditAccountDialog> createState() => _EditAccountDialogState();
@@ -645,26 +209,40 @@ class _EditAccountDialogState extends State<_EditAccountDialog> {
       error = null;
     });
     try {
-      await widget.controller.saveProfile(
-        account: widget.account,
-        displayName: displayName.text,
-        favorite: favorite,
-        email: email.text,
-        accountDisplayName: accountName.text,
-        planName: plan.text,
-        notes: notes.text,
-        purchasedOn: purchasedOn,
-        nextRenewalOn: renewalOn,
-        billingInterval: interval,
-        expectedAmountMinor: _minorUnits(amount.text, currencyCode),
-        currencyCode: currencyCode,
-        autoRenew: autoRenew,
-        subscriptionStatus: subscriptionStatus,
-        purchasedFrom: purchasedFrom.text,
-        paymentMethodLabel: paymentMethod.text,
-        shares: shares.map((item) => item.draft(currencyCode)).toList(),
+      final updated = await widget.controller.update(
+        UpdateAccountCommand(
+          profileId: widget.account.profile.id,
+          displayName: displayName.text,
+          isFavorite: favorite,
+          metadata: AccountMetadata(
+            accountEmail: email.text,
+            accountDisplayName: accountName.text,
+            planName: plan.text,
+            notes: notes.text,
+            purchasedOn: purchasedOn,
+            nextRenewalOn: renewalOn,
+            billingInterval: interval,
+            expectedAmountMinor: _minorUnits(amount.text, currencyCode),
+            currencyCode: currencyCode,
+            autoRenew: autoRenew,
+            subscriptionStatus: subscriptionStatus,
+            purchasedFrom: purchasedFrom.text,
+            paymentMethodLabel: paymentMethod.text,
+          ),
+          costShares: shares.map((item) => item.draft(currencyCode)),
+        ),
       );
-      if (mounted) Navigator.pop(context);
+      if (updated != null) {
+        if (mounted) Navigator.pop(context);
+        return;
+      }
+      if (mounted) {
+        setState(() {
+          error =
+              widget.readState().errorMessage ??
+              'No se pudieron guardar los datos de la cuenta.';
+        });
+      }
     } catch (exception) {
       if (mounted) setState(() => error = _cleanError(exception));
     } finally {
@@ -1384,14 +962,14 @@ class _CurrencyPickerDialogState extends State<_CurrencyPickerDialog> {
 
 class _DeviceAuthDialog extends StatefulWidget {
   const _DeviceAuthDialog({
-    required this.controller,
     required this.account,
     required this.session,
+    required this.complete,
   });
 
-  final DashboardController controller;
-  final AccountCardData account;
-  final CodexDeviceAuthSession session;
+  final Account account;
+  final AccountDeviceAuthSession session;
+  final Future<void> Function(Account account, bool success) complete;
 
   @override
   State<_DeviceAuthDialog> createState() => _DeviceAuthDialogState();
@@ -1433,7 +1011,7 @@ class _DeviceAuthDialogState extends State<_DeviceAuthDialog> {
   Future<void> _wait() async {
     try {
       final success = await widget.session.waitForCompletion();
-      await widget.controller.completeDeviceAuth(widget.account, success);
+      await widget.complete(widget.account, success);
       if (!mounted) return;
       if (success) {
         Navigator.pop(context);
@@ -1625,23 +1203,17 @@ class _ShareEditor {
     status: 'pending',
   );
 
-  factory _ShareEditor.fromStored(dynamic item) => _ShareEditor(
-    id: item.id as String,
-    name: TextEditingController(text: item.personName as String),
+  factory _ShareEditor.fromStored(AccountCostShare item) => _ShareEditor(
+    id: item.id,
+    name: TextEditingController(text: item.personName),
     expected: TextEditingController(
-      text: _majorUnits(
-        item.expectedAmountMinor as int,
-        item.currencyCode as String,
-      ),
+      text: _majorUnits(item.expectedAmountMinor, item.currencyCode),
     ),
     paid: TextEditingController(
-      text: _majorUnits(
-        item.paidAmountMinor as int,
-        item.currencyCode as String,
-      ),
+      text: _majorUnits(item.paidAmountMinor, item.currencyCode),
     ),
-    notes: TextEditingController(text: item.notes as String),
-    status: item.paymentStatus as String,
+    notes: TextEditingController(text: item.notes),
+    status: item.paymentStatus,
   );
 
   final String id;
@@ -1651,7 +1223,7 @@ class _ShareEditor {
   final TextEditingController notes;
   String status;
 
-  CostShareDraft draft(String currency) => CostShareDraft(
+  AccountCostShare draft(String currency) => AccountCostShare(
     id: id,
     personName: name.text,
     expectedAmountMinor: _minorUnits(expected.text, currency),

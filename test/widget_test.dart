@@ -7,7 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
-import 'package:multi_cli_ai/app/dashboard_controller.dart';
+import 'package:multi_cli_ai/app/app_startup.dart';
 import 'package:multi_cli_ai/app/providers.dart';
 import 'package:multi_cli_ai/core/currency_catalog.dart';
 import 'package:multi_cli_ai/core/database/app_database.dart';
@@ -15,16 +15,37 @@ import 'package:multi_cli_ai/core/formatters.dart';
 import 'package:multi_cli_ai/core/process/process_runner.dart';
 import 'package:multi_cli_ai/core/theme/app_theme.dart';
 import 'package:multi_cli_ai/core/widgets/app_primitives.dart';
-import 'package:multi_cli_ai/features/accounts/data/account_repository.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account_models.dart';
+import 'package:multi_cli_ai/features/accounts/application/account_management.dart';
+import 'package:multi_cli_ai/features/accounts/data/account_mapper.dart';
+import 'package:multi_cli_ai/features/accounts/data/drift_account_repository.dart';
+import 'package:multi_cli_ai/features/accounts/domain/account.dart';
+import 'package:multi_cli_ai/providers/codex/codex_app_server_models.dart';
 import 'package:multi_cli_ai/features/accounts/presentation/account_dialogs.dart';
 import 'package:multi_cli_ai/features/accounts/presentation/accounts_view.dart';
+import 'package:multi_cli_ai/features/profiles/data/drift_agent_profile_repository.dart';
 import 'package:multi_cli_ai/features/profiles/data/multi_cli_gateway.dart';
 import 'package:multi_cli_ai/features/profiles/data/profile_discovery_service.dart';
+import 'package:multi_cli_ai/features/profiles/domain/agent_profile.dart';
+import 'package:multi_cli_ai/features/profiles/domain/profile.dart';
+import 'package:multi_cli_ai/features/profiles/domain/profile_ports.dart';
 import 'package:multi_cli_ai/features/profiles/domain/profile_provider.dart';
-import 'package:multi_cli_ai/features/usage/data/usage_refresh_service.dart';
+import 'package:multi_cli_ai/features/profiles/presentation/profile_dialogs.dart';
+import 'package:multi_cli_ai/features/usage/application/usage_calendar.dart';
+import 'package:multi_cli_ai/features/usage/application/usage_refresh.dart';
+import 'package:multi_cli_ai/features/usage/data/drift_usage_calendar_repository.dart';
+import 'package:multi_cli_ai/features/usage/domain/usage.dart';
+import 'package:multi_cli_ai/features/usage/domain/usage_ports.dart';
+import 'package:multi_cli_ai/features/usage/presentation/controllers/usage_controller.dart';
 import 'package:multi_cli_ai/features/usage/presentation/calendar_view.dart';
-import 'package:multi_cli_ai/features/workspaces/data/workspace_repository.dart';
+import 'package:multi_cli_ai/features/workspaces/application/launch_agent.dart';
+import 'package:multi_cli_ai/features/workspaces/application/workspace_history.dart';
+import 'package:multi_cli_ai/features/workspaces/data/drift_workspace_repository.dart';
+import 'package:multi_cli_ai/features/workspaces/data/drift_workspace_selection_store.dart';
+import 'package:multi_cli_ai/features/workspaces/data/multi_cli_agent_launcher.dart';
+import 'package:multi_cli_ai/features/workspaces/domain/agent_launcher.dart';
+import 'package:multi_cli_ai/features/workspaces/presentation/controllers/workspace_controller.dart';
+import 'package:multi_cli_ai/features/workspaces/presentation/launch_agent_dialog.dart';
+import 'package:multi_cli_ai/features/workspaces/presentation/state/workspace_state.dart';
 import 'package:multi_cli_ai/providers/codex/codex_app_server_client.dart';
 
 void main() {
@@ -36,19 +57,6 @@ void main() {
     expect(currencyMinorFactor('JPY'), 1);
     expect(currencyMinorFactor('KWD'), 1000);
     expect(currencyMinorFactor('USD'), 100);
-  });
-
-  test('profile names are validated before invoking multi-cli', () {
-    expect(MultiCliGateway.validateName('nexo'), 'nexo');
-    expect(MultiCliGateway.validateName('team_02'), 'team_02');
-    expect(
-      () => MultiCliGateway.validateName('../nexo'),
-      throwsFormatException,
-    );
-    expect(
-      () => MultiCliGateway.validateName('nexo; rm'),
-      throwsFormatException,
-    );
   });
 
   test('profile providers keep their Multi CLI prefixes isolated', () {
@@ -128,7 +136,7 @@ void main() {
       ),
       isEmpty,
     );
-    final accounts = await AccountRepository(database).loadAccounts();
+    final accounts = await DriftAccountRepository(database).loadAll();
     expect(
       accounts.where((item) => item.profile.id == 'legacy-claude-default'),
       isEmpty,
@@ -165,29 +173,32 @@ void main() {
     await second.create();
     final database = AppDatabase(NativeDatabase.memory());
     addTearDown(database.close);
-    final repository = WorkspaceRepository(database);
+    final repository = DriftWorkspaceRepository(database);
 
     final initial = await repository.add('${first.path}/.');
     await repository.recordOpened(first.path);
     await repository.recordOpened('${first.path}/.');
     final recent = await repository.add(second.path);
 
-    var workspaces = await repository.loadWorkspaces();
+    var workspaces = await repository.loadAll();
     expect(workspaces, hasLength(2));
     expect(workspaces.first.id, recent.id);
-    expect(
-      workspaces.singleWhere((item) => item.id == initial.id).openCount,
-      2,
+    final initialBeforeSelect = workspaces.singleWhere(
+      (item) => item.id == initial.id,
     );
+    expect(initialBeforeSelect.openCount, 2);
 
     await repository.select(initial.id);
-    await repository.rename(initial.id, 'Multi CLI AI');
-    workspaces = await repository.loadWorkspaces();
-    expect(workspaces.first.id, initial.id);
-    expect(workspaces.first.name, 'Multi CLI AI');
+    await repository.rename(workspaceId: initial.id, name: 'Multi CLI AI');
+    workspaces = await repository.loadAll();
+    final selected = workspaces.first;
+    expect(selected.id, initial.id);
+    expect(selected.name, 'Multi CLI AI');
+    expect(selected.openCount, initialBeforeSelect.openCount);
+    expect(selected.lastUsedAt.isAfter(initialBeforeSelect.lastUsedAt), isTrue);
 
     await repository.remove(recent.id);
-    expect(await repository.loadWorkspaces(), hasLength(1));
+    expect(await repository.loadAll(), hasLength(1));
   });
 
   test('terminal arguments preserve native working directories', () {
@@ -309,7 +320,7 @@ void main() {
   });
 
   test('schema migration failures ask for the latest executable', () {
-    final failure = StartupFailure.from(
+    final failure = AppStartupFailure.from(
       Exception(
         "You've bumped the schema version for your drift database but didn't "
         'provide a strategy for schema updates. Please adapt the migrations '
@@ -317,7 +328,7 @@ void main() {
       ),
     );
 
-    expect(failure.kind, StartupFailureKind.updateRequired);
+    expect(failure.kind, AppStartupFailureKind.updateRequired);
     expect(failure.title, 'Ejecutable desactualizado');
     expect(failure.message, contains('versión más reciente'));
     expect(failure.message, contains('Tus datos se conservarán'));
@@ -325,11 +336,11 @@ void main() {
   });
 
   test('unexpected startup failures retain sanitized diagnostics', () {
-    final failure = StartupFailure.from(
+    final failure = AppStartupFailure.from(
       Exception('authorization: Bearer secret-token; conexión rechazada'),
     );
 
-    expect(failure.kind, StartupFailureKind.unexpected);
+    expect(failure.kind, AppStartupFailureKind.unexpected);
     expect(failure.title, 'No se pudo iniciar');
     expect(failure.message, contains('conexión rechazada'));
     expect(failure.message, contains('[REDACTADO]'));
@@ -348,25 +359,9 @@ void main() {
   test(
     'account list sorts by name, availability, renewal, and nearest reset',
     () async {
-      final database = AppDatabase(NativeDatabase.memory());
-      addTearDown(database.close);
-      final runner = ProcessRunner(database);
-      final controller = DashboardController(
-        database: database,
-        discovery: ProfileDiscoveryService(database),
-        multiCli: MultiCliGateway(database, runner),
-        accountsRepository: AccountRepository(database),
-        workspaceRepository: WorkspaceRepository(database),
-        usage: UsageRefreshService(
-          database: database,
-          client: const CodexAppServerClient(),
-          runner: runner,
-        ),
-        runner: runner,
-      );
       final base = DateTime.utc(2026, 8, 17);
 
-      AccountCardData account({
+      Account account({
         required String id,
         required String name,
         DateTime? renewal,
@@ -380,7 +375,7 @@ void main() {
           status: 'success',
           startedAt: base,
         );
-        return AccountCardData(
+        return _domainAccount(
           profile: CliProfile(
             id: id,
             toolKey: 'codex',
@@ -433,7 +428,7 @@ void main() {
         );
       }
 
-      controller.accounts = [
+      final snapshot = AccountSnapshot([
         account(
           id: 'zeta',
           name: 'Zeta',
@@ -452,18 +447,20 @@ void main() {
           name: 'Mu',
           renewal: base.add(const Duration(days: 1)),
         ),
-      ];
+      ]);
+      var query = const AccountQuery();
 
-      List<String> names() => controller.visibleAccounts
+      List<String> names() => snapshot
+          .visible(query)
           .map((item) => item.profile.displayName)
           .toList();
 
       expect(names(), ['Alpha', 'Mu', 'Zeta']);
-      controller.setAccountSort(AccountSort.availability);
+      query = const AccountQuery(sort: AccountSortMode.availability);
       expect(names(), ['Alpha', 'Zeta', 'Mu']);
-      controller.setAccountSort(AccountSort.renewal);
+      query = const AccountQuery(sort: AccountSortMode.renewal);
       expect(names(), ['Mu', 'Zeta', 'Alpha']);
-      controller.setAccountSort(AccountSort.reset);
+      query = const AccountQuery(sort: AccountSortMode.reset);
       expect(names(), ['Alpha', 'Zeta', 'Mu']);
     },
   );
@@ -646,7 +643,9 @@ void main() {
       await database.into(database.dailyUsageBuckets).insert(bucket);
     }
 
-    final calendar = await AccountRepository(database).loadCalendar();
+    final calendar = await DriftUsageCalendarRepository(
+      database,
+    ).loadCalendar();
     final result = calendar[day];
 
     expect(result, isNotNull);
@@ -697,30 +696,23 @@ void main() {
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final database = AppDatabase(NativeDatabase.memory());
     addTearDown(database.close);
-    final runner = ProcessRunner(database);
-    final controller = DashboardController(
-      database: database,
-      discovery: ProfileDiscoveryService(database),
-      multiCli: MultiCliGateway(database, runner),
-      accountsRepository: AccountRepository(database),
-      workspaceRepository: WorkspaceRepository(database),
-      usage: UsageRefreshService(
-        database: database,
-        client: const CodexAppServerClient(),
-        runner: runner,
-      ),
-      runner: runner,
-    )..initialized = true;
 
     await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.dark('cyan'),
-        home: Builder(
-          builder: (context) => Scaffold(
-            body: Center(
-              child: FilledButton(
-                onPressed: () => showCreateProfileDialog(context, controller),
-                child: const Text('Abrir creación'),
+      ProviderScope(
+        overrides: [databaseProvider.overrideWithValue(database)],
+        child: MaterialApp(
+          theme: AppTheme.dark('cyan'),
+          home: Consumer(
+            builder: (context, ref, _) => Scaffold(
+              body: Center(
+                child: FilledButton(
+                  onPressed: () => showCreateProfileDialog(
+                    context,
+                    controller: ref.read(profilesControllerProvider.notifier),
+                    readState: () => ref.read(profilesControllerProvider),
+                  ),
+                  child: const Text('Abrir creación'),
+                ),
               ),
             ),
           ),
@@ -754,21 +746,25 @@ void main() {
     expect(find.text('Cómo empezar'), findsOneWidget);
     expect(find.text('Compartir ajustes'), findsOneWidget);
     expect(find.text('Independiente'), findsOneWidget);
-    expect(find.byType(RadioListTile<String>), findsNWidgets(2));
+    expect(find.byType(RadioListTile<ProfileSetupMode>), findsNWidgets(2));
     expect(
       tester
-          .widget<RadioGroup<String>>(find.byType(RadioGroup<String>))
+          .widget<RadioGroup<ProfileSetupMode>>(
+            find.byType(RadioGroup<ProfileSetupMode>),
+          )
           .groupValue,
-      'shared',
+      ProfileSetupMode.shared,
     );
 
     await tester.tap(find.text('Independiente'));
     await tester.pumpAndSettle();
     expect(
       tester
-          .widget<RadioGroup<String>>(find.byType(RadioGroup<String>))
+          .widget<RadioGroup<ProfileSetupMode>>(
+            find.byType(RadioGroup<ProfileSetupMode>),
+          )
           .groupValue,
-      'full',
+      ProfileSetupMode.full,
     );
 
     await tester.tap(find.byType(DropdownButtonFormField<String>).first);
@@ -819,21 +815,10 @@ void main() {
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final database = AppDatabase(NativeDatabase.memory());
     addTearDown(database.close);
-    final runner = ProcessRunner(database);
-    final controller = DashboardController(
-      database: database,
-      discovery: ProfileDiscoveryService(database),
-      multiCli: MultiCliGateway(database, runner),
-      accountsRepository: AccountRepository(database),
-      workspaceRepository: WorkspaceRepository(database),
-      usage: UsageRefreshService(
-        database: database,
-        client: const CodexAppServerClient(),
-        runner: runner,
-      ),
-      runner: runner,
-    );
-    expect(controller.concurrency, 3);
+    final fallbackDirectory = MultiCliGateway(
+      database,
+      ProcessRunner(database),
+    ).userHomeDirectory;
     final now = DateTime(2026, 8, 13);
     final check = UsageCheck(
       id: 'check',
@@ -844,22 +829,23 @@ void main() {
       planType: 'plus',
       accountEmail: 'ari@example.com',
     );
-    final account = AccountCardData(
-      profile: CliProfile(
-        id: 'ari',
-        toolKey: 'codex',
-        profileName: 'ari',
-        commandName: 'codex-ari',
-        displayName: 'Ari',
-        profileHome: '/tmp/ari',
-        profileSource: 'multicli',
-        profileType: 'full',
-        hasAuthFile: true,
-        isAvailable: true,
-        isFavorite: false,
-        createdAt: now,
-        lastDiscoveredAt: now,
-      ),
+    final profile = CliProfile(
+      id: 'ari',
+      toolKey: 'codex',
+      profileName: 'ari',
+      commandName: 'codex-ari',
+      displayName: 'Ari',
+      profileHome: '/tmp/ari',
+      profileSource: 'multicli',
+      profileType: 'full',
+      hasAuthFile: true,
+      isAvailable: true,
+      isFavorite: false,
+      createdAt: now,
+      lastDiscoveredAt: now,
+    );
+    final account = _domainAccount(
+      profile: profile,
       metadata: null,
       costShares: const [],
       currentCheck: check,
@@ -887,8 +873,8 @@ void main() {
       lastSuccessfulWindows: const [],
       resetCredits: null,
     );
-    final otherAccount = AccountCardData(
-      profile: account.profile.copyWith(
+    final otherAccount = _domainAccount(
+      profile: profile.copyWith(
         id: 'sol',
         profileName: 'sol',
         displayName: 'Sol',
@@ -904,8 +890,8 @@ void main() {
     );
     final fillerAccounts = List.generate(
       8,
-      (index) => AccountCardData(
-        profile: account.profile.copyWith(
+      (index) => _domainAccount(
+        profile: profile.copyWith(
           id: 'filler-$index',
           profileName: 'filler-$index',
           displayName: 'A Cuenta $index',
@@ -920,21 +906,39 @@ void main() {
         resetCredits: null,
       ),
     );
-    controller
-      ..accounts = [otherAccount, ...fillerAccounts, account]
-      ..selectedProfileId = otherAccount.profile.id
-      ..workspaces = [
-        Workspace(
-          id: 'workspace',
-          path: '/home/nini/StudioProjects/multi_cli_ai',
-          pathKey: '/home/nini/StudioProjects/multi_cli_ai',
-          name: 'multi_cli_ai',
-          openCount: 1,
-          createdAt: now,
-          lastUsedAt: now,
-        ),
-      ]
-      ..currentWorkspaceId = 'workspace';
+    final accounts = [otherAccount, ...fillerAccounts, account];
+    final accountsContainer = ProviderContainer(
+      overrides: [databaseProvider.overrideWithValue(database)],
+    );
+    addTearDown(accountsContainer.dispose);
+    final accountsController = accountsContainer.read(
+      accountsControllerProvider.notifier,
+    );
+    final workspaces = [
+      Workspace(
+        id: 'workspace',
+        path: '/home/nini/StudioProjects/multi_cli_ai',
+        pathKey: '/home/nini/StudioProjects/multi_cli_ai',
+        name: 'multi_cli_ai',
+        openCount: 1,
+        createdAt: now,
+        lastUsedAt: now,
+      ),
+    ];
+    for (final workspace in workspaces) {
+      await database.into(database.workspaces).insert(workspace);
+    }
+    await database.saveSetting('current_workspace_id', 'workspace');
+    final workspaceProvider =
+        NotifierProvider<WorkspaceController, WorkspaceState>(
+          () => _workspaceController(database),
+        );
+    final workspaceContainer = ProviderContainer();
+    addTearDown(workspaceContainer.dispose);
+    final workspaceController = workspaceContainer.read(
+      workspaceProvider.notifier,
+    );
+    expect(await workspaceController.load(), isTrue);
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.dark('cyan'),
@@ -947,7 +951,37 @@ void main() {
                 account: account,
                 refreshing: false,
                 compact: false,
-                controller: controller,
+                accountBusy: false,
+                profileMutationBusy: false,
+                onEditAccount: () => showEditAccountDialog(
+                  tester.element(find.byType(AccountCard)),
+                  accountsController,
+                  () => accountsContainer.read(accountsControllerProvider),
+                  account,
+                ),
+                onHeartbeat: (_) async {},
+                onRefresh: (_) async {},
+                onDeviceAuth: (_) async {},
+                onRenameProfile: (_) async {},
+                onDeleteProfile: (_) async {},
+                onLaunchAgent: (profileId) {
+                  unawaited(
+                    showDialog<void>(
+                      context: tester.element(find.byType(AccountCard)),
+                      builder: (context) => LaunchAgentDialog(
+                        controller: workspaceController,
+                        state: workspaceContainer.read(workspaceProvider),
+                        profiles: accounts
+                            .map(_launchProfileOptionForTest)
+                            .toList(),
+                        pickDirectory: (_) async => null,
+                        fallbackDirectory: fallbackDirectory,
+                        onProfileSelected: (_) {},
+                        initialProfileId: profileId,
+                      ),
+                    ),
+                  );
+                },
               ),
             ),
           ),
@@ -1061,7 +1095,8 @@ void main() {
     unawaited(
       showEditAccountDialog(
         tester.element(find.byType(AccountCard)),
-        controller,
+        accountsController,
+        () => accountsContainer.read(accountsControllerProvider),
         account,
       ),
     );
@@ -1125,7 +1160,15 @@ void main() {
                 account: account,
                 refreshing: false,
                 compact: true,
-                controller: controller,
+                accountBusy: false,
+                profileMutationBusy: false,
+                onEditAccount: () async {},
+                onHeartbeat: (_) async {},
+                onRefresh: (_) async {},
+                onDeviceAuth: (_) async {},
+                onRenameProfile: (_) async {},
+                onDeleteProfile: (_) async {},
+                onLaunchAgent: (_) {},
               ),
             ),
           ),
@@ -1138,10 +1181,10 @@ void main() {
     expect(find.text('Límite semanal'), findsNothing);
     expect(tester.takeException(), isNull);
 
-    final reserveAccount = AccountCardData(
-      profile: account.profile,
-      metadata: account.metadata,
-      costShares: account.costShares,
+    final reserveAccount = _domainAccount(
+      profile: profile,
+      metadata: null,
+      costShares: const [],
       currentCheck: check,
       currentWindows: [
         QuotaWindow(
@@ -1180,7 +1223,15 @@ void main() {
                 account: reserveAccount,
                 refreshing: false,
                 compact: false,
-                controller: controller,
+                accountBusy: false,
+                profileMutationBusy: false,
+                onEditAccount: () async {},
+                onHeartbeat: (_) async {},
+                onRefresh: (_) async {},
+                onDeviceAuth: (_) async {},
+                onRenameProfile: (_) async {},
+                onDeleteProfile: (_) async {},
+                onLaunchAgent: (_) {},
               ),
             ),
           ),
@@ -1208,44 +1259,21 @@ void main() {
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final database = AppDatabase(NativeDatabase.memory());
     addTearDown(database.close);
-    final runner = ProcessRunner(database);
-    final controller = DashboardController(
-      database: database,
-      discovery: ProfileDiscoveryService(database),
-      multiCli: MultiCliGateway(database, runner),
-      accountsRepository: AccountRepository(database),
-      workspaceRepository: WorkspaceRepository(database),
-      usage: UsageRefreshService(
-        database: database,
-        client: const CodexAppServerClient(),
-        runner: runner,
-      ),
-      runner: runner,
-    )..initialized = true;
     final now = DateTime(2026, 8, 14);
-    final account = AccountCardData(
-      profile: CliProfile(
-        id: 'ari',
-        toolKey: 'codex',
-        profileName: 'ari',
-        commandName: 'codex-ari',
-        displayName: 'Ari',
-        profileHome: '/tmp/ari',
-        profileSource: 'multicli',
-        profileType: 'full',
-        hasAuthFile: true,
-        isAvailable: true,
-        isFavorite: false,
-        createdAt: now,
-        lastDiscoveredAt: now,
-      ),
-      metadata: null,
-      costShares: const [],
-      currentCheck: null,
-      currentWindows: const [],
-      lastSuccessfulCheck: null,
-      lastSuccessfulWindows: const [],
-      resetCredits: null,
+    final accountProfile = CliProfile(
+      id: 'ari',
+      toolKey: 'codex',
+      profileName: 'ari',
+      commandName: 'codex-ari',
+      displayName: 'Ari',
+      profileHome: '/tmp/ari',
+      profileSource: 'multicli',
+      profileType: 'full',
+      hasAuthFile: true,
+      isAvailable: true,
+      isFavorite: false,
+      createdAt: now,
+      lastDiscoveredAt: now,
     );
     final zoeCheck = UsageCheck(
       id: 'zoe-check',
@@ -1254,82 +1282,96 @@ void main() {
       status: 'success',
       startedAt: now,
     );
-    final zoeAccount = AccountCardData(
-      profile: account.profile.copyWith(
-        id: 'zoe',
-        profileName: 'zoe',
-        displayName: 'Zoe',
-        profileHome: '/tmp/zoe',
-      ),
-      metadata: null,
-      costShares: const [],
-      currentCheck: zoeCheck,
-      currentWindows: [
-        QuotaWindow(
-          id: 'zoe-quota',
-          checkId: zoeCheck.id,
-          limitId: 'codex',
-          windowType: 'primary',
-          usedPercent: 20,
-        ),
-      ],
-      lastSuccessfulCheck: zoeCheck,
-      lastSuccessfulWindows: const [],
-      resetCredits: null,
+    final zoeProfile = accountProfile.copyWith(
+      id: 'zoe',
+      profileName: 'zoe',
+      displayName: 'Zoe',
+      profileHome: '/tmp/zoe',
     );
-    controller
-      ..accounts = [zoeAccount, account]
-      ..selectedProfileId = account.profile.id
-      ..workspaces = [
-        Workspace(
-          id: 'workspace',
-          path: '/home/nini/StudioProjects/multi_cli_ai',
-          pathKey: '/home/nini/StudioProjects/multi_cli_ai',
-          name: 'multi_cli_ai',
-          openCount: 3,
-          createdAt: now,
-          lastUsedAt: now,
-        ),
-        Workspace(
-          id: 'workspace-2',
-          path: '/home/nini/StudioProjects/parla',
-          pathKey: '/home/nini/StudioProjects/parla',
-          name: 'parla',
-          openCount: 2,
-          createdAt: now,
-          lastUsedAt: now.subtract(const Duration(minutes: 5)),
-        ),
-        Workspace(
-          id: 'workspace-3',
-          path: '/home/nini/StudioProjects/bora_asai',
-          pathKey: '/home/nini/StudioProjects/bora_asai',
-          name: 'bora_asai',
-          openCount: 1,
-          createdAt: now,
-          lastUsedAt: now.subtract(const Duration(minutes: 10)),
-        ),
-        Workspace(
-          id: 'workspace-4',
-          path: '/home/nini/StudioProjects/archivo',
-          pathKey: '/home/nini/StudioProjects/archivo',
-          name: 'archivo',
-          openCount: 1,
-          createdAt: now,
-          lastUsedAt: now.subtract(const Duration(minutes: 15)),
-        ),
-      ]
-      ..currentWorkspaceId = 'workspace';
+    await database.into(database.cliProfiles).insert(accountProfile);
+    await database.into(database.cliProfiles).insert(zoeProfile);
+    await database.into(database.usageChecks).insert(zoeCheck);
+    await database
+        .into(database.quotaWindows)
+        .insert(
+          QuotaWindow(
+            id: 'zoe-quota',
+            checkId: zoeCheck.id,
+            limitId: 'codex',
+            windowType: 'primary',
+            usedPercent: 20,
+          ),
+        );
+    final launcher = _RecordingWorkspaceAgentLauncher();
+    final workspaces = [
+      Workspace(
+        id: 'workspace',
+        path: '/home/nini/StudioProjects/multi_cli_ai',
+        pathKey: '/home/nini/StudioProjects/multi_cli_ai',
+        name: 'multi_cli_ai',
+        openCount: 3,
+        createdAt: now,
+        lastUsedAt: now,
+      ),
+      Workspace(
+        id: 'workspace-2',
+        path: '/home/nini/StudioProjects/parla',
+        pathKey: '/home/nini/StudioProjects/parla',
+        name: 'parla',
+        openCount: 2,
+        createdAt: now,
+        lastUsedAt: now.subtract(const Duration(minutes: 5)),
+      ),
+      Workspace(
+        id: 'workspace-3',
+        path: '/home/nini/StudioProjects/bora_asai',
+        pathKey: '/home/nini/StudioProjects/bora_asai',
+        name: 'bora_asai',
+        openCount: 1,
+        createdAt: now,
+        lastUsedAt: now.subtract(const Duration(minutes: 10)),
+      ),
+      Workspace(
+        id: 'workspace-4',
+        path: '/home/nini/StudioProjects/archivo',
+        pathKey: '/home/nini/StudioProjects/archivo',
+        name: 'archivo',
+        openCount: 1,
+        createdAt: now,
+        lastUsedAt: now.subtract(const Duration(minutes: 15)),
+      ),
+    ];
+    for (final workspace in workspaces) {
+      await database.into(database.workspaces).insert(workspace);
+    }
+    await database.saveSetting('current_workspace_id', 'workspace');
 
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          dashboardControllerProvider.overrideWith((ref) => controller),
+          databaseProvider.overrideWithValue(database),
+          settingsCardLayoutProvider.overrideWithValue((
+            fontScale: .9,
+            compactCards: false,
+          )),
+          workspaceControllerProvider.overrideWith(
+            () => _workspaceController(database, launcher: launcher),
+          ),
+          workspaceDirectoryPickerProvider.overrideWithValue((_) async => null),
         ],
         child: MaterialApp(
           theme: AppTheme.dark('cyan'),
           home: const Scaffold(body: AccountsView()),
         ),
       ),
+    );
+    await tester.pump();
+    final accountsContainer = ProviderScope.containerOf(
+      tester.element(find.byType(AccountsView)),
+    );
+    expect(
+      await accountsContainer.read(accountsControllerProvider.notifier).load(),
+      isTrue,
     );
     await tester.pump(const Duration(milliseconds: 500));
     await tester.pumpAndSettle();
@@ -1340,7 +1382,10 @@ void main() {
     expect(find.widgetWithText(ChoiceChip, 'Reinicio próximo'), findsOneWidget);
     await tester.tap(find.widgetWithText(ChoiceChip, 'Renovación'));
     await tester.pumpAndSettle();
-    expect(controller.accountSort, AccountSort.renewal);
+    expect(
+      accountsContainer.read(accountsControllerProvider).query.sort,
+      AccountSortMode.renewal,
+    );
 
     expect(find.text('Workspaces recientes'), findsNothing);
     expect(find.text('multi_cli_ai'), findsNothing);
@@ -1422,6 +1467,21 @@ void main() {
       find.widgetWithText(FilledButton, 'Lanzar agente').last,
     );
     expect(launchButton.onPressed, isNull);
+    await tester.tap(find.byTooltip('Limpiar búsqueda'));
+    await tester.pumpAndSettle();
+    expect(find.text('multi_cli_ai'), findsOneWidget);
+    expect(find.text('parla'), findsOneWidget);
+    expect(find.text('bora_asai'), findsOneWidget);
+    launchButton = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Lanzar agente').last,
+    );
+    expect(launchButton.onPressed, isNull);
+
+    await tester.enterText(
+      find.byKey(const Key('launch-workspace-search')),
+      'archivo',
+    );
+    await tester.pumpAndSettle();
     await tester.tap(
       find.descendant(
         of: find.byKey(const Key('launch-workspace-list')),
@@ -1433,83 +1493,91 @@ void main() {
       find.widgetWithText(FilledButton, 'Lanzar agente').last,
     );
     expect(launchButton.onPressed, isNotNull);
+
+    await tester.tap(find.byTooltip('Limpiar búsqueda'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const Key('launch-workspace-list')),
+        matching: find.text('multi_cli_ai'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Lanzar agente').last);
+    await tester.pumpAndSettle();
+    expect(find.byType(LaunchAgentDialog), findsNothing);
+    expect(launcher.workingDirectories, [
+      '/home/nini/StudioProjects/multi_cli_ai',
+    ]);
+    expect(
+      accountsContainer.read(accountsControllerProvider).selectedProfileId,
+      'ari',
+    );
     expect(tester.takeException(), isNull);
   });
 
   testWidgets('calendar lays out at the minimum desktop size', (tester) async {
     await tester.binding.setSurfaceSize(const Size(900, 620));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    final database = AppDatabase(NativeDatabase.memory());
-    addTearDown(database.close);
-    final runner = ProcessRunner(database);
-    final controller =
-        DashboardController(
-            database: database,
-            discovery: ProfileDiscoveryService(database),
-            multiCli: MultiCliGateway(database, runner),
-            accountsRepository: AccountRepository(database),
-            workspaceRepository: WorkspaceRepository(database),
-            usage: UsageRefreshService(
-              database: database,
-              client: const CodexAppServerClient(),
-              runner: runner,
-            ),
-            runner: runner,
-          )
-          ..initialized = true
-          ..selectedDay = DateTime(2026, 8, 13)
-          ..calendar = {
-            DateTime(2026, 8, 12): CalendarDayData(
-              day: DateTime(2026, 8, 12),
+    final controller = _usageController(
+      UsageCalendar([
+        UsageCalendarDay(
+          day: DateTime(2026, 8, 12),
+          tokens: 4500000,
+          successfulChecks: 1,
+          failedChecks: 0,
+          lowestRemaining: 61,
+          resetCount: 0,
+          renewalCount: 0,
+          accounts: const [
+            UsageAccountDay(
+              profileId: 'sol',
+              displayName: 'Sol Team',
+              email: 'sol@example.com',
               tokens: 4500000,
               successfulChecks: 1,
               failedChecks: 0,
               lowestRemaining: 61,
               resetCount: 0,
               renewalCount: 0,
-              accounts: const [
-                AccountDayUsage(
-                  profileId: 'sol',
-                  displayName: 'Sol Team',
-                  email: 'sol@example.com',
-                  tokens: 4500000,
-                  successfulChecks: 1,
-                  failedChecks: 0,
-                  lowestRemaining: 61,
-                  resetCount: 0,
-                  renewalCount: 0,
-                ),
-              ],
             ),
-            DateTime(2026, 8, 13): CalendarDayData(
-              day: DateTime(2026, 8, 13),
+          ],
+        ),
+        UsageCalendarDay(
+          day: DateTime(2026, 8, 13),
+          tokens: 322242242,
+          successfulChecks: 2,
+          failedChecks: 0,
+          lowestRemaining: 42,
+          resetCount: 1,
+          renewalCount: 0,
+          accounts: const [
+            UsageAccountDay(
+              profileId: 'ari',
+              displayName: 'Ari Personal',
+              email: 'ari@example.com',
               tokens: 322242242,
               successfulChecks: 2,
               failedChecks: 0,
-              lowestRemaining: 42,
+              lowestRemaining: 100,
               resetCount: 1,
               renewalCount: 0,
-              accounts: const [
-                AccountDayUsage(
-                  profileId: 'ari',
-                  displayName: 'Ari Personal',
-                  email: 'ari@example.com',
-                  tokens: 322242242,
-                  successfulChecks: 2,
-                  failedChecks: 0,
-                  lowestRemaining: 100,
-                  resetCount: 1,
-                  renewalCount: 0,
-                ),
-              ],
             ),
-          };
+          ],
+        ),
+      ]),
+    );
+    final container = ProviderContainer(
+      overrides: [usageControllerProvider.overrideWith(() => controller)],
+    );
+    addTearDown(container.dispose);
+    final usage = container.read(usageControllerProvider.notifier);
+    usage.selectDay(DateTime(2026, 8, 13));
+    expect(await usage.loadCalendar(), isTrue);
 
     await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          dashboardControllerProvider.overrideWith((ref) => controller),
-        ],
+      UncontrolledProviderScope(
+        container: container,
         child: MaterialApp(
           theme: AppTheme.dark('cyan'),
           home: const Scaffold(body: UsageCalendarView()),
@@ -1552,10 +1620,8 @@ void main() {
     expect(find.text('Sol Team'), findsOneWidget);
     expect(find.text('Ari Personal'), findsNothing);
     expect(find.byType(Dialog), findsNothing);
-    final nextMonth = DateTime(
-      controller.selectedDay.year,
-      controller.selectedDay.month + 1,
-    );
+    final selectedDay = container.read(usageControllerProvider).selectedDay;
+    final nextMonth = DateTime(selectedDay.year, selectedDay.month + 1);
     await tester.tap(find.byTooltip('Mes siguiente'));
     await tester.pumpAndSettle();
     expect(find.text(formatMonth(nextMonth)), findsOneWidget);
@@ -1564,4 +1630,162 @@ void main() {
     expect(find.text(formatMonth(DateTime.now())), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+}
+
+UsageController _usageController(UsageCalendar calendar) {
+  const discovery = _EmptyProfileDiscovery();
+  const provider = _UnusedUsageProvider();
+  const repository = _UnusedUsageSnapshotRepository();
+  const activity = _UnusedUsageActivityRecorder();
+  final refreshProfile = RefreshProfileUsage(
+    provider: provider,
+    repository: repository,
+    activity: activity,
+  );
+  return UsageController(
+    refreshUsage: RefreshUsage(
+      discovery: discovery,
+      refreshProfile: refreshProfile,
+    ),
+    refreshAllUsage: RefreshAllUsage(
+      discovery: discovery,
+      refreshProfile: refreshProfile,
+    ),
+    loadUsageCalendar: LoadUsageCalendar(
+      repository: _StaticUsageCalendarRepository(calendar),
+    ),
+  );
+}
+
+final class _EmptyProfileDiscovery implements ProfileDiscovery {
+  const _EmptyProfileDiscovery();
+
+  @override
+  Future<List<Profile>> discover() async => const [];
+}
+
+final class _UnusedUsageProvider implements UsageProvider {
+  const _UnusedUsageProvider();
+
+  @override
+  Future<UsageSnapshot> refresh(Profile profile) =>
+      throw UnsupportedError('Refresh is outside this calendar test.');
+}
+
+final class _UnusedUsageSnapshotRepository implements UsageSnapshotRepository {
+  const _UnusedUsageSnapshotRepository();
+
+  @override
+  Future<void> saveSnapshot({
+    required String profileId,
+    required UsageSnapshot snapshot,
+  }) => throw UnsupportedError('Refresh is outside this calendar test.');
+}
+
+final class _UnusedUsageActivityRecorder implements UsageActivityRecorder {
+  const _UnusedUsageActivityRecorder();
+
+  @override
+  Future<void> recordRefresh({
+    required Profile profile,
+    required UsageSnapshot snapshot,
+  }) => throw UnsupportedError('Refresh is outside this calendar test.');
+}
+
+final class _StaticUsageCalendarRepository implements UsageCalendarRepository {
+  const _StaticUsageCalendarRepository(this.calendar);
+
+  final UsageCalendar calendar;
+
+  @override
+  Future<UsageCalendar> loadCalendar() async => calendar;
+}
+
+WorkspaceController _workspaceController(
+  AppDatabase database, {
+  AgentLauncher? launcher,
+}) {
+  final repository = DriftWorkspaceRepository(database);
+  final selectionStore = DriftWorkspaceSelectionStore(database);
+  final gateway = MultiCliGateway(database, ProcessRunner(database));
+  return WorkspaceController(
+    loadWorkspaceHistory: LoadWorkspaceHistory(
+      repository: repository,
+      selectionStore: selectionStore,
+    ),
+    addWorkspace: AddWorkspace(
+      repository: repository,
+      selectionStore: selectionStore,
+    ),
+    selectWorkspace: SelectWorkspace(
+      repository: repository,
+      selectionStore: selectionStore,
+    ),
+    renameWorkspace: RenameWorkspace(repository: repository),
+    forgetWorkspace: ForgetWorkspace(
+      repository: repository,
+      selectionStore: selectionStore,
+    ),
+    launchAgent: LaunchAgent(
+      profileRepository: DriftAgentProfileRepository(database),
+      workspaceRepository: repository,
+      selectionStore: selectionStore,
+      launcher: launcher ?? MultiCliAgentLauncher(gateway),
+    ),
+  );
+}
+
+LaunchProfileOption _launchProfileOptionForTest(Account account) {
+  final provider = profileProvider(account.profile.toolKey);
+  final subtitle = account.isDeactivated
+      ? 'Desactivada en este equipo'
+      : !account.profile.isAvailable
+      ? 'Perfil no disponible'
+      : !account.profile.hasAuthFile && provider.supportsDeviceAuth
+      ? 'Cuenta sin vincular'
+      : account.displayEmail.isNotEmpty
+      ? account.displayEmail
+      : account.profile.commandName ?? provider.executable;
+  return LaunchProfileOption(
+    id: account.profile.id,
+    toolKey: account.profile.toolKey,
+    displayName: account.profile.displayName,
+    subtitle: subtitle,
+    canLaunch:
+        account.profile.isAvailable &&
+        (account.profile.hasAuthFile || !provider.supportsDeviceAuth),
+    availablePercent: account.lowestAvailablePercent,
+  );
+}
+
+Account _domainAccount({
+  required CliProfile profile,
+  required ProfileMetadata? metadata,
+  required Iterable<CostShare> costShares,
+  required UsageCheck? currentCheck,
+  required Iterable<QuotaWindow> currentWindows,
+  required UsageCheck? lastSuccessfulCheck,
+  required Iterable<QuotaWindow> lastSuccessfulWindows,
+  required ResetCreditSnapshot? resetCredits,
+}) => AccountMapper.fromRows(
+  profile: profile,
+  metadata: metadata,
+  costShares: costShares,
+  currentCheck: currentCheck,
+  currentWindows: currentWindows,
+  lastSuccessfulCheck: lastSuccessfulCheck,
+  lastSuccessfulWindows: lastSuccessfulWindows,
+  resetCredits: resetCredits,
+);
+
+final class _RecordingWorkspaceAgentLauncher implements AgentLauncher {
+  final List<String> workingDirectories = [];
+
+  @override
+  Future<void> launch(
+    AgentProfile profile, {
+    required String workingDirectory,
+  }) async {
+    workingDirectories.add(workingDirectory);
+  }
 }

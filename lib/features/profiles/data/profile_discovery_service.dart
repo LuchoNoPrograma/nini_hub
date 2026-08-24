@@ -2,16 +2,19 @@ import 'dart:io';
 
 import 'package:drift/drift.dart';
 import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account_models.dart';
+import 'package:multi_cli_ai/features/profiles/data/profile_mapper.dart';
+import 'package:multi_cli_ai/features/profiles/domain/profile.dart';
+import 'package:multi_cli_ai/features/profiles/domain/profile_ports.dart';
 import 'package:multi_cli_ai/features/profiles/domain/profile_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
-class ProfileDiscoveryService {
+class ProfileDiscoveryService implements ProfileDiscovery {
   ProfileDiscoveryService(this.database);
 
   final AppDatabase database;
   final Uuid _uuid = const Uuid();
+  Future<void> _discoveryTail = Future<void>.value();
 
   String get userHome =>
       Platform.environment['HOME'] ??
@@ -41,10 +44,24 @@ class ProfileDiscoveryService {
     );
   }
 
-  Future<List<CliProfile>> discoverProfiles() async {
+  Future<List<CliProfile>> discoverProfiles() {
+    final operation = _discoveryTail.then((_) => _discoverProfiles());
+    _discoveryTail = operation.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return operation;
+  }
+
+  @override
+  Future<List<Profile>> discover() async => (await discoverProfiles())
+      .map(ProfileMapper.fromRow)
+      .toList(growable: false);
+
+  Future<List<CliProfile>> _discoverProfiles() async {
     final now = DateTime.now().toUtc();
     final root = await profilesRoot();
-    final discovered = <DiscoveredProfile>[];
+    final discovered = <_DiscoveredProfile>[];
 
     for (final provider in supportedProfileProviders) {
       if (provider.showsDefaultProfile) {
@@ -161,7 +178,7 @@ class ProfileDiscoveryService {
     }).toList();
   }
 
-  DiscoveredProfile _profile({
+  _DiscoveredProfile _profile({
     required ProfileProvider provider,
     required String name,
     required String home,
@@ -171,7 +188,7 @@ class ProfileDiscoveryService {
     required String display,
   }) {
     final normalized = p.normalize(p.absolute(home));
-    return DiscoveredProfile(
+    return _DiscoveredProfile(
       toolKey: provider.toolKey,
       profileName: name,
       commandName: command,
@@ -191,4 +208,28 @@ class ProfileDiscoveryService {
       .where((part) => part.isNotEmpty)
       .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
       .join(' ');
+}
+
+final class _DiscoveredProfile {
+  const _DiscoveredProfile({
+    required this.toolKey,
+    required this.profileName,
+    required this.commandName,
+    required this.displayName,
+    required this.profileHome,
+    required this.profileSource,
+    required this.profileType,
+    required this.hasAuthFile,
+    required this.isAvailable,
+  });
+
+  final String toolKey;
+  final String profileName;
+  final String? commandName;
+  final String displayName;
+  final String profileHome;
+  final String profileSource;
+  final String profileType;
+  final bool hasAuthFile;
+  final bool isAvailable;
 }

@@ -1,88 +1,110 @@
 import 'package:flutter/material.dart';
-import 'package:multi_cli_ai/app/dashboard_controller.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
 import 'package:multi_cli_ai/core/widgets/app_primitives.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account_models.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile_provider.dart';
 import 'package:multi_cli_ai/features/profiles/presentation/profile_provider_icon.dart';
+import 'package:multi_cli_ai/features/workspaces/domain/workspace.dart';
+import 'package:multi_cli_ai/features/workspaces/presentation/controllers/workspace_controller.dart';
+import 'package:multi_cli_ai/features/workspaces/presentation/state/workspace_state.dart';
 import 'package:multi_cli_ai/features/workspaces/presentation/workspace_dialogs.dart';
 
-Future<void> showLaunchAgentDialog(
-  BuildContext context,
-  DashboardController controller, {
-  String? initialProfileId,
-}) => showDialog<void>(
-  context: context,
-  builder: (context) => _LaunchAgentDialog(
-    controller: controller,
-    initialProfileId: initialProfileId,
-  ),
-);
-
-class _LaunchAgentDialog extends StatefulWidget {
-  const _LaunchAgentDialog({
-    required this.controller,
-    required this.initialProfileId,
+final class LaunchProfileOption {
+  const LaunchProfileOption({
+    required this.id,
+    required this.toolKey,
+    required this.displayName,
+    required this.subtitle,
+    required this.canLaunch,
+    required this.availablePercent,
   });
 
-  final DashboardController controller;
+  final String id;
+  final String toolKey;
+  final String displayName;
+  final String subtitle;
+  final bool canLaunch;
+  final double? availablePercent;
+}
+
+class LaunchAgentDialog extends StatefulWidget {
+  const LaunchAgentDialog({
+    required this.controller,
+    required this.state,
+    required this.profiles,
+    required this.pickDirectory,
+    required this.fallbackDirectory,
+    required this.onProfileSelected,
+    required this.initialProfileId,
+    super.key,
+  });
+
+  final WorkspaceController controller;
+  final WorkspaceState state;
+  final List<LaunchProfileOption> profiles;
+  final Future<String?> Function(String? initialDirectory) pickDirectory;
+  final String fallbackDirectory;
+  final ValueChanged<String> onProfileSelected;
   final String? initialProfileId;
 
   @override
-  State<_LaunchAgentDialog> createState() => _LaunchAgentDialogState();
+  State<LaunchAgentDialog> createState() => _LaunchAgentDialogState();
 }
 
-class _LaunchAgentDialogState extends State<_LaunchAgentDialog> {
+class _LaunchAgentDialogState extends State<LaunchAgentDialog> {
   final workspaceSearchController = TextEditingController();
   String? workspaceId;
   String? profileId;
   String workspaceQuery = '';
-  bool launching = false;
+  bool selectCurrentAfterMutation = false;
 
-  DashboardController get controller => widget.controller;
+  WorkspaceController get controller => widget.controller;
+  WorkspaceState get workspaceState => widget.state;
 
   @override
   void initState() {
     super.initState();
-    workspaceId = controller.currentWorkspace?.id;
-    for (final account in controller.accounts) {
-      if (account.profile.id == widget.initialProfileId &&
-          canLaunchAccount(account)) {
-        profileId = account.profile.id;
+    workspaceId = workspaceState.currentWorkspaceId;
+    for (final profile in widget.profiles) {
+      if (profile.id == widget.initialProfileId && profile.canLaunch) {
+        profileId = profile.id;
         return;
       }
     }
-    final selected = controller.selectedAccount;
-    if (selected != null && canLaunchAccount(selected)) {
-      profileId = selected.profile.id;
-    } else {
-      for (final account in controller.accounts) {
-        if (canLaunchAccount(account)) {
-          profileId = account.profile.id;
-          break;
-        }
+    for (final profile in widget.profiles) {
+      if (profile.canLaunch) {
+        profileId = profile.id;
+        break;
       }
     }
   }
 
+  @override
+  void didUpdateWidget(covariant LaunchAgentDialog oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (selectCurrentAfterMutation && widget.state.currentWorkspaceId != null) {
+      workspaceId = widget.state.currentWorkspaceId;
+      selectCurrentAfterMutation = false;
+    } else if (workspaceId != null && selectedWorkspace == null) {
+      workspaceId = null;
+    }
+  }
+
   Workspace? get selectedWorkspace {
-    for (final workspace in controller.workspaces) {
+    for (final workspace in workspaceState.workspaces) {
       if (workspace.id == workspaceId) return workspace;
     }
     return null;
   }
 
-  AccountCardData? get selectedAccount {
-    for (final account in controller.accounts) {
-      if (account.profile.id == profileId) return account;
+  LaunchProfileOption? get selectedProfile {
+    for (final profile in widget.profiles) {
+      if (profile.id == profileId) return profile;
     }
     return null;
   }
 
   List<Workspace> get visibleWorkspaces {
     final query = workspaceQuery.trim().toLowerCase();
-    if (query.isEmpty) return controller.workspaces;
-    return controller.workspaces
+    if (query.isEmpty) return workspaceState.workspaces;
+    return workspaceState.workspaces
         .where(
           (workspace) =>
               workspace.name.toLowerCase().contains(query) ||
@@ -107,17 +129,22 @@ class _LaunchAgentDialogState extends State<_LaunchAgentDialog> {
   }
 
   Future<void> _addWorkspace() async {
-    final workspace = await pickWorkspace(context, controller);
-    if (workspace != null && mounted) {
-      workspaceSearchController.clear();
-      setState(() {
-        workspaceQuery = '';
-        workspaceId = workspace.id;
-      });
-    }
+    if (workspaceState.isBusy) return;
+    final path = await widget.pickDirectory(
+      workspaceState.currentWorkspace?.path ?? widget.fallbackDirectory,
+    );
+    if (path == null || !mounted) return;
+    final added = await controller.add(path);
+    if (!added || !mounted) return;
+    workspaceSearchController.clear();
+    setState(() {
+      workspaceQuery = '';
+      selectCurrentAfterMutation = true;
+    });
   }
 
   Future<void> _renameWorkspace(Workspace workspace) async {
+    if (workspaceState.isBusy) return;
     await renameWorkspace(context, controller, workspace);
     if (!mounted) return;
     final selected = selectedWorkspace;
@@ -127,28 +154,21 @@ class _LaunchAgentDialogState extends State<_LaunchAgentDialog> {
   }
 
   Future<void> _removeWorkspace(Workspace workspace) async {
+    if (workspaceState.isBusy) return;
     await forgetWorkspace(context, controller, workspace);
     if (mounted && selectedWorkspace == null) setState(() {});
   }
 
   Future<void> _launch() async {
     final workspace = selectedWorkspace;
-    final account = selectedAccount;
-    if (workspace == null || account == null || launching) return;
-    setState(() => launching = true);
-    try {
-      controller.selectAccount(account.profile.id);
-      await controller.launchProfile(account, workingDirectory: workspace.path);
-      if (mounted) Navigator.of(context).pop();
-    } catch (error) {
-      if (!mounted) return;
-      setState(() => launching = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(error.toString().replaceFirst('Bad state: ', '')),
-        ),
-      );
-    }
+    final profile = selectedProfile;
+    if (workspace == null || profile == null || workspaceState.isBusy) return;
+    widget.onProfileSelected(profile.id);
+    final launched = await controller.launch(
+      profileId: profile.id,
+      workspaceId: workspace.id,
+    );
+    if (launched && mounted) Navigator.of(context).pop();
   }
 
   @override
@@ -162,6 +182,7 @@ class _LaunchAgentDialogState extends State<_LaunchAgentDialog> {
     final viewport = MediaQuery.sizeOf(context);
     final width = viewport.width * .84;
     final height = viewport.height * .68;
+    final launching = workspaceState.isLaunching;
     return AlertDialog(
       insetPadding: EdgeInsets.symmetric(
         horizontal: viewport.width * .04,
@@ -183,54 +204,50 @@ class _LaunchAgentDialogState extends State<_LaunchAgentDialog> {
       content: SizedBox(
         width: width,
         height: height,
-        child: AnimatedBuilder(
-          animation: controller,
-          builder: (context, _) => LayoutBuilder(
-            builder: (context, constraints) {
-              final useColumns = constraints.maxWidth >= 640;
-              final workspacePanel = _WorkspacePickerPanel(
-                key: const Key('launch-workspace-panel'),
-                workspaces: visibleWorkspaces,
-                hasWorkspaceHistory: controller.workspaces.isNotEmpty,
-                selectedId: workspaceId,
-                searchController: workspaceSearchController,
-                query: workspaceQuery,
-                onSelected: (value) => setState(() => workspaceId = value.id),
-                onSearch: _searchWorkspaces,
-                onClearSearch: _clearWorkspaceSearch,
-                onAdd: _addWorkspace,
-                onRename: _renameWorkspace,
-                onRemove: _removeWorkspace,
-              );
-              final accountPanel = _AccountPickerPanel(
-                key: const Key('launch-account-panel'),
-                accounts: controller.accounts,
-                selectedId: profileId,
-                onSelected: (value) =>
-                    setState(() => profileId = value.profile.id),
-              );
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final useColumns = constraints.maxWidth >= 640;
+            final workspacePanel = _WorkspacePickerPanel(
+              key: const Key('launch-workspace-panel'),
+              workspaces: visibleWorkspaces,
+              hasWorkspaceHistory: workspaceState.workspaces.isNotEmpty,
+              selectedId: workspaceId,
+              searchController: workspaceSearchController,
+              query: workspaceQuery,
+              onSelected: (value) => setState(() => workspaceId = value.id),
+              onSearch: _searchWorkspaces,
+              onClearSearch: _clearWorkspaceSearch,
+              onAdd: _addWorkspace,
+              onRename: _renameWorkspace,
+              onRemove: _removeWorkspace,
+            );
+            final accountPanel = _AccountPickerPanel(
+              key: const Key('launch-account-panel'),
+              profiles: widget.profiles,
+              selectedId: profileId,
+              onSelected: (value) => setState(() => profileId = value.id),
+            );
 
-              if (useColumns) {
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Expanded(child: workspacePanel),
-                    const SizedBox(width: 12),
-                    Expanded(child: accountPanel),
-                  ],
-                );
-              }
-
-              final workspaceHeight = (height * .36).clamp(150.0, 240.0);
-              return Column(
+            if (useColumns) {
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  SizedBox(height: workspaceHeight, child: workspacePanel),
-                  const SizedBox(height: 12),
+                  Expanded(child: workspacePanel),
+                  const SizedBox(width: 12),
                   Expanded(child: accountPanel),
                 ],
               );
-            },
-          ),
+            }
+
+            final workspaceHeight = (height * .36).clamp(150.0, 240.0);
+            return Column(
+              children: [
+                SizedBox(height: workspaceHeight, child: workspacePanel),
+                const SizedBox(height: 12),
+                Expanded(child: accountPanel),
+              ],
+            );
+          },
         ),
       ),
       actions: [
@@ -240,7 +257,9 @@ class _LaunchAgentDialogState extends State<_LaunchAgentDialog> {
         ),
         FilledButton.icon(
           onPressed:
-              selectedWorkspace == null || selectedAccount == null || launching
+              selectedWorkspace == null ||
+                  selectedProfile == null ||
+                  workspaceState.isBusy
               ? null
               : _launch,
           icon: launching
@@ -396,15 +415,15 @@ class _WorkspacePickerPanel extends StatelessWidget {
 
 class _AccountPickerPanel extends StatefulWidget {
   const _AccountPickerPanel({
-    required this.accounts,
+    required this.profiles,
     required this.selectedId,
     required this.onSelected,
     super.key,
   });
 
-  final List<AccountCardData> accounts;
+  final List<LaunchProfileOption> profiles;
   final String? selectedId;
-  final ValueChanged<AccountCardData> onSelected;
+  final ValueChanged<LaunchProfileOption> onSelected;
 
   @override
   State<_AccountPickerPanel> createState() => _AccountPickerPanelState();
@@ -425,14 +444,14 @@ class _AccountPickerPanelState extends State<_AccountPickerPanel> {
   @override
   void didUpdateWidget(covariant _AccountPickerPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!identical(oldWidget.accounts, widget.accounts)) {
+    if (!identical(oldWidget.profiles, widget.profiles)) {
       scrolledSelectionId = null;
     }
   }
 
   void _scrollToSelection(
     int columnCount,
-    List<AccountCardData> sortedAccounts,
+    List<LaunchProfileOption> sortedProfiles,
   ) {
     final selectedId = widget.selectedId;
     if (selectedId == null ||
@@ -440,8 +459,8 @@ class _AccountPickerPanelState extends State<_AccountPickerPanel> {
             scrolledColumnCount == columnCount)) {
       return;
     }
-    final index = sortedAccounts.indexWhere(
-      (account) => account.profile.id == selectedId,
+    final index = sortedProfiles.indexWhere(
+      (profile) => profile.id == selectedId,
     );
     if (index < 0) return;
     scrolledSelectionId = selectedId;
@@ -481,19 +500,19 @@ class _AccountPickerPanelState extends State<_AccountPickerPanel> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final sortedAccounts = [...widget.accounts]
+    final sortedProfiles = [...widget.profiles]
       ..sort((left, right) {
         if (sort == _AccountSort.availability) {
-          final availability = (right.lowestAvailablePercent ?? -1).compareTo(
-            left.lowestAvailablePercent ?? -1,
+          final availability = (right.availablePercent ?? -1).compareTo(
+            left.availablePercent ?? -1,
           );
           if (availability != 0) return availability;
         }
-        final name = left.profile.displayName.toLowerCase().compareTo(
-          right.profile.displayName.toLowerCase(),
+        final name = left.displayName.toLowerCase().compareTo(
+          right.displayName.toLowerCase(),
         );
         if (name != 0) return name;
-        return left.profile.id.compareTo(right.profile.id);
+        return left.id.compareTo(right.id);
       });
     return Container(
       decoration: BoxDecoration(
@@ -514,7 +533,7 @@ class _AccountPickerPanelState extends State<_AccountPickerPanel> {
                   ),
                 ),
                 Text(
-                  '${widget.accounts.length}',
+                  '${widget.profiles.length}',
                   style: theme.textTheme.labelMedium?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
@@ -561,12 +580,12 @@ class _AccountPickerPanelState extends State<_AccountPickerPanel> {
           ),
           Divider(height: 1, color: theme.colorScheme.outline),
           Expanded(
-            child: widget.accounts.isEmpty
+            child: widget.profiles.isEmpty
                 ? const Center(child: Text('Sin cuentas disponibles'))
                 : LayoutBuilder(
                     builder: (context, constraints) {
                       final columnCount = constraints.maxWidth >= 620 ? 2 : 1;
-                      _scrollToSelection(columnCount, sortedAccounts);
+                      _scrollToSelection(columnCount, sortedProfiles);
                       return GridView.builder(
                         key: const Key('launch-account-list'),
                         controller: scrollController,
@@ -577,32 +596,25 @@ class _AccountPickerPanelState extends State<_AccountPickerPanel> {
                           crossAxisSpacing: itemSpacing,
                           mainAxisSpacing: itemSpacing,
                         ),
-                        itemCount: sortedAccounts.length,
+                        itemCount: sortedProfiles.length,
                         itemBuilder: (context, index) {
-                          final account = sortedAccounts[index];
-                          final enabled = canLaunchAccount(account);
-                          final selected =
-                              account.profile.id == widget.selectedId;
-                          final provider = profileProvider(
-                            account.profile.toolKey,
-                          );
+                          final profile = sortedProfiles[index];
+                          final selected = profile.id == widget.selectedId;
                           return Opacity(
-                            opacity: enabled ? 1 : .46,
+                            opacity: profile.canLaunch ? 1 : .46,
                             child: _PickerRow(
-                              key: ValueKey(
-                                'launch-account-${account.profile.id}',
-                              ),
+                              key: ValueKey('launch-account-${profile.id}'),
                               selected: selected,
-                              onTap: enabled
-                                  ? () => widget.onSelected(account)
+                              onTap: profile.canLaunch
+                                  ? () => widget.onSelected(profile)
                                   : null,
                               leading: ProfileProviderIcon(
-                                toolKey: account.profile.toolKey,
+                                toolKey: profile.toolKey,
                                 size: 24,
                               ),
-                              title: account.profile.displayName,
-                              subtitle: _accountSubtitle(account, provider),
-                              footer: _LaunchAvailability(account: account),
+                              title: profile.displayName,
+                              subtitle: profile.subtitle,
+                              footer: _LaunchAvailability(profile: profile),
                             ),
                           );
                         },
@@ -708,14 +720,14 @@ class _PickerRow extends StatelessWidget {
 }
 
 class _LaunchAvailability extends StatelessWidget {
-  const _LaunchAvailability({required this.account});
+  const _LaunchAvailability({required this.profile});
 
-  final AccountCardData account;
+  final LaunchProfileOption profile;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final remaining = account.lowestAvailablePercent;
+    final remaining = profile.availablePercent;
     final color = remaining == null
         ? theme.colorScheme.onSurfaceVariant
         : remaining <= 10
@@ -734,9 +746,7 @@ class _LaunchAvailability extends StatelessWidget {
             duration: const Duration(milliseconds: 620),
             curve: Curves.easeOutCubic,
             builder: (context, value, _) => LinearProgressIndicator(
-              key: ValueKey(
-                'launch-account-availability-${account.profile.id}',
-              ),
+              key: ValueKey('launch-account-availability-${profile.id}'),
               value: value,
               minHeight: 5,
               borderRadius: BorderRadius.circular(3),
@@ -759,20 +769,4 @@ class _LaunchAvailability extends StatelessWidget {
       ],
     );
   }
-}
-
-bool canLaunchAccount(AccountCardData account) {
-  final provider = profileProvider(account.profile.toolKey);
-  return account.profile.isAvailable &&
-      (account.profile.hasAuthFile || !provider.supportsDeviceAuth);
-}
-
-String _accountSubtitle(AccountCardData account, ProfileProvider provider) {
-  if (account.isDeactivated) return 'Desactivada en este equipo';
-  if (!account.profile.isAvailable) return 'Perfil no disponible';
-  if (!account.profile.hasAuthFile && provider.supportsDeviceAuth) {
-    return 'Cuenta sin vincular';
-  }
-  if (account.displayEmail.isNotEmpty) return account.displayEmail;
-  return account.profile.commandName ?? provider.executable;
 }
