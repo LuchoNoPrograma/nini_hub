@@ -1259,6 +1259,7 @@ void main() {
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final database = AppDatabase(NativeDatabase.memory());
     addTearDown(database.close);
+    final currentWorkspacePath = Directory.current.path;
     final now = DateTime(2026, 8, 14);
     final accountProfile = CliProfile(
       id: 'ari',
@@ -1306,8 +1307,8 @@ void main() {
     final workspaces = [
       Workspace(
         id: 'workspace',
-        path: '/home/nini/StudioProjects/multi_cli_ai',
-        pathKey: '/home/nini/StudioProjects/multi_cli_ai',
+        path: currentWorkspacePath,
+        pathKey: currentWorkspacePath,
         name: 'multi_cli_ai',
         openCount: 3,
         createdAt: now,
@@ -1510,9 +1511,7 @@ void main() {
     await dialogClosed;
     await tester.pumpAndSettle();
     expect(find.byType(LaunchAgentDialog), findsNothing);
-    expect(launcher.workingDirectories, [
-      '/home/nini/StudioProjects/multi_cli_ai',
-    ]);
+    expect(launcher.workingDirectories, [currentWorkspacePath]);
     expect(
       accountsContainer.read(accountsControllerProvider).selectedProfileId,
       'ari',
