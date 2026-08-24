@@ -1345,6 +1345,7 @@ void main() {
       await database.into(database.workspaces).insert(workspace);
     }
     await database.saveSetting('current_workspace_id', 'workspace');
+    final navigatorObserver = _NextPopNavigatorObserver();
 
     await tester.pumpWidget(
       ProviderScope(
@@ -1361,6 +1362,7 @@ void main() {
         ],
         child: MaterialApp(
           theme: AppTheme.dark('cyan'),
+          navigatorObservers: [navigatorObserver],
           home: const Scaffold(body: AccountsView()),
         ),
       ),
@@ -1369,18 +1371,6 @@ void main() {
     final accountsContainer = ProviderScope.containerOf(
       tester.element(find.byType(AccountsView)),
     );
-    final launchCompleted = Completer<void>();
-    final launchSubscription = accountsContainer.listen(
-      workspaceControllerProvider,
-      (previous, next) {
-        if (previous?.isLaunching == true &&
-            !next.isLaunching &&
-            !launchCompleted.isCompleted) {
-          launchCompleted.complete();
-        }
-      },
-    );
-    addTearDown(launchSubscription.close);
     expect(
       await accountsContainer.read(accountsControllerProvider.notifier).load(),
       isTrue,
@@ -1515,8 +1505,9 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    final dialogClosed = navigatorObserver.waitForNextPop();
     await tester.tap(find.widgetWithText(FilledButton, 'Lanzar agente').last);
-    await launchCompleted.future;
+    await dialogClosed;
     await tester.pumpAndSettle();
     expect(find.byType(LaunchAgentDialog), findsNothing);
     expect(launcher.workingDirectories, [
@@ -1800,5 +1791,26 @@ final class _RecordingWorkspaceAgentLauncher implements AgentLauncher {
     required String workingDirectory,
   }) async {
     workingDirectories.add(workingDirectory);
+  }
+}
+
+final class _NextPopNavigatorObserver extends NavigatorObserver {
+  Completer<void>? _nextPop;
+
+  Future<void> waitForNextPop() {
+    if (_nextPop != null) {
+      throw StateError('A route pop is already pending.');
+    }
+    final completer = Completer<void>();
+    _nextPop = completer;
+    return completer.future;
+  }
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    final completer = _nextPop;
+    _nextPop = null;
+    completer?.complete();
+    super.didPop(route, previousRoute);
   }
 }
