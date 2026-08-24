@@ -1369,6 +1369,18 @@ void main() {
     final accountsContainer = ProviderScope.containerOf(
       tester.element(find.byType(AccountsView)),
     );
+    final launchCompleted = Completer<void>();
+    final launchSubscription = accountsContainer.listen(
+      workspaceControllerProvider,
+      (previous, next) {
+        if (previous?.isLaunching == true &&
+            !next.isLaunching &&
+            !launchCompleted.isCompleted) {
+          launchCompleted.complete();
+        }
+      },
+    );
+    addTearDown(launchSubscription.close);
     expect(
       await accountsContainer.read(accountsControllerProvider.notifier).load(),
       isTrue,
@@ -1504,6 +1516,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, 'Lanzar agente').last);
+    await launchCompleted.future;
     await tester.pumpAndSettle();
     expect(find.byType(LaunchAgentDialog), findsNothing);
     expect(launcher.workingDirectories, [
