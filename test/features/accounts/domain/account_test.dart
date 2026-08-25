@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nini_hub/features/accounts/domain/account.dart';
 import 'package:nini_hub/features/profiles/domain/profile.dart';
+import 'package:nini_hub/features/usage/domain/quota_reset_anchor_policy.dart';
 
 void main() {
   test('account preserves visible fallback and descriptive issue rules', () {
@@ -192,6 +193,56 @@ void main() {
         ),
       ),
       throwsUnsupportedError,
+    );
+  });
+
+  test('account compares the same visible window across successful reads', () {
+    final currentAt = DateTime.utc(2026, 8, 25, 12, 30);
+    final previousAt = DateTime.utc(2026, 8, 25, 12);
+    final account = Account(
+      profile: _profile(),
+      metadata: null,
+      costShares: const [],
+      currentCheck: AccountUsageCheck(
+        state: AccountUsageState.success,
+        startedAt: currentAt,
+        completedAt: currentAt,
+      ),
+      currentWindows: [
+        AccountQuotaWindow(
+          limitId: 'CODEX',
+          windowType: 'PRIMARY',
+          usedPercent: 0,
+          windowDurationMinutes: 300,
+          resetsAt: currentAt.add(const Duration(hours: 5)),
+        ),
+      ],
+      lastSuccessfulCheck: AccountUsageCheck(
+        state: AccountUsageState.success,
+        startedAt: currentAt,
+        completedAt: currentAt,
+      ),
+      lastSuccessfulWindows: const [],
+      previousSuccessfulCheck: AccountUsageCheck(
+        state: AccountUsageState.success,
+        startedAt: previousAt,
+        completedAt: previousAt,
+      ),
+      previousSuccessfulWindows: [
+        AccountQuotaWindow(
+          limitId: 'codex',
+          windowType: 'primary',
+          usedPercent: 0,
+          windowDurationMinutes: 300,
+          resetsAt: previousAt.add(const Duration(hours: 5)),
+        ),
+      ],
+      resetCredits: null,
+    );
+
+    expect(
+      account.resetAnchorConfidence(account.visibleWindows.single),
+      QuotaResetAnchorConfidence.estimated,
     );
   });
 }

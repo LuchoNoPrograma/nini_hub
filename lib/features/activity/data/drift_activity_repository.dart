@@ -19,5 +19,16 @@ final class DriftActivityRepository implements ActivityRepository {
           .toList(growable: false);
 
   @override
+  Stream<List<ActivityLog>> watchRecent({required int limit}) =>
+      (_database.select(_database.commandLogs)
+            ..orderBy([(row) => OrderingTerm.desc(row.startedAt)])
+            ..limit(limit))
+          .watch()
+          .map(
+            (rows) =>
+                rows.map(ActivityLogMapper.fromRow).toList(growable: false),
+          );
+
+  @override
   Future<void> clearAll() => _database.delete(_database.commandLogs).go();
 }

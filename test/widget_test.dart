@@ -922,6 +922,76 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('account card names an expired credential explicitly', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(460, 300));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final account = Account(
+      profile: Profile(
+        id: 'expired',
+        toolKey: 'codex',
+        profileName: 'expired',
+        commandName: 'codex-expired',
+        displayName: 'Expired',
+        profileHome: '/profiles/expired',
+        source: ProfileSource.multiCli,
+        kind: ProfileKind.full,
+        hasAuthFile: true,
+        isAvailable: true,
+        isFavorite: false,
+      ),
+      metadata: null,
+      costShares: const [],
+      currentCheck: AccountUsageCheck(
+        state: AccountUsageState.authRequired,
+        startedAt: DateTime.utc(2026, 8, 25, 12),
+        errorCode: 'TOKEN_EXPIRED',
+        errorMessage: 'token_expired',
+      ),
+      currentWindows: const [],
+      lastSuccessfulCheck: null,
+      lastSuccessfulWindows: const [],
+      resetCredits: null,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.dark('cyan'),
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 430,
+              height: 246,
+              child: AccountCard(
+                account: account,
+                refreshing: false,
+                compact: false,
+                accountBusy: false,
+                profileMutationBusy: false,
+                onEditAccount: () async {},
+                onHeartbeat: (_) async {},
+                onRefresh: (_) async {},
+                onDeviceAuth: (_) async {},
+                onRenameProfile: (_) async {},
+                onDeleteProfile: (_) async {},
+                onLaunchAgent: (_) {},
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('CREDENCIAL EXPIRADA'), findsOneWidget);
+    expect(
+      find.text('La credencial expiró; vuelve a iniciar sesión'),
+      findsOneWidget,
+    );
+    expect(find.text('REQUIERE ACCESO'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('account card fits every distinct quota stack', (tester) async {
     await tester.binding.setSurfaceSize(const Size(460, 320));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -1888,6 +1958,7 @@ final class _ProviderDiscoveryRunner extends ProcessRunner {
     Map<String, String>? environment,
     String? stdinText,
     Duration timeout = const Duration(seconds: 30),
+    bool recordActivity = true,
   }) async {
     final command = arguments[1];
     final data = command == 'tools'

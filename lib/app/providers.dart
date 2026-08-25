@@ -136,7 +136,7 @@ final heartbeatObserveUsageProvider = Provider<ObserveHeartbeatUsage>((ref) {
 
 final heartbeatProbeProvider = Provider<ProbeHeartbeat>(
   (ref) => ProbeHeartbeat(
-    discovery: ref.watch(profileDiscoveryProvider),
+    profiles: DriftProfileRepository(ref.watch(databaseProvider)),
     probe: ref.watch(heartbeatQuotaProbeProvider),
     scheduler: ref.watch(heartbeatSchedulerProvider),
     observe: ref.watch(heartbeatObserveUsageProvider),
@@ -309,7 +309,9 @@ activityControllerProvider =
       () => ActivityController.composed((ref) {
         final repository = DriftActivityRepository(ref.watch(databaseProvider));
         return ActivityControllerDependencies(
-          loadActivityHistory: LoadActivityHistory(repository: repository),
+          observeActivityHistory: ObserveActivityHistory(
+            repository: repository,
+          ),
           clearActivityHistory: ClearActivityHistory(repository: repository),
         );
       }),

@@ -109,6 +109,7 @@ final class DriftAccountRepository implements AccountRepository {
     final successfulChecks = await _latestChecks(
       profileIds,
       successfulOnly: true,
+      maximumPerProfile: 2,
     );
     final selectedCheckIds = {
       ...currentChecks.map((check) => check.id),
@@ -137,9 +138,16 @@ final class DriftAccountRepository implements AccountRepository {
     final currentByProfile = {
       for (final check in currentChecks) check.profileId: check,
     };
-    final successfulByProfile = {
-      for (final check in successfulChecks) check.profileId: check,
-    };
+    final successfulByProfile = _groupBy(
+      successfulChecks,
+      (check) => check.profileId,
+    );
+    for (final checks in successfulByProfile.values) {
+      checks.sort((left, right) {
+        final byStartedAt = right.startedAt.compareTo(left.startedAt);
+        return byStartedAt != 0 ? byStartedAt : right.id.compareTo(left.id);
+      });
+    }
     final windowsByCheck = _deduplicatedWindows(windows);
     final creditsByCheck = {
       for (final credit in credits) credit.checkId: credit,
@@ -154,10 +162,23 @@ final class DriftAccountRepository implements AccountRepository {
           currentCheck: currentByProfile[profile.id],
           currentWindows:
               windowsByCheck[currentByProfile[profile.id]?.id] ?? const [],
-          lastSuccessfulCheck: successfulByProfile[profile.id],
+          lastSuccessfulCheck: successfulByProfile[profile.id]?.firstOrNull,
           lastSuccessfulWindows:
-              windowsByCheck[successfulByProfile[profile.id]?.id] ?? const [],
-          resetCredits: creditsByCheck[successfulByProfile[profile.id]?.id],
+              windowsByCheck[successfulByProfile[profile.id]
+                  ?.firstOrNull
+                  ?.id] ??
+              const [],
+          previousSuccessfulCheck: successfulByProfile[profile.id]
+              ?.skip(1)
+              .firstOrNull,
+          previousSuccessfulWindows:
+              windowsByCheck[successfulByProfile[profile.id]
+                  ?.skip(1)
+                  .firstOrNull
+                  ?.id] ??
+              const [],
+          resetCredits:
+              creditsByCheck[successfulByProfile[profile.id]?.firstOrNull?.id],
         ),
     ];
   }
@@ -165,6 +186,7 @@ final class DriftAccountRepository implements AccountRepository {
   Future<List<UsageCheck>> _latestChecks(
     List<String> profileIds, {
     bool successfulOnly = false,
+    int maximumPerProfile = 1,
   }) {
     final placeholders = List.filled(profileIds.length, '?').join(', ');
     final statusClause = successfulOnly ? "AND status = 'success'" : '';
@@ -176,13 +198,13 @@ FROM (
   SELECT usage_checks.*,
          ROW_NUMBER() OVER (
            PARTITION BY profile_id
-           ORDER BY started_at DESC
+           ORDER BY started_at DESC, id DESC
          ) AS account_rank
   FROM usage_checks
   WHERE profile_id IN ($placeholders)
     $statusClause
 )
-WHERE account_rank = 1
+WHERE account_rank <= $maximumPerProfile
 ''',
           variables: profileIds.map(Variable<String>.new).toList(),
           readsFrom: {database.usageChecks},

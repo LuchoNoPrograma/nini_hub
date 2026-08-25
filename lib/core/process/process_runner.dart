@@ -146,22 +146,24 @@ Write-Host "`nLa sesión terminó (código $sessionExitCode). La terminal seguir
     Map<String, String>? environment,
     String? stdinText,
     Duration timeout = const Duration(seconds: 30),
+    bool recordActivity = true,
   }) async {
     final started = DateTime.now().toUtc();
-    final logId = _uuid.v4();
-    final command = _displayCommand(executable, arguments);
-    await database
-        .into(database.commandLogs)
-        .insert(
-          CommandLogsCompanion.insert(
-            id: logId,
-            profileId: Value(profileId),
-            command: command,
-            summary: summary,
-            status: 'running',
-            startedAt: started,
-          ),
-        );
+    final logId = recordActivity ? _uuid.v4() : null;
+    if (logId != null) {
+      await database
+          .into(database.commandLogs)
+          .insert(
+            CommandLogsCompanion.insert(
+              id: logId,
+              profileId: Value(profileId),
+              command: _displayCommand(executable, arguments),
+              summary: summary,
+              status: 'running',
+              startedAt: started,
+            ),
+          );
+    }
 
     Process? process;
     try {
@@ -196,16 +198,18 @@ Write-Host "`nLa sesión terminó (código $sessionExitCode). La terminal seguir
       final stdout = await stdoutFuture;
       final stderr = await stderrFuture;
       final completed = DateTime.now().toUtc();
-      await _finishLog(
-        logId,
-        exitCode: exitCode,
-        status: timedOut ? 'timeout' : (exitCode == 0 ? 'success' : 'error'),
-        output: [
-          stdout,
-          stderr,
-        ].where((value) => value.trim().isNotEmpty).join('\n'),
-        completedAt: completed,
-      );
+      if (logId != null) {
+        await _finishLog(
+          logId,
+          exitCode: exitCode,
+          status: timedOut ? 'timeout' : (exitCode == 0 ? 'success' : 'error'),
+          output: [
+            stdout,
+            stderr,
+          ].where((value) => value.trim().isNotEmpty).join('\n'),
+          completedAt: completed,
+        );
+      }
       return SafeProcessResult(
         exitCode: exitCode,
         stdout: stdout,
@@ -217,13 +221,15 @@ Write-Host "`nLa sesión terminó (código $sessionExitCode). La terminal seguir
     } on ProcessException catch (error) {
       final completed = DateTime.now().toUtc();
       final message = sanitizeOutput(error.message);
-      await _finishLog(
-        logId,
-        exitCode: 127,
-        status: 'error',
-        output: message,
-        completedAt: completed,
-      );
+      if (logId != null) {
+        await _finishLog(
+          logId,
+          exitCode: 127,
+          status: 'error',
+          output: message,
+          completedAt: completed,
+        );
+      }
       return SafeProcessResult(
         exitCode: 127,
         stdout: '',

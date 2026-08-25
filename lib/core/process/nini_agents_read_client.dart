@@ -141,7 +141,7 @@ final class NiniAgentsReadClient {
   final Duration mutationTimeout;
 
   Future<NiniAgentsVersion> version() async {
-    final data = await _query(command: 'version');
+    final data = await _query(command: 'version', recordActivity: false);
     final product = _requiredString(data, 'product', command: 'version');
     final version = _requiredString(data, 'version', command: 'version');
     if (product != 'nini-agents') {
@@ -161,7 +161,7 @@ final class NiniAgentsReadClient {
 
   Future<NiniAgentsToolList> tools() async {
     const command = 'tools';
-    final data = await _query(command: command);
+    final data = await _query(command: command, recordActivity: false);
     final platform = _requiredString(data, 'platform', command: command);
     if (platform != 'linux' && platform != 'windows') {
       throw _protocolFailure(
@@ -341,6 +341,7 @@ final class NiniAgentsReadClient {
       environment: normalizedRoot == null
           ? null
           : {'MULTICLI_HOME': normalizedRoot},
+      recordActivity: false,
     );
     final rawProfiles = _requiredList(data, 'profiles', command: command);
     _validateCount(data, rawProfiles.length, command: command);
@@ -396,6 +397,7 @@ final class NiniAgentsReadClient {
     Duration? operationTimeout,
     String? summary,
     String? profileId,
+    bool recordActivity = true,
   }) async {
     final result = await _runner.run(
       executable: executable,
@@ -404,6 +406,7 @@ final class NiniAgentsReadClient {
       profileId: profileId,
       environment: environment,
       timeout: operationTimeout ?? timeout,
+      recordActivity: recordActivity,
     );
     if (result.timedOut) {
       throw NiniAgentsReadFailure(

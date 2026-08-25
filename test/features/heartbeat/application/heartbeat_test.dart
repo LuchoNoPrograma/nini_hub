@@ -87,6 +87,8 @@ void main() {
       final result = await operation;
 
       expect(result.outcome, HeartbeatOutcome.skipped);
+      expect(harness.profileRepository.findCalls, 1);
+      expect(harness.discovery.calls, 0);
       expect(harness.repository.loads, 0);
       expect(harness.repository.saves, isEmpty);
       expect(harness.activity.kinds, isEmpty);
@@ -118,6 +120,38 @@ void main() {
     },
   );
 
+  test('manual 30 day cycle reports command sent before unverified', () async {
+    final profile = _profile();
+    final harness = _Harness(now: now, profiles: [profile]);
+    const monthlyMinutes = 30 * Duration.hoursPerDay * Duration.minutesPerHour;
+    harness.probe.results.addAll([
+      _snapshot(
+        now.add(const Duration(seconds: 10)),
+        resetAt: now.add(const Duration(days: 30, seconds: 10)),
+        windowDurationMinutes: monthlyMinutes,
+      ),
+      _snapshot(
+        now.add(const Duration(seconds: 20)),
+        resetAt: now.add(const Duration(days: 30, seconds: 20)),
+        windowDurationMinutes: monthlyMinutes,
+      ),
+    ]);
+
+    final result = await harness.run(
+      profileId: profile.id,
+      expectedWindowMinutes: monthlyMinutes,
+    );
+
+    expect(result.outcome, HeartbeatOutcome.unverified);
+    expect(
+      result.message,
+      'Comando enviado; Codex respondió, pero todavía no se pudo confirmar '
+      'el ciclo de 30 días.',
+    );
+    expect(harness.command.calls, 1);
+    expect(harness.activity.kinds, [HeartbeatActivityKind.unverified]);
+  });
+
   test(
     'duplicate manual work is skipped without invoking external effects',
     () async {
@@ -138,6 +172,7 @@ void main() {
 final class _Harness {
   _Harness({required DateTime now, required List<Profile> profiles}) {
     discovery = _Discovery(profiles);
+    profileRepository = _ProfileRepository(profiles);
     repository = _Repository();
     history = _History();
     command = _Command();
@@ -173,7 +208,7 @@ final class _Harness {
       execute: execute,
     );
     scheduled = ProbeHeartbeat(
-      discovery: discovery,
+      profiles: profileRepository,
       probe: probe,
       scheduler: scheduler,
       observe: observe,
@@ -181,6 +216,7 @@ final class _Harness {
   }
 
   late final _Discovery discovery;
+  late final _ProfileRepository profileRepository;
   late final _Repository repository;
   late final _History history;
   late final _Command command;
@@ -193,6 +229,27 @@ final class _Harness {
   late final ObserveHeartbeatUsage observe;
   late final RunHeartbeat run;
   late final ProbeHeartbeat scheduled;
+}
+
+final class _ProfileRepository implements ProfileRepository {
+  _ProfileRepository(List<Profile> profiles)
+    : _profiles = {for (final profile in profiles) profile.id: profile};
+
+  final Map<String, Profile> _profiles;
+  int findCalls = 0;
+
+  @override
+  Future<Profile?> findById(String profileId) async {
+    findCalls++;
+    return _profiles[profileId];
+  }
+
+  @override
+  Future<void> saveDisplayData({
+    required String profileId,
+    required String displayName,
+    required bool isFavorite,
+  }) async {}
 }
 
 final class _Discovery implements ProfileDiscovery {
@@ -370,23 +427,26 @@ HeartbeatObservation _observation(
   planType: 'pro',
 );
 
-UsageSnapshot _snapshot(DateTime completedAt, {required DateTime resetAt}) =>
-    UsageSnapshot(
-      status: UsageRefreshStatus.success,
-      startedAt: completedAt.subtract(const Duration(seconds: 1)),
-      completedAt: completedAt,
-      accountEmail: 'account@example.com',
-      planType: 'pro',
-      windows: [
-        UsageQuotaWindow(
-          limitId: 'codex',
-          windowType: 'rolling',
-          usedPercent: 0,
-          windowDurationMinutes: HeartbeatPolicy.weeklyMinutes,
-          resetsAt: resetAt,
-        ),
-      ],
-    );
+UsageSnapshot _snapshot(
+  DateTime completedAt, {
+  required DateTime resetAt,
+  int windowDurationMinutes = HeartbeatPolicy.weeklyMinutes,
+}) => UsageSnapshot(
+  status: UsageRefreshStatus.success,
+  startedAt: completedAt.subtract(const Duration(seconds: 1)),
+  completedAt: completedAt,
+  accountEmail: 'account@example.com',
+  planType: 'pro',
+  windows: [
+    UsageQuotaWindow(
+      limitId: 'codex',
+      windowType: 'rolling',
+      usedPercent: 0,
+      windowDurationMinutes: windowDurationMinutes,
+      resetsAt: resetAt,
+    ),
+  ],
+);
 
 Future<void> _waitFor(bool Function() condition) async {
   for (var attempt = 0; attempt < 100 && !condition(); attempt++) {

@@ -8,6 +8,7 @@ void main() {
     final purchasedOn = DateTime.utc(2026, 7, 1);
     final renewalOn = DateTime.utc(2026, 9, 1);
     final startedAt = DateTime.utc(2026, 8, 22, 15);
+    final completedAt = startedAt.add(const Duration(seconds: 2));
     final resetsAt = DateTime.utc(2026, 8, 23);
     final expiresAt = DateTime.utc(2026, 8, 24);
 
@@ -50,6 +51,7 @@ void main() {
         queryMethod: 'test',
         status: 'auth_required',
         startedAt: startedAt,
+        completedAt: completedAt,
         planType: 'pro',
         accountEmail: 'observed@example.com',
         accountDisplayName: 'Observed',
@@ -88,6 +90,7 @@ void main() {
     expect(account.costShares.single.paidOn, same(purchasedOn));
     expect(account.currentCheck?.state, AccountUsageState.authRequired);
     expect(account.currentCheck?.startedAt, same(startedAt));
+    expect(account.currentCheck?.observedAt, same(completedAt));
     expect(account.currentWindows.single.resetsAt, same(resetsAt));
     expect(account.currentWindows.single.usedPercent, 25);
     expect(account.resetCredits?.availableCount, 7);

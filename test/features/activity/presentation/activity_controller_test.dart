@@ -77,19 +77,22 @@ void main() {
     expect(_visibleIds(fixture.state), isNot(contains('timeout')));
   });
 
-  test('load failure retains the previous snapshot and cause', () async {
+  test('stream failure retains the previous snapshot and cause', () async {
     final existing = _log('existing');
     fixture.repository.values = [existing];
     expect(await fixture.controller.load(), isTrue);
+    await Future<void>.delayed(Duration.zero);
     final cause = StateError('load failed');
-    fixture.repository.nextLoadFailure = cause;
-
-    expect(await fixture.controller.load(), isFalse);
+    fixture.repository.emitError(cause);
+    await _waitFor(() => fixture.state.failure != null);
 
     expect(fixture.state.logs, [same(existing)]);
     expect(fixture.state.isInitialized, isTrue);
     expect(fixture.state.failure, same(cause));
-    expect(fixture.state.errorMessage, 'No se pudo cargar el historial.');
+    expect(
+      fixture.state.errorMessage,
+      'No se pudo mantener actualizado el historial.',
+    );
     expect(fixture.state.operation, isNull);
     fixture.controller.clearFailure();
     expect(fixture.state.failure, isNull);
@@ -118,7 +121,8 @@ void main() {
       expect(await clear, isTrue);
 
       expect(fixture.repository.clearCalls, 1);
-      expect(fixture.repository.loadCalls, 2);
+      expect(fixture.repository.watchCalls, 1);
+      expect(fixture.repository.loadCalls, 1);
       expect(fixture.state.logs, isEmpty);
       expect(fixture.state.search, 'changed while clearing');
       expect(fixture.state.statusFilter, ActivityStatusFilter.running);
@@ -138,7 +142,8 @@ void main() {
     expect(await fixture.controller.clear(), isFalse);
 
     expect(fixture.repository.clearCalls, 1);
-    expect(fixture.repository.loadCalls, 1);
+    expect(fixture.repository.watchCalls, 1);
+    expect(fixture.repository.loadCalls, 0);
     expect(fixture.state.logs, [same(existing)]);
     expect(fixture.state.failure, same(cause));
     expect(fixture.state.errorMessage, 'No se pudo limpiar el historial.');
@@ -148,13 +153,15 @@ void main() {
     final existing = _log('existing');
     fixture.repository.values = [existing];
     expect(await fixture.controller.load(), isTrue);
+    await Future<void>.delayed(Duration.zero);
     final cause = StateError('reload failed');
     fixture.repository.nextLoadFailure = cause;
 
     expect(await fixture.controller.clear(), isFalse);
+    await _waitFor(() => fixture.state.logs.isEmpty);
 
     expect(fixture.repository.values, isEmpty);
-    expect(fixture.state.logs, [same(existing)]);
+    expect(fixture.state.logs, isEmpty);
     expect(
       fixture.state.failure,
       isA<ActivityClearAppliedFailure>().having(
@@ -186,7 +193,7 @@ final class _Fixture {
   _Fixture() : repository = _MemoryActivityRepository() {
     provider = NotifierProvider<ActivityController, ActivityState>(
       () => ActivityController(
-        loadActivityHistory: LoadActivityHistory(repository: repository),
+        observeActivityHistory: ObserveActivityHistory(repository: repository),
         clearActivityHistory: ClearActivityHistory(repository: repository),
       ),
     );
@@ -206,6 +213,7 @@ final class _Fixture {
     if (_isDisposed) return;
     _isDisposed = true;
     container.dispose();
+    repository.dispose();
   }
 }
 
@@ -215,7 +223,9 @@ final class _MemoryActivityRepository implements ActivityRepository {
   Completer<void>? clearGate;
   Object? nextLoadFailure;
   Object? nextClearFailure;
+  final StreamController<void> _changes = StreamController.broadcast();
   int loadCalls = 0;
+  int watchCalls = 0;
   int clearCalls = 0;
 
   @override
@@ -228,6 +238,7 @@ final class _MemoryActivityRepository implements ActivityRepository {
     nextClearFailure = null;
     if (failure != null) throw failure;
     values = [];
+    _changes.add(null);
   }
 
   @override
@@ -241,6 +252,25 @@ final class _MemoryActivityRepository implements ActivityRepository {
     if (failure != null) throw failure;
     return List.unmodifiable(values.take(limit));
   }
+
+  @override
+  Stream<List<ActivityLog>> watchRecent({required int limit}) async* {
+    watchCalls++;
+    final gate = loadGate;
+    loadGate = null;
+    if (gate != null) values = await gate.future;
+    final failure = nextLoadFailure;
+    nextLoadFailure = null;
+    if (failure != null) throw failure;
+    yield List.unmodifiable(values.take(limit));
+    await for (final _ in _changes.stream) {
+      yield List.unmodifiable(values.take(limit));
+    }
+  }
+
+  void emitError(Object error) => _changes.addError(error);
+
+  void dispose() => _changes.close();
 }
 
 ActivityLog _log(
@@ -263,3 +293,10 @@ ActivityLog _log(
 
 List<String> _visibleIds(ActivityState state) =>
     state.visibleLogs.map((log) => log.id).toList();
+
+Future<void> _waitFor(bool Function() condition) async {
+  for (var attempt = 0; attempt < 100 && !condition(); attempt++) {
+    await Future<void>.delayed(Duration.zero);
+  }
+  expect(condition(), isTrue);
+}

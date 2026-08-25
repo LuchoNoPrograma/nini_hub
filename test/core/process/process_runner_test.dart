@@ -156,4 +156,30 @@ Future<void> main() => Future<void>.delayed(const Duration(seconds: 30));
     expect(log.status, 'timeout');
     expect(log.exitCode, 124);
   });
+
+  test('unrecorded process returns output without writing Activity', () async {
+    final database = AppDatabase(NativeDatabase.memory());
+    final root = await Directory.systemTemp.createTemp(
+      'nini-runner-unrecorded-',
+    );
+    addTearDown(() async {
+      await database.close();
+      await root.delete(recursive: true);
+    });
+    final script = File('${root.path}/result.dart');
+    await script.writeAsString("void main() => print('OK');\n");
+    final dart = ProcessRunner.findExecutable('dart');
+    expect(dart, isNotNull);
+
+    final result = await ProcessRunner(database).run(
+      executable: dart!,
+      arguments: [script.path],
+      summary: 'Consulta interna',
+      recordActivity: false,
+    );
+
+    expect(result.succeeded, isTrue);
+    expect(result.stdout, 'OK\n');
+    expect(await database.select(database.commandLogs).get(), isEmpty);
+  });
 }

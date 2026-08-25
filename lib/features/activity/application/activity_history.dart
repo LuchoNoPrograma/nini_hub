@@ -31,6 +31,16 @@ final class LoadActivityHistory {
   }
 }
 
+final class ObserveActivityHistory {
+  const ObserveActivityHistory({required this.repository});
+
+  final ActivityRepository repository;
+
+  Stream<ActivityHistorySnapshot> call() => repository
+      .watchRecent(limit: LoadActivityHistory.recentLimit)
+      .map((logs) => ActivityHistorySnapshot(logs: logs));
+}
+
 final class ClearActivityHistory {
   const ClearActivityHistory({required this.repository});
 

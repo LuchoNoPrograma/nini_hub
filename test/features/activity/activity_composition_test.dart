@@ -72,7 +72,7 @@ void main() {
         container.read(usageControllerProvider).calendar,
         same(calendarBeforeClear),
       );
-      expect(_activitySelects(counter), hasLength(1));
+      expect(_activitySelects(counter), hasLength(2));
       expect(await database.select(database.commandLogs).get(), isEmpty);
     },
   );

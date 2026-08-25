@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:drift/drift.dart' hide isNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -56,6 +58,34 @@ void main() {
     await repository.clearAll();
 
     expect(await database.select(database.commandLogs).get(), isEmpty);
+  });
+
+  test('watchRecent publishes a running command and its completion', () async {
+    final startedAt = DateTime.utc(2026, 8, 25, 12);
+    final iterator = StreamIterator(repository.watchRecent(limit: 2));
+    addTearDown(iterator.cancel);
+
+    expect(await iterator.moveNext(), isTrue);
+    expect(iterator.current, isEmpty);
+
+    await database.into(database.commandLogs).insert(_log(1, startedAt));
+    expect(await iterator.moveNext(), isTrue);
+    expect(iterator.current.single.status, ActivityLogStatus.running);
+    expect(iterator.current.single.command, 'command-1');
+
+    await (database.update(
+      database.commandLogs,
+    )..where((row) => row.id.equals('log-1'))).write(
+      CommandLogsCompanion(
+        status: const Value('success'),
+        exitCode: const Value(0),
+        output: const Value('done'),
+        completedAt: Value(startedAt.add(const Duration(seconds: 3))),
+      ),
+    );
+    expect(await iterator.moveNext(), isTrue);
+    expect(iterator.current.single.status, ActivityLogStatus.success);
+    expect(iterator.current.single.output, 'done');
   });
 }
 

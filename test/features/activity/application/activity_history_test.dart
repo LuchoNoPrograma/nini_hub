@@ -57,6 +57,19 @@ void main() {
     expect(() => snapshot.logs.clear(), throwsUnsupportedError);
   });
 
+  test('observe streams the latest 250 in repository order', () async {
+    final newest = _log('newest');
+    final repository = _FakeActivityRepository(loaded: [newest]);
+
+    final snapshot = await ObserveActivityHistory(
+      repository: repository,
+    )().first;
+
+    expect(repository.events, ['watch:250']);
+    expect(snapshot.logs, [same(newest)]);
+    expect(() => snapshot.logs.clear(), throwsUnsupportedError);
+  });
+
   test('clear deletes before reloading recent history', () async {
     final remaining = _log('remaining');
     final repository = _FakeActivityRepository(loaded: [remaining]);
@@ -133,5 +146,11 @@ final class _FakeActivityRepository implements ActivityRepository {
     events.add('load:$limit');
     if (loadError case final error?) throw error;
     return List.of(loaded);
+  }
+
+  @override
+  Stream<List<ActivityLog>> watchRecent({required int limit}) {
+    events.add('watch:$limit');
+    return Stream.value(List.of(loaded));
   }
 }

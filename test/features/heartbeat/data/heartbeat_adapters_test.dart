@@ -65,6 +65,7 @@ void main() {
       });
       expect(call.timeout, const Duration(seconds: 90));
       expect(call.stdinText, isNull);
+      expect(call.recordActivity, isTrue);
     },
   );
 
@@ -221,6 +222,7 @@ final class _RecordingProcessRunner extends ProcessRunner {
     Map<String, String>? environment,
     String? stdinText,
     Duration timeout = const Duration(seconds: 30),
+    bool recordActivity = true,
   }) async {
     calls.add(
       _ProcessCall(
@@ -232,6 +234,7 @@ final class _RecordingProcessRunner extends ProcessRunner {
         environment: environment == null ? null : Map.unmodifiable(environment),
         stdinText: stdinText,
         timeout: timeout,
+        recordActivity: recordActivity,
       ),
     );
     final currentError = error;
@@ -250,6 +253,7 @@ final class _ProcessCall {
     required this.environment,
     required this.stdinText,
     required this.timeout,
+    required this.recordActivity,
   });
 
   final String executable;
@@ -260,6 +264,7 @@ final class _ProcessCall {
   final Map<String, String>? environment;
   final String? stdinText;
   final Duration timeout;
+  final bool recordActivity;
 }
 
 final class _RecordingCodexClient extends CodexAppServerClient {

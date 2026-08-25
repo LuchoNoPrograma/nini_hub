@@ -35,6 +35,7 @@ void main() {
       expect(runner.calls.single.arguments, ['--json', 'version']);
       expect(runner.calls.single.timeout, const Duration(seconds: 15));
       expect(runner.calls.single.environment, isNull);
+      expect(runner.calls.single.recordActivity, isFalse);
     },
   );
 
@@ -61,6 +62,7 @@ void main() {
       expect(runner.calls.single.environment, {
         'MULTICLI_HOME': '/synthetic/profiles',
       });
+      expect(runner.calls.single.recordActivity, isFalse);
     },
   );
 
@@ -79,6 +81,7 @@ void main() {
     expect(profiles.command, 'status');
     expect(profiles.profiles.single.tool, 'codex');
     expect(runner.calls.single.arguments, ['--json', 'status', 'codex']);
+    expect(runner.calls.single.recordActivity, isFalse);
   });
 
   for (final platform in ['linux', 'windows']) {
@@ -101,6 +104,7 @@ void main() {
       expect(tools.tools.first.installed, isFalse);
       expect(tools.tools.last.installed, isTrue);
       expect(runner.calls.single.arguments, ['--json', 'tools']);
+      expect(runner.calls.single.recordActivity, isFalse);
     });
   }
 
@@ -131,6 +135,7 @@ void main() {
       '--no-seed',
     ]);
     expect(runner.calls.single.timeout, const Duration(minutes: 2));
+    expect(runner.calls.single.recordActivity, isTrue);
     expect(runner.calls.single.environment, {
       'MULTICLI_HOME': '/synthetic/profiles',
     });
@@ -412,6 +417,7 @@ final class _RecordingProcessRunner extends ProcessRunner {
     Map<String, String>? environment,
     String? stdinText,
     Duration timeout = const Duration(seconds: 30),
+    bool recordActivity = true,
   }) async {
     calls.add(
       _RunCall(
@@ -419,6 +425,7 @@ final class _RecordingProcessRunner extends ProcessRunner {
         arguments: List.unmodifiable(arguments),
         environment: environment == null ? null : Map.unmodifiable(environment),
         timeout: timeout,
+        recordActivity: recordActivity,
       ),
     );
     return result;
@@ -431,10 +438,12 @@ final class _RunCall {
     required this.arguments,
     required this.environment,
     required this.timeout,
+    required this.recordActivity,
   });
 
   final String executable;
   final List<String> arguments;
   final Map<String, String>? environment;
   final Duration timeout;
+  final bool recordActivity;
 }

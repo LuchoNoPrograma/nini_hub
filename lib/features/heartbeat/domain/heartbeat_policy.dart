@@ -1,4 +1,5 @@
 import 'package:nini_hub/features/heartbeat/domain/heartbeat.dart';
+import 'package:nini_hub/features/usage/domain/quota_reset_anchor_policy.dart';
 import 'package:nini_hub/features/usage/domain/usage.dart';
 
 sealed class HeartbeatDecision {
@@ -43,9 +44,7 @@ final class HeartbeatPolicy {
   static const virginUsageThreshold = 1.0;
   static const ambiguousProbeDelay = Duration(seconds: 45);
   static const resetProbeMargin = Duration(seconds: 30);
-  static const projectionTolerance = Duration(minutes: 3);
-  static const stableAnchorTolerance = Duration(seconds: 2);
-  static const minimumDriftSample = Duration(seconds: 20);
+  static const minimumDriftSample = QuotaResetAnchorPolicy.minimumDriftSample;
 
   HeartbeatObservation? observationFrom(
     UsageSnapshot snapshot, {
@@ -248,10 +247,12 @@ final class HeartbeatPolicy {
         observation: secondObservation,
       );
     }
-    final movement = secondReset.difference(firstReset).abs();
     return HeartbeatVerification(
       verified:
-          movement <= stableAnchorTolerance &&
+          QuotaResetAnchorPolicy.isStable(
+            previous: _resetObservation(firstObservation),
+            current: _resetObservation(secondObservation),
+          ) &&
           !_isFloatingProjection(firstObservation, secondObservation),
       observation: secondObservation,
     );
@@ -304,23 +305,18 @@ final class HeartbeatPolicy {
         !previous.identity.isCompatibleWith(current.identity)) {
       return false;
     }
-    final previousReset = previous.resetsAt;
-    final currentReset = current.resetsAt;
-    if (previousReset == null || currentReset == null) return false;
-    if (!_looksProjected(previous) || !_looksProjected(current)) return false;
-    final observedMovement = current.observedAt.difference(previous.observedAt);
-    if (observedMovement < minimumDriftSample) return false;
-    final anchorMovement = currentReset.difference(previousReset);
-    if (anchorMovement < minimumDriftSample) return false;
-    return (anchorMovement - observedMovement).abs() <= projectionTolerance;
+    return QuotaResetAnchorPolicy.isFloatingProjection(
+      previous: _resetObservation(previous),
+      current: _resetObservation(current),
+    );
   }
 
-  static bool _looksProjected(HeartbeatObservation observation) {
-    final reset = observation.resetsAt;
-    if (reset == null) return false;
-    final expected = observation.observedAt.add(
-      Duration(minutes: observation.windowDurationMinutes),
-    );
-    return reset.difference(expected).abs() <= projectionTolerance;
-  }
+  static QuotaResetAnchorObservation _resetObservation(
+    HeartbeatObservation observation,
+  ) => QuotaResetAnchorObservation(
+    observedAt: observation.observedAt,
+    usedPercent: observation.usedPercent,
+    windowDurationMinutes: observation.windowDurationMinutes,
+    resetsAt: observation.resetsAt,
+  );
 }

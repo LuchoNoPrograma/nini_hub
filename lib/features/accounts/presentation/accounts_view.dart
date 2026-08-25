@@ -9,6 +9,7 @@ import 'package:nini_hub/core/widgets/app_primitives.dart';
 import 'package:nini_hub/features/accounts/application/account_management.dart';
 import 'package:nini_hub/features/accounts/domain/account.dart';
 import 'package:nini_hub/features/accounts/presentation/account_dialogs.dart';
+import 'package:nini_hub/features/accounts/presentation/accounts_quota_clock.dart';
 import 'package:nini_hub/features/accounts/presentation/controllers/accounts_controller.dart';
 import 'package:nini_hub/features/accounts/presentation/state/accounts_state.dart';
 import 'package:nini_hub/features/heartbeat/domain/heartbeat_policy.dart';
@@ -16,6 +17,7 @@ import 'package:nini_hub/features/profiles/domain/profile_provider.dart';
 import 'package:nini_hub/features/profiles/presentation/profile_dialogs.dart';
 import 'package:nini_hub/features/profiles/presentation/profile_provider_icon.dart';
 import 'package:nini_hub/features/usage/application/usage_account_projection.dart';
+import 'package:nini_hub/features/usage/domain/quota_reset_anchor_policy.dart';
 import 'package:nini_hub/features/usage/presentation/state/usage_state.dart';
 import 'package:nini_hub/features/workspaces/presentation/launch_agent_dialog.dart';
 
@@ -235,6 +237,8 @@ class AccountsView extends ConsumerWidget {
     final profilesBusy = ref.watch(
       profilesControllerProvider.select((state) => state.isBusy),
     );
+    final quotaNow =
+        ref.watch(accountsQuotaClockProvider).asData?.value ?? DateTime.now();
     final cardLayout = ref.watch(settingsCardLayoutProvider);
     if (!accountsState.isInitialized) {
       if (accountsState.isLoading) {
@@ -392,6 +396,7 @@ class AccountsView extends ConsumerWidget {
                           width: extent,
                           child: AccountCard(
                             account: account,
+                            quotaNow: quotaNow,
                             refreshing:
                                 heartbeatState.isRunningProfile(
                                   account.profile.id,
@@ -761,6 +766,7 @@ class _FilterItem extends StatelessWidget {
 class AccountCard extends StatefulWidget {
   const AccountCard({
     required this.account,
+    this.quotaNow,
     required this.refreshing,
     required this.compact,
     required this.accountBusy,
@@ -779,6 +785,7 @@ class AccountCard extends StatefulWidget {
   });
 
   final Account account;
+  final DateTime? quotaNow;
   final bool refreshing;
   final UsageProfileRefreshStage usageRefreshStage;
   final String? usageFailureMessage;
@@ -836,6 +843,7 @@ class _AccountCardState extends State<AccountCard> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final account = widget.account;
+    final quotaNow = widget.quotaNow ?? DateTime.now();
     final provider = profileProvider(account.profile.toolKey);
     final launchable = _canLaunchAccount(account, provider);
     final stateColor = _stateColor(context, account);
@@ -1092,7 +1100,14 @@ class _AccountCardState extends State<AccountCard> {
               _NoUsageData(account: account)
             else
               for (var index = 0; index < windows.length; index++)
-                _QuotaBar(window: windows[index], title: windowTitles[index]),
+                _QuotaBar(
+                  window: windows[index],
+                  title: windowTitles[index],
+                  now: quotaNow,
+                  resetConfidence: account.resetAnchorConfidence(
+                    windows[index],
+                  ),
+                ),
             const Spacer(),
             Row(
               children: [
@@ -1417,10 +1432,17 @@ bool _areDistinct(List<String> values) =>
     values.map((value) => value.toLowerCase()).toSet().length == values.length;
 
 class _QuotaBar extends StatelessWidget {
-  const _QuotaBar({required this.window, required this.title});
+  const _QuotaBar({
+    required this.window,
+    required this.title,
+    required this.now,
+    required this.resetConfidence,
+  });
 
   final AccountQuotaWindow window;
   final String title;
+  final DateTime now;
+  final QuotaResetAnchorConfidence resetConfidence;
 
   @override
   Widget build(BuildContext context) {
@@ -1434,9 +1456,27 @@ class _QuotaBar extends StatelessWidget {
         : remaining <= 25
         ? theme.colorScheme.tertiary
         : theme.colorScheme.primary;
-    final reset = window.resetsAt == null
+    final resetAt = window.resetsAt;
+    final reset = resetAt == null
         ? null
-        : 'Reinicia en ${formatTimeRemaining(window.resetsAt!)}';
+        : switch (resetConfidence) {
+            QuotaResetAnchorConfidence.confirmed =>
+              'Reinicia en ${formatTimeRemaining(resetAt, from: now)}',
+            QuotaResetAnchorConfidence.estimated ||
+            QuotaResetAnchorConfidence.unavailable =>
+              'Estimado en ${formatTimeRemaining(resetAt, from: now)}',
+          };
+    final resetTooltip = resetAt == null
+        ? null
+        : switch (resetConfidence) {
+            QuotaResetAnchorConfidence.confirmed =>
+              'Ancla confirmada · ${formatDateTime(resetAt)}',
+            QuotaResetAnchorConfidence.estimated =>
+              'Hora estimada por Codex; el ancla aún no es estable · '
+                  '${formatDateTime(resetAt)}',
+            QuotaResetAnchorConfidence.unavailable =>
+              'Hora estimada por Codex · ${formatDateTime(resetAt)}',
+          };
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Column(
@@ -1471,12 +1511,19 @@ class _QuotaBar extends StatelessWidget {
                       ),
                       const SizedBox(width: 8),
                       Flexible(
-                        child: Text(
-                          reset,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
+                        child: Tooltip(
+                          message: resetTooltip!,
+                          child: Text(
+                            reset,
+                            key: ValueKey(
+                              'quota-reset-${window.limitId}-'
+                              '${window.windowType}',
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
                           ),
                         ),
                       ),
@@ -1636,6 +1683,12 @@ String _stateLabel(Account account) {
   if (!account.profile.isAvailable) return 'NO DISPONIBLE';
   if (!account.profile.hasAuthFile) return 'SIN VINCULAR';
   if (!provider.supportsUsage) return 'LISTA';
+  if (account.currentIssue == AccountUsageIssue.credentialExpired) {
+    return 'CREDENCIAL EXPIRADA';
+  }
+  if (account.currentIssue == AccountUsageIssue.credentialInvalidated) {
+    return 'CREDENCIAL REVOCADA';
+  }
   return switch (account.currentCheck?.state) {
     AccountUsageState.success => 'ACTIVA',
     AccountUsageState.partial => 'ATENCIÓN',
@@ -1669,7 +1722,7 @@ String _stateDetail(Account account) {
           ? 'Falló la conexión; se muestra el último dato válido'
           : 'No se pudo conectar con ChatGPT',
     AccountUsageIssue.credentialExpired =>
-      'La credencial venció; vuelve a iniciar sesión',
+      'La credencial expiró; vuelve a iniciar sesión',
     AccountUsageIssue.credentialInvalidated =>
       'ChatGPT revocó la credencial; vuelve a vincularla',
     AccountUsageIssue.partialMetadata =>

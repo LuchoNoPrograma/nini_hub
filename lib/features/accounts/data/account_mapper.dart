@@ -11,6 +11,8 @@ abstract final class AccountMapper {
     required Iterable<db.QuotaWindow> currentWindows,
     required db.UsageCheck? lastSuccessfulCheck,
     required Iterable<db.QuotaWindow> lastSuccessfulWindows,
+    db.UsageCheck? previousSuccessfulCheck,
+    Iterable<db.QuotaWindow> previousSuccessfulWindows = const [],
     required db.ResetCreditSnapshot? resetCredits,
   }) => Account(
     profile: ProfileMapper.fromRow(profile),
@@ -22,6 +24,12 @@ abstract final class AccountMapper {
         ? null
         : usageCheckFromRow(lastSuccessfulCheck),
     lastSuccessfulWindows: lastSuccessfulWindows.map(quotaWindowFromRow),
+    previousSuccessfulCheck: previousSuccessfulCheck == null
+        ? null
+        : usageCheckFromRow(previousSuccessfulCheck),
+    previousSuccessfulWindows: previousSuccessfulWindows.map(
+      quotaWindowFromRow,
+    ),
     resetCredits: resetCredits == null
         ? null
         : resetCreditsFromRow(resetCredits),
@@ -60,6 +68,7 @@ abstract final class AccountMapper {
       AccountUsageCheck(
         state: _usageState(row.status),
         startedAt: row.startedAt,
+        completedAt: row.completedAt,
         planType: row.planType,
         accountEmail: row.accountEmail,
         accountDisplayName: row.accountDisplayName,

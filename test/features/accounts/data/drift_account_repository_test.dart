@@ -119,6 +119,14 @@ void main() {
             used: 12,
             duration: 10080,
           ),
+          _window(
+            id: 'old-weekly',
+            checkId: 'old-success',
+            limitId: 'codex',
+            type: 'secondary',
+            used: 0,
+            duration: 10080,
+          ),
         ]);
         batch.insert(
           database.resetCreditSnapshots,
@@ -156,6 +164,11 @@ void main() {
       expect(account.currentWindows.first.usedPercent, 25);
       expect(account.visibleWindows, hasLength(1));
       expect(account.visibleWindows.single.usedPercent, 12);
+      expect(
+        account.previousSuccessfulCheck?.startedAt.millisecondsSinceEpoch,
+        oldestAt.millisecondsSinceEpoch,
+      );
+      expect(account.previousSuccessfulWindows.single.usedPercent, 0);
       expect(account.resetCredits?.availableCount, 7);
     },
   );

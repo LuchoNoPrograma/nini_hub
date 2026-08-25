@@ -114,6 +114,41 @@ void main() {
     );
     expect(projected.lastSuccessfulWindows.single.remainingPercent, 80);
   });
+
+  test('a newer success rotates the prior successful observation', () {
+    final priorAt = DateTime.utc(2026, 8, 25, 10);
+    final nextAt = DateTime.utc(2026, 8, 25, 11);
+    final account = _account(
+      currentCheck: _check(AccountUsageState.success, priorAt),
+      currentWindows: [_window(10)],
+      lastSuccessfulCheck: _check(AccountUsageState.success, priorAt),
+      lastSuccessfulWindows: [_window(10)],
+    );
+
+    final projected = project(
+      account,
+      UsageSnapshot(
+        status: UsageRefreshStatus.success,
+        startedAt: nextAt,
+        completedAt: nextAt.add(const Duration(seconds: 3)),
+        windows: [
+          const UsageQuotaWindow(
+            limitId: 'codex',
+            windowType: 'primary',
+            usedPercent: 20,
+          ),
+        ],
+      ),
+    );
+
+    expect(projected.lastSuccessfulCheck?.startedAt, nextAt);
+    expect(
+      projected.lastSuccessfulCheck?.observedAt,
+      nextAt.add(const Duration(seconds: 3)),
+    );
+    expect(projected.previousSuccessfulCheck?.startedAt, priorAt);
+    expect(projected.previousSuccessfulWindows.single.usedPercent, 10);
+  });
 }
 
 Account _account({

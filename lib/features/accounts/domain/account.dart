@@ -1,5 +1,6 @@
 import 'package:nini_hub/features/profiles/domain/profile.dart';
 import 'package:nini_hub/features/profiles/domain/profile_provider.dart';
+import 'package:nini_hub/features/usage/domain/quota_reset_anchor_policy.dart';
 
 enum AccountUsageState {
   success,
@@ -153,6 +154,7 @@ final class AccountUsageCheck {
   const AccountUsageCheck({
     required this.state,
     required this.startedAt,
+    this.completedAt,
     this.planType,
     this.accountEmail,
     this.accountDisplayName,
@@ -162,11 +164,14 @@ final class AccountUsageCheck {
 
   final AccountUsageState state;
   final DateTime startedAt;
+  final DateTime? completedAt;
   final String? planType;
   final String? accountEmail;
   final String? accountDisplayName;
   final String? errorCode;
   final String? errorMessage;
+
+  DateTime get observedAt => completedAt ?? startedAt;
 }
 
 final class AccountQuotaWindow {
@@ -214,10 +219,13 @@ final class Account {
     required Iterable<AccountQuotaWindow> currentWindows,
     required this.lastSuccessfulCheck,
     required Iterable<AccountQuotaWindow> lastSuccessfulWindows,
+    this.previousSuccessfulCheck,
+    Iterable<AccountQuotaWindow> previousSuccessfulWindows = const [],
     required this.resetCredits,
   }) : costShares = List.unmodifiable(costShares),
        currentWindows = List.unmodifiable(currentWindows),
-       lastSuccessfulWindows = List.unmodifiable(lastSuccessfulWindows);
+       lastSuccessfulWindows = List.unmodifiable(lastSuccessfulWindows),
+       previousSuccessfulWindows = List.unmodifiable(previousSuccessfulWindows);
 
   final Profile profile;
   final AccountMetadata? metadata;
@@ -226,6 +234,8 @@ final class Account {
   final List<AccountQuotaWindow> currentWindows;
   final AccountUsageCheck? lastSuccessfulCheck;
   final List<AccountQuotaWindow> lastSuccessfulWindows;
+  final AccountUsageCheck? previousSuccessfulCheck;
+  final List<AccountQuotaWindow> previousSuccessfulWindows;
   final AccountResetCredits? resetCredits;
 
   bool get isDeactivated => profile.isDeactivated;
@@ -262,10 +272,42 @@ final class Account {
     return null;
   }
 
+  bool get _visibleUsesCurrent => currentIsUsable && currentWindows.isNotEmpty;
+
+  AccountUsageCheck? get visibleCheck =>
+      _visibleUsesCurrent ? currentCheck : lastSuccessfulCheck;
+
   List<AccountQuotaWindow> get visibleWindows =>
-      currentIsUsable && currentWindows.isNotEmpty
-      ? currentWindows
-      : lastSuccessfulWindows;
+      _visibleUsesCurrent ? currentWindows : lastSuccessfulWindows;
+
+  AccountUsageCheck? get previousVisibleCheck {
+    if (!_visibleUsesCurrent) return previousSuccessfulCheck;
+    if (currentCheck?.state == AccountUsageState.success) {
+      return previousSuccessfulCheck;
+    }
+    return lastSuccessfulCheck;
+  }
+
+  List<AccountQuotaWindow> get previousVisibleWindows {
+    if (!_visibleUsesCurrent) return previousSuccessfulWindows;
+    if (currentCheck?.state == AccountUsageState.success) {
+      return previousSuccessfulWindows;
+    }
+    return lastSuccessfulWindows;
+  }
+
+  QuotaResetAnchorConfidence resetAnchorConfidence(AccountQuotaWindow window) {
+    final check = visibleCheck;
+    if (check == null) return QuotaResetAnchorConfidence.unavailable;
+    final previousWindow = _matchingWindow(previousVisibleWindows, window);
+    final previousCheck = previousVisibleCheck;
+    return QuotaResetAnchorPolicy.classify(
+      current: _resetObservation(check, window),
+      previous: previousWindow == null || previousCheck == null
+          ? null
+          : _resetObservation(previousCheck, previousWindow),
+    );
+  }
 
   double? get lowestAvailablePercent {
     double? lowest;
@@ -324,4 +366,29 @@ final class Account {
     }
     return '';
   }
+
+  static AccountQuotaWindow? _matchingWindow(
+    Iterable<AccountQuotaWindow> candidates,
+    AccountQuotaWindow current,
+  ) {
+    final limitId = current.limitId.trim().toLowerCase();
+    final windowType = current.windowType.trim().toLowerCase();
+    for (final candidate in candidates) {
+      if (candidate.limitId.trim().toLowerCase() == limitId &&
+          candidate.windowType.trim().toLowerCase() == windowType) {
+        return candidate;
+      }
+    }
+    return null;
+  }
+
+  static QuotaResetAnchorObservation _resetObservation(
+    AccountUsageCheck check,
+    AccountQuotaWindow window,
+  ) => QuotaResetAnchorObservation(
+    observedAt: check.observedAt,
+    usedPercent: window.usedPercent,
+    windowDurationMinutes: window.windowDurationMinutes,
+    resetsAt: window.resetsAt,
+  );
 }

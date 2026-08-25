@@ -241,6 +241,7 @@ final class _FakeNiniAgentsRunner extends ProcessRunner {
     Map<String, String>? environment,
     String? stdinText,
     Duration timeout = const Duration(seconds: 30),
+    bool recordActivity = true,
   }) async {
     calls.add(
       _RunCall(

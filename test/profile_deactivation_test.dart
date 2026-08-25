@@ -76,6 +76,7 @@ final class _DiscoveryRunner extends ProcessRunner {
     Map<String, String>? environment,
     String? stdinText,
     Duration timeout = const Duration(seconds: 30),
+    bool recordActivity = true,
   }) async {
     final command = arguments[1];
     final data = command == 'tools'

@@ -8,6 +8,7 @@ final class ProjectUsageAccount {
     final check = AccountUsageCheck(
       state: _accountState(snapshot.status),
       startedAt: snapshot.startedAt,
+      completedAt: snapshot.completedAt,
       planType: snapshot.planType,
       accountEmail: snapshot.accountEmail,
       accountDisplayName: snapshot.accountDisplayName,
@@ -37,6 +38,10 @@ final class ProjectUsageAccount {
             !snapshot.startedAt.isBefore(
               account.lastSuccessfulCheck!.startedAt,
             ));
+    final advancesSuccessful =
+        replacesSuccessful &&
+        (account.lastSuccessfulCheck == null ||
+            snapshot.startedAt.isAfter(account.lastSuccessfulCheck!.startedAt));
     if (!replacesCurrent && !replacesSuccessful) return account;
 
     return Account(
@@ -51,6 +56,12 @@ final class ProjectUsageAccount {
       lastSuccessfulWindows: replacesSuccessful
           ? windows
           : account.lastSuccessfulWindows,
+      previousSuccessfulCheck: advancesSuccessful
+          ? account.lastSuccessfulCheck
+          : account.previousSuccessfulCheck,
+      previousSuccessfulWindows: advancesSuccessful
+          ? account.lastSuccessfulWindows
+          : account.previousSuccessfulWindows,
       resetCredits: replacesSuccessful
           ? AccountResetCredits(
               availableCount: snapshot.resetCredits,

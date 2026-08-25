@@ -88,8 +88,9 @@ final class ExecuteHeartbeat {
 
     final verification = await _verify(profile, expectedWindowMinutes, now);
     if (!verification.verified) {
-      const message =
-          'Codex respondió, pero la cuota todavía no confirmó un ancla estable.';
+      final message =
+          'Comando enviado; Codex respondió, pero todavía no se pudo '
+          'confirmar el ciclo de ${_cycleDurationLabel(expectedWindowMinutes)}.';
       await repository.save(
         profileId: profile.id,
         state: HeartbeatState(
@@ -108,7 +109,7 @@ final class ExecuteHeartbeat {
         kind: HeartbeatActivityKind.unverified,
         message: message,
       );
-      return const HeartbeatRunResult(
+      return HeartbeatRunResult(
         outcome: HeartbeatOutcome.unverified,
         message: message,
       );
@@ -118,7 +119,10 @@ final class ExecuteHeartbeat {
     final verifiedReset =
         observation?.resetsAt ??
         now.add(Duration(minutes: expectedWindowMinutes));
-    const message = 'Heartbeat confirmado con un ancla de reinicio estable.';
+    final message =
+        'Comando enviado y ciclo de '
+        '${_cycleDurationLabel(expectedWindowMinutes)} confirmado con un '
+        'ancla de reinicio estable.';
     await repository.save(
       profileId: profile.id,
       state: HeartbeatState(
@@ -217,6 +221,19 @@ final class ExecuteHeartbeat {
       );
     }
   }
+}
+
+String _cycleDurationLabel(int minutes) {
+  const minutesPerDay = Duration.hoursPerDay * Duration.minutesPerHour;
+  if (minutes > 0 && minutes % minutesPerDay == 0) {
+    final days = minutes ~/ minutesPerDay;
+    return '$days ${days == 1 ? 'día' : 'días'}';
+  }
+  if (minutes > 0 && minutes % Duration.minutesPerHour == 0) {
+    final hours = minutes ~/ Duration.minutesPerHour;
+    return '$hours ${hours == 1 ? 'hora' : 'horas'}';
+  }
+  return '$minutes minutos';
 }
 
 final class ObserveHeartbeatUsage {
@@ -437,13 +454,13 @@ final class RunHeartbeat {
 
 final class ProbeHeartbeat {
   const ProbeHeartbeat({
-    required this.discovery,
+    required this.profiles,
     required this.probe,
     required this.scheduler,
     required this.observe,
   });
 
-  final ProfileDiscovery discovery;
+  final ProfileRepository profiles;
   final HeartbeatQuotaProbe probe;
   final HeartbeatScheduler scheduler;
   final ObserveHeartbeatUsage observe;
@@ -452,7 +469,8 @@ final class ProbeHeartbeat {
     if (!scheduler.enabled || !scheduler.isRetained(profileId)) {
       return _disabledResult;
     }
-    final profile = _findProfile(await discovery.discover(), profileId);
+    final profile = await profiles.findById(profileId);
+    if (profile == null) throw HeartbeatProfileNotFoundFailure(profileId);
     _validateManualProfile(profile);
     try {
       final snapshot = await probe.probe(profile);

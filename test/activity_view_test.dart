@@ -150,6 +150,60 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('activity shows a running command and its completion live', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(900, 620));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final container = _activityContainer(database);
+    addTearDown(container.dispose);
+    expect(
+      await container.read(activityControllerProvider.notifier).load(),
+      isTrue,
+    );
+    await _pumpActivity(tester, container);
+
+    final startedAt = DateTime.utc(2026, 8, 25, 12);
+    await database
+        .into(database.commandLogs)
+        .insert(
+          CommandLogsCompanion.insert(
+            id: 'live-heartbeat',
+            profileId: const Value('ari'),
+            command: 'nini-agents exec codex/ari -- exec --ephemeral',
+            summary: 'Iniciar ventana de Ari',
+            status: 'running',
+            startedAt: startedAt,
+          ),
+        );
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.text('Iniciar ventana de Ari'), findsWidgets);
+    expect(
+      find.text('nini-agents exec codex/ari -- exec --ephemeral'),
+      findsOneWidget,
+    );
+    expect(find.text('Esperando salida…'), findsOneWidget);
+
+    await (database.update(
+      database.commandLogs,
+    )..where((row) => row.id.equals('live-heartbeat'))).write(
+      CommandLogsCompanion(
+        status: const Value('success'),
+        exitCode: const Value(0),
+        output: const Value('OK'),
+        completedAt: Value(startedAt.add(const Duration(seconds: 5))),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.text('OK'), findsOneWidget);
+    expect(find.text('Esperando salida…'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('activity clear requires confirmation and removes all logs', (
     tester,
   ) async {
@@ -225,7 +279,9 @@ void main() {
       overrides: [
         activityControllerProvider.overrideWith(
           () => ActivityController(
-            loadActivityHistory: LoadActivityHistory(repository: repository),
+            observeActivityHistory: ObserveActivityHistory(
+              repository: repository,
+            ),
             clearActivityHistory: ClearActivityHistory(repository: repository),
           ),
         ),
@@ -285,5 +341,14 @@ final class _FailOnceActivityRepository implements ActivityRepository {
       throw StateError('temporary failure');
     }
     return values.take(limit).toList(growable: false);
+  }
+
+  @override
+  Stream<List<ActivityLog>> watchRecent({required int limit}) async* {
+    if (_shouldFail) {
+      _shouldFail = false;
+      throw StateError('temporary failure');
+    }
+    yield values.take(limit).toList(growable: false);
   }
 }

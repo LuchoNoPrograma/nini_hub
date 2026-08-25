@@ -46,15 +46,7 @@ void main() {
 
       await tester.pumpWidget(fixture.dashboardWidget());
       await tester.pumpAndSettle();
-      final knownBrandOverflow = tester.takeException();
-      expect(
-        knownBrandOverflow,
-        isA<FlutterError>().having(
-          (error) => error.toString(),
-          'message',
-          contains('A RenderFlex overflowed by 25 pixels on the right'),
-        ),
-      );
+      expect(tester.takeException(), isNull);
       expect(find.byKey(const ValueKey('calendar')), findsOneWidget);
       await tester.tap(find.text('Cuentas'));
       await tester.pumpAndSettle();
@@ -268,7 +260,9 @@ final class _PresentationFixture {
       gate: activityReloadGate,
     );
     activityController = ActivityController(
-      loadActivityHistory: LoadActivityHistory(repository: activityRepository),
+      observeActivityHistory: ObserveActivityHistory(
+        repository: activityRepository,
+      ),
       clearActivityHistory: ClearActivityHistory(
         repository: activityRepository,
       ),
@@ -440,6 +434,14 @@ final class _RecordingActivityRepository implements ActivityRepository {
     final reloadGate = gate;
     if (reloadGate != null) await reloadGate.future;
     return const [];
+  }
+
+  @override
+  Stream<List<ActivityLog>> watchRecent({required int limit}) async* {
+    events.add('activity-reload');
+    final reloadGate = gate;
+    if (reloadGate != null) await reloadGate.future;
+    yield const [];
   }
 
   @override

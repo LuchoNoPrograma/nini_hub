@@ -4,13 +4,17 @@ import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:nini_hub/app/providers.dart';
 import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/features/accounts/presentation/accounts_quota_clock.dart';
 import 'package:nini_hub/features/accounts/presentation/accounts_view.dart';
 import 'package:nini_hub/features/heartbeat/domain/heartbeat.dart';
 import 'package:nini_hub/features/heartbeat/domain/heartbeat_policy.dart';
 
 void main() {
+  setUpAll(() => initializeDateFormatting('es'));
+
   testWidgets('manual heartbeat refreshes projections only after success', (
     tester,
   ) async {
@@ -36,12 +40,28 @@ void main() {
       expectsRefresh: false,
     );
   });
+
+  testWidgets('manual heartbeat preserves a sole 30 day Codex cycle', (
+    tester,
+  ) async {
+    const monthlyMinutes = 30 * Duration.hoursPerDay * Duration.minutesPerHour;
+    await _runFlow(
+      tester,
+      result: const HeartbeatRunResult(
+        outcome: HeartbeatOutcome.unverified,
+        message: 'Comando enviado; todavía no se confirmó el ciclo de 30 días.',
+      ),
+      expectsRefresh: true,
+      cycleMinutes: monthlyMinutes,
+    );
+  });
 }
 
 Future<void> _runFlow(
   WidgetTester tester, {
   required HeartbeatRunResult result,
   required bool expectsRefresh,
+  int cycleMinutes = HeartbeatPolicy.weeklyMinutes,
 }) async {
   await tester.binding.setSurfaceSize(const Size(900, 600));
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -79,21 +99,24 @@ Future<void> _runFlow(
       );
   await database.batch((batch) {
     batch.insertAll(database.quotaWindows, [
+      if (cycleMinutes == HeartbeatPolicy.weeklyMinutes)
+        QuotaWindow(
+          id: 'short',
+          checkId: 'check',
+          limitId: 'codex',
+          windowType: 'primary',
+          usedPercent: 1,
+          windowDurationMinutes: 300,
+        ),
       QuotaWindow(
-        id: 'short',
+        id: 'target',
         checkId: 'check',
-        limitId: 'codex',
-        windowType: 'primary',
-        usedPercent: 1,
-        windowDurationMinutes: 300,
-      ),
-      QuotaWindow(
-        id: 'weekly',
-        checkId: 'check',
-        limitId: 'weekly',
+        limitId: cycleMinutes == HeartbeatPolicy.weeklyMinutes
+            ? 'weekly'
+            : 'codex',
         windowType: 'secondary',
         usedPercent: 1,
-        windowDurationMinutes: HeartbeatPolicy.weeklyMinutes,
+        windowDurationMinutes: cycleMinutes,
       ),
     ]);
   });
@@ -143,7 +166,7 @@ Future<void> _runFlow(
   await tester.pump();
   await started.future;
 
-  expect(recordedWindowMinutes, HeartbeatPolicy.weeklyMinutes);
+  expect(recordedWindowMinutes, cycleMinutes);
   expect(
     container.read(heartbeatControllerProvider).isRunningProfile('account'),
     isTrue,
@@ -156,4 +179,7 @@ Future<void> _runFlow(
     find.text(result.message),
     expectsRefresh ? findsOneWidget : findsWidgets,
   );
+  await tester.pumpWidget(const SizedBox.shrink());
+  container.invalidate(accountsQuotaClockProvider);
+  await tester.pump();
 }
