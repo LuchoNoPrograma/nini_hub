@@ -51,12 +51,14 @@ void main() {
 
     expect(fixture.activityReloads, 1);
     expect(fixture.calendar.calls, 0);
+    expect(fixture.state.isSynchronizing, isTrue);
     firstReload.complete();
     await Future.wait([first, second]);
 
     expect(fixture.activityReloads, 2);
     expect(fixture.calendar.calls, 2);
     expect(fixture.accountReloads, 2);
+    expect(fixture.state.isSynchronizing, isFalse);
     expect(
       fixture.events.where(
         (event) =>
@@ -105,6 +107,35 @@ void main() {
     expect(fixture.calendar.calls, 1);
     expect(fixture.accountReloads, 1);
   });
+
+  test(
+    'persisted partial batch still synchronizes before reporting failure',
+    () async {
+      fixture = _Fixture(profiles: [_profile('first'), _profile('failing')]);
+      fixture.activityFailures['failing'] = StateError('activity failed');
+
+      await expectLater(
+        fixture.coordinator.refreshAll(),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('El uso se guardó'),
+          ),
+        ),
+      );
+
+      expect(fixture.state.persistedBatchProfileIds, {'first', 'failing'});
+      expect(fixture.state.latestSnapshotByProfile.keys.toSet(), {
+        'first',
+        'failing',
+      });
+      expect(fixture.activityReloads, 1);
+      expect(fixture.calendar.calls, 1);
+      expect(fixture.accountReloads, 1);
+      expect(fixture.state.isSynchronizing, isFalse);
+    },
+  );
 }
 
 final class _Fixture {
@@ -115,7 +146,7 @@ final class _Fixture {
     final refreshProfile = RefreshProfileUsage(
       provider: provider,
       repository: _FakeSnapshotRepository(events),
-      activity: _FakeActivityRecorder(events),
+      activity: _FakeActivityRecorder(events, activityFailures),
       keepAlive: _FakeKeepAliveScheduler(events),
     );
     provider.events = events;
@@ -156,6 +187,7 @@ final class _Fixture {
   final _FakeDiscovery discovery;
   final _FakeUsageProvider provider;
   final _FakeCalendarRepository calendar;
+  final Map<String, Object> activityFailures = {};
   late final NotifierProvider<UsageController, UsageState> definition;
   late final ProviderContainer container;
   late final UsageController controller;
@@ -223,9 +255,10 @@ final class _FakeSnapshotRepository implements UsageSnapshotRepository {
 }
 
 final class _FakeActivityRecorder implements UsageActivityRecorder {
-  const _FakeActivityRecorder(this.events);
+  const _FakeActivityRecorder(this.events, this.failures);
 
   final List<String> events;
+  final Map<String, Object> failures;
 
   @override
   Future<void> recordRefresh({
@@ -233,6 +266,8 @@ final class _FakeActivityRecorder implements UsageActivityRecorder {
     required UsageSnapshot snapshot,
   }) async {
     events.add('activity-write:${profile.id}');
+    final failure = failures[profile.id];
+    if (failure != null) throw failure;
   }
 }
 

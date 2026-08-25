@@ -209,6 +209,32 @@ class _OperationsBar extends ConsumerWidget {
     final refreshingCount =
         usageState.refreshingProfileIds.length +
         heartbeatState.runningProfileIds.length;
+    final String? progressLabel;
+    final String? progressTooltip;
+    if (usageState.isRefreshingAll) {
+      final total = usageState.batchTotalCount;
+      final processed = usageState.batchProcessedCount;
+      final running = usageState.runningBatchProfileIds.length;
+      final queued = usageState.batchQueuedCount;
+      final failed = usageState.failedBatchProfileIds.length;
+      progressLabel = total == 0
+          ? 'Preparando consultas…'
+          : '$processed/$total · $running activas';
+      progressTooltip = total == 0
+          ? progressLabel
+          : '$processed de $total procesadas · $running consultando · '
+                '$queued en cola${failed == 0 ? '' : ' · $failed con error'}';
+    } else if (usageState.isSynchronizing) {
+      progressLabel = 'Sincronizando vistas…';
+      progressTooltip =
+          'Actualizando actividad, estadísticas y cuentas guardadas.';
+    } else if (refreshingCount > 0) {
+      progressLabel = '$refreshingCount en consulta';
+      progressTooltip = progressLabel;
+    } else {
+      progressLabel = null;
+      progressTooltip = null;
+    }
     return Container(
       height: 48,
       padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -252,15 +278,37 @@ class _OperationsBar extends ConsumerWidget {
             onTap: () => onSectionChanged(DashboardSection.activity),
           ),
           const Spacer(),
-          if (usageState.isRefreshingAll || refreshingCount > 0)
+          if (progressLabel != null)
             Padding(
               padding: const EdgeInsets.only(right: 7),
-              child: Text(
-                usageState.isRefreshingAll
-                    ? '${usageState.completedBatchByProfile.length} completadas'
-                    : '$refreshingCount en consulta',
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: theme.colorScheme.primary,
+              child: Tooltip(
+                message: progressTooltip!,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 205),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 1.6,
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          progressLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: theme.colorScheme.primary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),

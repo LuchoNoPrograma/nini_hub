@@ -15,6 +15,8 @@ import 'package:nini_hub/features/heartbeat/domain/heartbeat_policy.dart';
 import 'package:nini_hub/features/profiles/domain/profile_provider.dart';
 import 'package:nini_hub/features/profiles/presentation/profile_dialogs.dart';
 import 'package:nini_hub/features/profiles/presentation/profile_provider_icon.dart';
+import 'package:nini_hub/features/usage/application/usage_account_projection.dart';
+import 'package:nini_hub/features/usage/presentation/state/usage_state.dart';
 import 'package:nini_hub/features/workspaces/presentation/launch_agent_dialog.dart';
 
 Future<void> showCreateProfileFlow(BuildContext context, WidgetRef ref) async {
@@ -251,7 +253,15 @@ class AccountsView extends ConsumerWidget {
         ),
       );
     }
-    final accounts = accountsState.accounts;
+    const projectUsageAccount = ProjectUsageAccount();
+    final accounts = [
+      for (final account in accountsState.accounts)
+        if (usageState.latestSnapshotByProfile[account.profile.id]
+            case final snapshot?)
+          projectUsageAccount(account, snapshot)
+        else
+          account,
+    ];
     final ready = accounts.where((item) => item.isReady).length;
     final attention = accounts.where((item) => item.needsAttention).length;
     final unlinked = accounts.where((item) => item.isUnlinked).length;
@@ -262,7 +272,9 @@ class AccountsView extends ConsumerWidget {
           if (latest == null || value.isAfter(latest)) return value;
           return latest;
         });
-    final visibleAccounts = accountsState.visibleAccounts;
+    final visibleAccounts = AccountSnapshot(
+      accounts,
+    ).visible(accountsState.query);
 
     return CustomScrollView(
       slivers: [
@@ -373,11 +385,9 @@ class AccountsView extends ConsumerWidget {
                     final supportsUsage = profileProvider(
                       account.profile.toolKey,
                     ).supportsUsage;
-                    final usageRefreshing =
-                        usageState.isRefreshingProfile(account.profile.id) ||
-                        (usageState.isRefreshingAll &&
-                            account.profile.isAvailable &&
-                            supportsUsage);
+                    final usageRefreshStage = supportsUsage
+                        ? usageState.stageForProfile(account.profile.id)
+                        : UsageProfileRefreshStage.idle;
                     return SizedBox(
                           width: extent,
                           child: AccountCard(
@@ -386,7 +396,15 @@ class AccountsView extends ConsumerWidget {
                                 heartbeatState.isRunningProfile(
                                   account.profile.id,
                                 ) ||
-                                usageRefreshing,
+                                usageRefreshStage ==
+                                    UsageProfileRefreshStage.running,
+                            usageRefreshStage: usageRefreshStage,
+                            usageFailureMessage: usageState
+                                .failureForProfile(account.profile.id)
+                                ?.message,
+                            usageActionsDisabled:
+                                usageState.isRefreshingAll ||
+                                usageState.isSynchronizing,
                             compact: cardLayout.compactCards,
                             accountBusy:
                                 accountsState.operationProfileId ==
@@ -754,11 +772,17 @@ class AccountCard extends StatefulWidget {
     required this.onRenameProfile,
     required this.onDeleteProfile,
     required this.onLaunchAgent,
+    this.usageRefreshStage = UsageProfileRefreshStage.idle,
+    this.usageFailureMessage,
+    this.usageActionsDisabled = false,
     super.key,
   });
 
   final Account account;
   final bool refreshing;
+  final UsageProfileRefreshStage usageRefreshStage;
+  final String? usageFailureMessage;
+  final bool usageActionsDisabled;
   final bool compact;
   final bool accountBusy;
   final bool profileMutationBusy;
@@ -965,7 +989,8 @@ class _AccountCardState extends State<AccountCard> {
                           enabled:
                               account.profile.isAvailable &&
                               account.profile.hasAuthFile &&
-                              !widget.refreshing,
+                              !widget.refreshing &&
+                              !widget.usageActionsDisabled,
                           height: 38,
                           padding: const EdgeInsets.symmetric(horizontal: 12),
                           child: const Row(
@@ -1102,7 +1127,14 @@ class _AccountCardState extends State<AccountCard> {
                       hiddenWindowCount: hiddenWindowCount,
                     ),
                   ),
-                if (widget.refreshing && provider.supportsUsage)
+                if (provider.supportsUsage &&
+                    widget.usageRefreshStage != UsageProfileRefreshStage.idle)
+                  _UsageRefreshIndicator(
+                    profileId: account.profile.id,
+                    stage: widget.usageRefreshStage,
+                    failureMessage: widget.usageFailureMessage,
+                  )
+                else if (widget.refreshing && provider.supportsUsage)
                   const SizedBox(
                     width: 38,
                     height: 38,
@@ -1118,12 +1150,63 @@ class _AccountCardState extends State<AccountCard> {
                   AppIconButton(
                     icon: Icons.refresh,
                     tooltip: 'Consultar sólo esta cuenta',
-                    onPressed: () => _guard(widget.onRefresh(account)),
+                    onPressed: widget.usageActionsDisabled
+                        ? null
+                        : () => _guard(widget.onRefresh(account)),
                   ),
               ],
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _UsageRefreshIndicator extends StatelessWidget {
+  const _UsageRefreshIndicator({
+    required this.profileId,
+    required this.stage,
+    required this.failureMessage,
+  });
+
+  final String profileId;
+  final UsageProfileRefreshStage stage;
+  final String? failureMessage;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final (message, child) = switch (stage) {
+      UsageProfileRefreshStage.queued => (
+        'En cola para consultar',
+        Icon(Icons.schedule_rounded, size: 17, color: colors.onSurfaceVariant),
+      ),
+      UsageProfileRefreshStage.running => (
+        'Consultando cuotas',
+        const SizedBox(
+          width: 14,
+          height: 14,
+          child: CircularProgressIndicator(strokeWidth: 1.8),
+        ),
+      ),
+      UsageProfileRefreshStage.completed => (
+        'Cuotas actualizadas',
+        Icon(Icons.check_circle_outline, size: 18, color: colors.primary),
+      ),
+      UsageProfileRefreshStage.failed => (
+        failureMessage ?? 'No se pudo actualizar esta cuenta',
+        Icon(Icons.error_outline, size: 18, color: colors.error),
+      ),
+      UsageProfileRefreshStage.idle => ('', const SizedBox.shrink()),
+    };
+    return Tooltip(
+      message: message,
+      child: SizedBox(
+        key: ValueKey('usage-refresh-${stage.name}-$profileId'),
+        width: 38,
+        height: 38,
+        child: Center(child: child),
       ),
     );
   }

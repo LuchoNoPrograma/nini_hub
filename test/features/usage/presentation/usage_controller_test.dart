@@ -22,7 +22,10 @@ void main() {
     final state = UsageState(
       selectedDay: DateTime.utc(2026, 8, 22, 23, 59),
       refreshingProfileIds: const {'primary'},
+      batchTargetProfileIds: const {'primary', 'secondary'},
+      runningBatchProfileIds: const {'primary'},
       completedBatchByProfile: {'primary': snapshot},
+      latestSnapshotByProfile: {'primary': snapshot},
       profileFailures: {'secondary': failure},
     );
 
@@ -30,12 +33,22 @@ void main() {
     expect(state.isRefreshing, isTrue);
     expect(state.isRefreshingProfile('primary'), isTrue);
     expect(state.failureForProfile('secondary'), same(failure));
+    expect(state.batchTotalCount, 2);
+    expect(state.stageForProfile('primary'), UsageProfileRefreshStage.running);
     expect(
       () => state.refreshingProfileIds.add('other'),
       throwsUnsupportedError,
     );
     expect(
       () => state.completedBatchByProfile['other'] = snapshot,
+      throwsUnsupportedError,
+    );
+    expect(
+      () => state.batchTargetProfileIds.add('other'),
+      throwsUnsupportedError,
+    );
+    expect(
+      () => state.latestSnapshotByProfile['other'] = snapshot,
       throwsUnsupportedError,
     );
     expect(
@@ -188,6 +201,7 @@ void main() {
         fixture.state.failureForProfile('applied')?.message,
         'El uso se guardó, pero no se pudo registrar la actividad.',
       );
+      expect(fixture.state.latestSnapshotByProfile, contains('applied'));
       expect(fixture.state.profileFailures, hasLength(4));
 
       fixture.controller.clearProfileFailure('missing');
@@ -214,12 +228,30 @@ void main() {
         final batch = fixture.controller.refreshAll();
         await _flushMicrotasks();
         expect(fixture.state.isRefreshingAll, isTrue);
+        expect(fixture.state.batchTotalCount, 3);
+        expect(fixture.state.batchQueuedCount, 1);
+        expect(
+          fixture.state.stageForProfile('first'),
+          UsageProfileRefreshStage.running,
+        );
+        expect(
+          fixture.state.stageForProfile('last'),
+          UsageProfileRefreshStage.queued,
+        );
         expect(fixture.provider.profileIds, ['first', 'failing']);
         expect(await fixture.controller.refreshOne('first'), isFalse);
 
         firstGate.complete();
         await _flushMicrotasks();
         expect(fixture.state.completedBatchByProfile.keys, ['first']);
+        expect(
+          fixture.state.stageForProfile('first'),
+          UsageProfileRefreshStage.completed,
+        );
+        expect(
+          fixture.state.stageForProfile('last'),
+          UsageProfileRefreshStage.running,
+        );
         expect(fixture.provider.profileIds, ['first', 'failing', 'last']);
 
         failingGate.complete();
@@ -231,6 +263,17 @@ void main() {
         expect(fixture.state.isRefreshingAll, isFalse);
         expect(fixture.state.completedBatchByProfile.keys.toSet(), {
           'first',
+          'last',
+        });
+        expect(fixture.state.failedBatchProfileIds, {'failing'});
+        expect(fixture.state.persistedBatchProfileIds, {
+          'first',
+          'failing',
+          'last',
+        });
+        expect(fixture.state.latestSnapshotByProfile.keys.toSet(), {
+          'first',
+          'failing',
           'last',
         });
         expect(
@@ -261,6 +304,21 @@ void main() {
         expect(fixture.calendar.calls, 0);
       },
     );
+
+    test('synchronization remains busy and rejects a new refresh', () async {
+      fixture = _Fixture(profiles: [_profile('primary')]);
+
+      fixture.controller.setSynchronizing(true);
+
+      expect(fixture.state.isSynchronizing, isTrue);
+      expect(fixture.state.isRefreshing, isTrue);
+      expect(await fixture.controller.refreshOne('primary'), isFalse);
+      expect(await fixture.controller.refreshAll(), isFalse);
+      expect(fixture.provider.profileIds, isEmpty);
+
+      fixture.controller.setSynchronizing(false);
+      expect(fixture.state.isRefreshing, isFalse);
+    });
 
     test(
       'late calendar and refresh results are ignored after disposal',

@@ -37,6 +37,7 @@ import 'package:nini_hub/features/usage/domain/usage.dart';
 import 'package:nini_hub/features/usage/domain/usage_ports.dart';
 import 'package:nini_hub/features/usage/presentation/controllers/usage_controller.dart';
 import 'package:nini_hub/features/usage/presentation/calendar_view.dart';
+import 'package:nini_hub/features/usage/presentation/state/usage_state.dart';
 import 'package:nini_hub/features/workspaces/application/launch_agent.dart';
 import 'package:nini_hub/features/workspaces/application/workspace_history.dart';
 import 'package:nini_hub/features/workspaces/data/desktop_workspace_runtime.dart';
@@ -833,6 +834,92 @@ void main() {
     final data = await rootBundle.load('assets/branding/nini-hub-icon.png');
 
     expect(data.lengthInBytes, greaterThan(1000));
+  });
+
+  testWidgets('account card distinguishes queued running and completed usage', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(460, 300));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final account = Account(
+      profile: Profile(
+        id: 'progress',
+        toolKey: 'codex',
+        profileName: 'progress',
+        commandName: 'codex-progress',
+        displayName: 'Progress',
+        profileHome: '/profiles/progress',
+        source: ProfileSource.multiCli,
+        kind: ProfileKind.full,
+        hasAuthFile: true,
+        isAvailable: true,
+        isFavorite: false,
+      ),
+      metadata: null,
+      costShares: const [],
+      currentCheck: null,
+      currentWindows: const [],
+      lastSuccessfulCheck: null,
+      lastSuccessfulWindows: const [],
+      resetCredits: null,
+    );
+
+    Widget card(UsageProfileRefreshStage stage, {String? failure}) =>
+        MaterialApp(
+          theme: AppTheme.dark('cyan'),
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 430,
+                height: 246,
+                child: AccountCard(
+                  account: account,
+                  refreshing: stage == UsageProfileRefreshStage.running,
+                  compact: false,
+                  accountBusy: false,
+                  profileMutationBusy: false,
+                  usageRefreshStage: stage,
+                  usageFailureMessage: failure,
+                  usageActionsDisabled: stage != UsageProfileRefreshStage.idle,
+                  onEditAccount: () async {},
+                  onHeartbeat: (_) async {},
+                  onRefresh: (_) async {},
+                  onDeviceAuth: (_) async {},
+                  onRenameProfile: (_) async {},
+                  onDeleteProfile: (_) async {},
+                  onLaunchAgent: (_) {},
+                ),
+              ),
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(card(UsageProfileRefreshStage.queued));
+    expect(
+      find.byKey(const ValueKey('usage-refresh-queued-progress')),
+      findsOneWidget,
+    );
+    expect(find.byTooltip('En cola para consultar'), findsOneWidget);
+
+    await tester.pumpWidget(card(UsageProfileRefreshStage.running));
+    expect(
+      find.byKey(const ValueKey('usage-refresh-running-progress')),
+      findsOneWidget,
+    );
+    expect(find.byTooltip('Consultando cuotas'), findsOneWidget);
+
+    await tester.pumpWidget(card(UsageProfileRefreshStage.completed));
+    expect(
+      find.byKey(const ValueKey('usage-refresh-completed-progress')),
+      findsOneWidget,
+    );
+    expect(find.byTooltip('Cuotas actualizadas'), findsOneWidget);
+
+    await tester.pumpWidget(
+      card(UsageProfileRefreshStage.failed, failure: 'Falló Progress.'),
+    );
+    expect(find.byTooltip('Falló Progress.'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('account card fits every distinct quota stack', (tester) async {

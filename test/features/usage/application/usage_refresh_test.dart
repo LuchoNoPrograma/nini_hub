@@ -182,10 +182,14 @@ void main() {
         ];
         final provider = _GatedProvider(_snapshot());
         final fixture = _Fixture(profiles: profiles, provider: provider);
+        final targets = <String>[];
+        final started = <String>[];
         final progress = <String>[];
 
         final future = fixture.refreshAll(
           concurrency: 99,
+          onTargets: targets.addAll,
+          onStarted: started.add,
           onProgress: (profileId, _) => progress.add(profileId),
         );
         await provider.sixStarted.future.timeout(const Duration(seconds: 2));
@@ -198,6 +202,8 @@ void main() {
           for (var index = 0; index < 8; index++) 'profile-$index',
         };
         expect(result.byProfile.keys.toSet(), eligibleIds);
+        expect(targets.toSet(), eligibleIds);
+        expect(started.toSet(), eligibleIds);
         expect(progress.toSet(), eligibleIds);
         expect(progress, hasLength(8));
         expect(provider.profileIds.toSet(), eligibleIds);
@@ -220,12 +226,14 @@ void main() {
           failingActivityProfileId: 'failing',
         );
         final progress = <String>[];
+        final failures = <String, Object>{};
 
         Object? thrown;
         try {
           await fixture.refreshAll(
             concurrency: 0,
             onProgress: (profileId, _) => progress.add(profileId),
+            onFailure: (profileId, error) => failures[profileId] = error,
           );
         } catch (error) {
           thrown = error;
@@ -252,6 +260,8 @@ void main() {
           'failing',
         ]);
         expect(progress, ['first']);
+        expect(failures.keys, ['failing']);
+        expect(failures['failing'], isA<UsageRefreshAppliedFailure>());
         expect(
           () => failure.completedByProfile['extra'] = _snapshot(),
           throwsUnsupportedError,

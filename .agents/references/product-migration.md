@@ -1333,6 +1333,82 @@ presentar perfiles administrados como operativos end-to-end. `QA-01` y
   sobre SQLite real, Codex real, stage, commit, push, merge ni release. Los
   cambios concurrentes fuera del alcance permanecieron intactos.
 
+## Fix separado FIX-UX-USAGE-01: progreso y resultados incrementales de cuotas
+
+- Estado global y HEAD observado al cierre: `12/14`; Nini Hub `main` /
+  `47578432a533785d309867d957241a02f45459a1`. Este fix se clasifica
+  `separate_fix`: no agrega un punto al roadmap ni cambia los gates pendientes
+  de QA-01B/CUT-01.
+- Skills consumidas: `nini-hub-diagnostico-incidentes`,
+  `nini-hub-feature-integral`, `nini-hub-domain-application` y
+  `nini-hub-presentation-flutter-desktop`.
+- Alcance aprobado el 2026-08-25: investigar la espera visual de la consulta
+  multiple, exponer progreso real y publicar en Accounts cada snapshot ya
+  persistido. Se excluyeron schema/generated, Data concreta, SQLite y perfiles
+  reales, `nini-agents`, builds, instalacion, Git y cambios concurrentes ajenos.
+
+### Antes/despues, contratos y orden de efectos
+
+- Antes no existian chunks cerrados: `RefreshAllUsage` ya usaba un pool continuo
+  de workers, con concurrencia default 3 y configurable entre 1 y 6. Cada worker
+  tomaba el siguiente perfil al terminar, pero Presentation marcaba todas las
+  tarjetas como cargando y Accounts solo recibia la proyeccion nueva despues de
+  finalizar batch -> Activity -> Calendar -> Accounts.
+- Ahora Application informa targets elegibles, inicio, resultado y fallo por
+  perfil sin cambiar el pool. `UsageState` distingue `queued`, `running`,
+  `completed` y `failed`, conserva conteos inmutables y mantiene el snapshot
+  persistido mas reciente por perfil.
+- Accounts proyecta ese snapshot sobre su entidad vigente en memoria: la cuota
+  de una cuenta aparece al terminar esa consulta, mientras las demas siguen en
+  cola o ejecutandose. La proyeccion conserva metadata, costos y ultimo exito,
+  y rechaza una respuesta antigua para evitar que pise estado nuevo.
+- El header muestra `procesadas/total`, consultas activas, cola y errores; al
+  terminar proveedores mantiene feedback explicito con `Sincronizando vistas…`.
+  Solo las tarjetas realmente activas animan spinner; cola, exito y fallo usan
+  indicadores propios.
+- La reconciliacion persistida final sigue ocurriendo una sola vez y conserva el
+  orden Activity -> Calendar -> Accounts. Un fallo aplicado despues de guardar
+  snapshot tambien sincroniza las vistas antes de reportar el error; no se
+  agregaron recargas por cuenta ni consultas N+1.
+
+### Archivos, persistencia y concurrencia
+
+- Producto: `features/usage/application/usage_refresh.dart` y el nuevo
+  `usage_account_projection.dart`; estado/controller/coordinator de Usage;
+  `features/accounts/presentation/accounts_view.dart`; y
+  `features/dashboard/presentation/dashboard_shell.dart`.
+- Pruebas: Application y proyeccion de Usage, controller, coordinator,
+  caracterizacion visible del dashboard y widgets de tarjetas. Se preservaron
+  los cambios concurrentes ya presentes en Accounts/Settings/Heartbeat.
+- No cambiaron puertos de persistencia, repositorios concretos, schemaVersion,
+  tablas, migraciones, generated ni datos reales. La persistencia por perfil
+  mantiene su atomicidad existente; la actualizacion incremental es una
+  proyeccion reactiva de snapshots cuya escritura ya concluyo.
+- El batch conserva concurrencia acotada 1..6, default 3. Los callbacks son
+  sincronos y correlacionados con generacion/request del controller; las
+  sincronizaciones visibles se serializan y mantienen un contador para no
+  declarar idle entre recargas encadenadas.
+
+### Validacion, riesgos y siguiente gate
+
+- `dart format` se aplico a los Dart tocados. `flutter analyze` focalizado sobre
+  13 items de producto/prueba termino sin issues. Pasaron 32/32 pruebas de
+  Application/controllers/coordinator/Accounts, 27/27 de `widget_test.dart`,
+  el caso dirigido de progreso/sincronizacion del dashboard y la guarda
+  arquitectonica 1/1. `git diff --check` queda como verificacion final del delta.
+- La corrida completa previa de
+  `usage_legacy_characterization_test.dart` conserva un unico assertion legacy
+  ajeno: esperaba un overflow de marca de 25 px que el layout vigente ya no
+  produce. Se mantiene `separate_fix`; el nuevo escenario de progreso pasa de
+  forma aislada.
+- No se ejecutaron suite global, build, instalacion, runtime Linux/Windows con
+  perfiles reales, Codex real, escritura SQLite real, stage, commit, push, merge
+  ni release. La evidencia widget cubre el minimo desktop 900x620; falta QA-01B
+  en Windows real para el roadmap, sin ampliar la autorizacion de este fix.
+- Resultado: FIX-UX-USAGE-01 queda implementado y validado dentro del worktree.
+  El siguiente punto autorizado de migracion sigue siendo QA-01B; cualquier
+  ajuste del assertion legacy u otra expansion requiere alcance independiente.
+
 ## Formato de relevo obligatorio
 
 ```text

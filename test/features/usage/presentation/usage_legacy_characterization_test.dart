@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -107,6 +109,49 @@ void main() {
     },
   );
 
+  testWidgets('dashboard exposes batch progress and final synchronization', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(900, 620));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final providerGate = Completer<void>();
+    final activityReloadGate = Completer<void>();
+    final fixture = _PresentationFixture(
+      profiles: [_profile('primary')],
+      calendar: _calendar(),
+      providerGate: providerGate,
+      activityReloadGate: activityReloadGate,
+      concurrency: 1,
+    );
+    addTearDown(fixture.dispose);
+
+    await tester.pumpWidget(fixture.dashboardWidget());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.byTooltip('Actualizar todas las cuentas'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('0/1 · 1 activas'), findsOneWidget);
+    expect(
+      find.byTooltip('0 de 1 procesadas · 1 consultando · 0 en cola'),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+
+    providerGate.complete();
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('Sincronizando vistas…'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    activityReloadGate.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('Sincronizando vistas…'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'calendar preserves selection month navigation and trend ranges at 900x620',
     (tester) async {
@@ -188,11 +233,18 @@ final class _PresentationFixture {
     required List<Profile> profiles,
     required UsageCalendar calendar,
     Object? providerFailure,
+    Completer<void>? providerGate,
+    Completer<void>? activityReloadGate,
+    int concurrency = 3,
   }) : database = AppDatabase(NativeDatabase.memory()),
        events = <String>[] {
     final discovery = _RecordingDiscovery(profiles, events);
     final refreshProfile = RefreshProfileUsage(
-      provider: _RecordingUsageProvider(events, failure: providerFailure),
+      provider: _RecordingUsageProvider(
+        events,
+        failure: providerFailure,
+        gate: providerGate,
+      ),
       repository: _RecordingSnapshotRepository(events),
       activity: _RecordingUsageActivity(events),
       keepAlive: _RecordingKeepAlive(events),
@@ -209,8 +261,12 @@ final class _PresentationFixture {
       loadUsageCalendar: LoadUsageCalendar(
         repository: _RecordingCalendarRepository(calendar, events),
       ),
+      refreshConcurrency: () => concurrency,
     );
-    final activityRepository = _RecordingActivityRepository(events);
+    final activityRepository = _RecordingActivityRepository(
+      events,
+      gate: activityReloadGate,
+    );
     activityController = ActivityController(
       loadActivityHistory: LoadActivityHistory(repository: activityRepository),
       clearActivityHistory: ClearActivityHistory(
@@ -299,14 +355,17 @@ final class _RecordingDiscovery implements ProfileDiscovery {
 }
 
 final class _RecordingUsageProvider implements UsageProvider {
-  const _RecordingUsageProvider(this.events, {this.failure});
+  const _RecordingUsageProvider(this.events, {this.failure, this.gate});
 
   final List<String> events;
   final Object? failure;
+  final Completer<void>? gate;
 
   @override
   Future<UsageSnapshot> refresh(Profile profile) async {
     events.add('provider:${profile.id}');
+    final refreshGate = gate;
+    if (refreshGate != null) await refreshGate.future;
     final error = failure;
     if (error != null) throw error;
     return _snapshot();
@@ -370,13 +429,16 @@ final class _RecordingCalendarRepository implements UsageCalendarRepository {
 }
 
 final class _RecordingActivityRepository implements ActivityRepository {
-  const _RecordingActivityRepository(this.events);
+  const _RecordingActivityRepository(this.events, {this.gate});
 
   final List<String> events;
+  final Completer<void>? gate;
 
   @override
   Future<List<ActivityLog>> loadRecent({required int limit}) async {
     events.add('activity-reload');
+    final reloadGate = gate;
+    if (reloadGate != null) await reloadGate.future;
     return const [];
   }
 

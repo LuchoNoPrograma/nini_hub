@@ -87,8 +87,13 @@ final class UsageController extends Notifier<UsageState> {
     }
   }
 
-  Future<bool> refreshOne(String profileId) async {
-    if (state.isRefreshingAll || state.isRefreshingProfile(profileId)) {
+  Future<bool> refreshOne(
+    String profileId, {
+    UsageRefreshProgressCallback? onProgress,
+  }) async {
+    if (state.isRefreshingAll ||
+        state.isSynchronizing ||
+        state.isRefreshingProfile(profileId)) {
       return false;
     }
     final generation = _generation;
@@ -103,12 +108,18 @@ final class UsageController extends Notifier<UsageState> {
     );
 
     try {
-      await _dependencies.refreshUsage(profileId);
+      final snapshot = await _dependencies.refreshUsage(profileId);
       if (generation != _generation) return false;
+      _recordLatestSnapshot(profileId, snapshot);
+      onProgress?.call(profileId, snapshot);
       _finishProfileRefresh(profileId);
       return true;
     } catch (error) {
       if (generation != _generation) return false;
+      if (error case UsageRefreshAppliedFailure(:final snapshot)) {
+        _recordLatestSnapshot(profileId, snapshot);
+        onProgress?.call(profileId, snapshot);
+      }
       _finishProfileRefresh(
         profileId,
         failure: UsageOperationFailure(
@@ -120,12 +131,16 @@ final class UsageController extends Notifier<UsageState> {
     }
   }
 
-  Future<bool> refreshAll() async {
+  Future<bool> refreshAll({UsageRefreshProgressCallback? onProgress}) async {
     if (state.isRefreshing) return false;
     final generation = _generation;
     final request = ++_batchRequest;
     state = state.copyWith(
       isRefreshingAll: true,
+      batchTargetProfileIds: const {},
+      runningBatchProfileIds: const {},
+      failedBatchProfileIds: const {},
+      persistedBatchProfileIds: const {},
       completedBatchByProfile: const {},
       batchFailure: null,
     );
@@ -133,15 +148,34 @@ final class UsageController extends Notifier<UsageState> {
     try {
       final result = await _dependencies.refreshAllUsage(
         concurrency: _dependencies.refreshConcurrency(),
+        onTargets: (profileIds) {
+          if (!_isCurrentBatchRequest(generation, request)) return;
+          _recordBatchTargets(profileIds);
+        },
+        onStarted: (profileId) {
+          if (!_isCurrentBatchRequest(generation, request)) return;
+          _recordBatchStarted(profileId);
+        },
         onProgress: (profileId, snapshot) {
           if (!_isCurrentBatchRequest(generation, request)) return;
           _recordBatchProgress(profileId, snapshot);
+          onProgress?.call(profileId, snapshot);
+        },
+        onFailure: (profileId, error) {
+          if (!_isCurrentBatchRequest(generation, request)) return;
+          final snapshot = _recordBatchFailure(profileId, error);
+          if (snapshot != null) onProgress?.call(profileId, snapshot);
         },
       );
       if (!_isCurrentBatchRequest(generation, request)) return false;
       state = state.copyWith(
         isRefreshingAll: false,
+        runningBatchProfileIds: const {},
         completedBatchByProfile: result.byProfile,
+        persistedBatchProfileIds: {
+          ...state.persistedBatchProfileIds,
+          ...result.byProfile.keys,
+        },
         profileFailures: _withoutCompletedFailures(result.byProfile),
       );
       return true;
@@ -153,6 +187,7 @@ final class UsageController extends Notifier<UsageState> {
       };
       state = state.copyWith(
         isRefreshingAll: false,
+        runningBatchProfileIds: const {},
         completedBatchByProfile: completed,
         profileFailures: _withoutCompletedFailures(completed),
         batchFailure: UsageOperationFailure(
@@ -167,6 +202,11 @@ final class UsageController extends Notifier<UsageState> {
   void clearCalendarFailure() {
     if (state.calendarFailure == null) return;
     state = state.copyWith(calendarFailure: null);
+  }
+
+  void setSynchronizing(bool value) {
+    if (state.isSynchronizing == value) return;
+    state = state.copyWith(isSynchronizing: value);
   }
 
   void clearBatchFailure() {
@@ -210,6 +250,35 @@ final class UsageController extends Notifier<UsageState> {
     );
   }
 
+  void _recordLatestSnapshot(String profileId, UsageSnapshot snapshot) {
+    final latest = Map<String, UsageSnapshot>.of(state.latestSnapshotByProfile);
+    final current = latest[profileId];
+    if (current == null || !snapshot.startedAt.isBefore(current.startedAt)) {
+      latest[profileId] = snapshot;
+      state = state.copyWith(latestSnapshotByProfile: latest);
+    }
+  }
+
+  void _recordBatchTargets(List<String> profileIds) {
+    final targets = profileIds.toSet();
+    final failures = Map<String, UsageOperationFailure>.of(
+      state.profileFailures,
+    )..removeWhere((profileId, _) => targets.contains(profileId));
+    state = state.copyWith(
+      batchTargetProfileIds: targets,
+      runningBatchProfileIds: const {},
+      failedBatchProfileIds: const {},
+      persistedBatchProfileIds: const {},
+      profileFailures: failures,
+    );
+  }
+
+  void _recordBatchStarted(String profileId) {
+    final running = Set<String>.of(state.runningBatchProfileIds)
+      ..add(profileId);
+    state = state.copyWith(runningBatchProfileIds: running);
+  }
+
   void _recordBatchProgress(String profileId, UsageSnapshot snapshot) {
     final completed = Map<String, UsageSnapshot>.of(
       state.completedBatchByProfile,
@@ -217,10 +286,55 @@ final class UsageController extends Notifier<UsageState> {
     final failures = Map<String, UsageOperationFailure>.of(
       state.profileFailures,
     )..remove(profileId);
+    final running = Set<String>.of(state.runningBatchProfileIds)
+      ..remove(profileId);
+    final persisted = Set<String>.of(state.persistedBatchProfileIds)
+      ..add(profileId);
+    final latest = Map<String, UsageSnapshot>.of(state.latestSnapshotByProfile);
+    final current = latest[profileId];
+    if (current == null || !snapshot.startedAt.isBefore(current.startedAt)) {
+      latest[profileId] = snapshot;
+    }
     state = state.copyWith(
+      runningBatchProfileIds: running,
+      persistedBatchProfileIds: persisted,
       completedBatchByProfile: completed,
+      latestSnapshotByProfile: latest,
       profileFailures: failures,
     );
+  }
+
+  UsageSnapshot? _recordBatchFailure(String profileId, Object error) {
+    final running = Set<String>.of(state.runningBatchProfileIds)
+      ..remove(profileId);
+    final failed = Set<String>.of(state.failedBatchProfileIds)..add(profileId);
+    final failures =
+        Map<String, UsageOperationFailure>.of(state.profileFailures)
+          ..[profileId] = UsageOperationFailure(
+            cause: error,
+            message: _refreshFailureMessage(error),
+          );
+    final snapshot = switch (error) {
+      UsageRefreshAppliedFailure(:final snapshot) => snapshot,
+      _ => null,
+    };
+    final persisted = Set<String>.of(state.persistedBatchProfileIds);
+    final latest = Map<String, UsageSnapshot>.of(state.latestSnapshotByProfile);
+    if (snapshot != null) {
+      persisted.add(profileId);
+      final current = latest[profileId];
+      if (current == null || !snapshot.startedAt.isBefore(current.startedAt)) {
+        latest[profileId] = snapshot;
+      }
+    }
+    state = state.copyWith(
+      runningBatchProfileIds: running,
+      failedBatchProfileIds: failed,
+      persistedBatchProfileIds: persisted,
+      latestSnapshotByProfile: latest,
+      profileFailures: failures,
+    );
+    return snapshot;
   }
 
   Map<String, UsageOperationFailure> _withoutCompletedFailures(

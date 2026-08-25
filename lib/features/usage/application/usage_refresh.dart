@@ -9,6 +9,10 @@ import 'package:nini_hub/features/usage/domain/usage_ports.dart';
 
 typedef UsageRefreshProgressCallback =
     void Function(String profileId, UsageSnapshot snapshot);
+typedef UsageBatchTargetsCallback = void Function(List<String> profileIds);
+typedef UsageBatchProfileCallback = void Function(String profileId);
+typedef UsageBatchFailureCallback =
+    void Function(String profileId, Object error);
 
 final class UsageBatchResult {
   UsageBatchResult(Map<String, UsageSnapshot> byProfile)
@@ -109,13 +113,17 @@ final class RefreshAllUsage {
 
   Future<UsageBatchResult> call({
     int concurrency = 3,
+    UsageBatchTargetsCallback? onTargets,
+    UsageBatchProfileCallback? onStarted,
     UsageRefreshProgressCallback? onProgress,
+    UsageBatchFailureCallback? onFailure,
   }) async {
     final profiles = await discovery.discover();
     final targets = profiles.where((profile) {
       final provider = profileProviderOrNull(profile.toolKey);
       return profile.isAvailable && provider?.supportsUsage == true;
     }).toList();
+    onTargets?.call(List.unmodifiable(targets.map((profile) => profile.id)));
     if (targets.isEmpty) return UsageBatchResult(const {});
 
     final queue = Queue<Profile>.from(targets);
@@ -127,11 +135,13 @@ final class RefreshAllUsage {
     Future<void> worker() async {
       while (queue.isNotEmpty) {
         final profile = queue.removeFirst();
+        onStarted?.call(profile.id);
         try {
           final snapshot = await refreshProfile(profile);
           completed[profile.id] = snapshot;
           onProgress?.call(profile.id, snapshot);
         } catch (error) {
+          onFailure?.call(profile.id, error);
           firstFailure ??= error;
           failedProfileId ??= profile.id;
           return;
