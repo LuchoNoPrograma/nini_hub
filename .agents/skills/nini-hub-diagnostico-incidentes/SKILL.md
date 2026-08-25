@@ -16,7 +16,7 @@ Localizar la primera divergencia entre comportamiento esperado y observado conse
 
 ## Fuentes
 
-- Leer `AGENTS.md`, `.agents/references/project-index.md` y la bitacora si el incidente aparece durante la migracion.
+- Leer `AGENTS.md` y `.agents/references/project-index.md`; consultar la bitacora solo si el incidente afecta compatibilidad legacy, QA de plataforma o cutover.
 - Revisar logs sanitizados, pruebas, codigo consumidor y cambios concurrentes sin modificar el sistema.
 
 ## Patrones del proyecto
@@ -30,7 +30,7 @@ Localizar la primera divergencia entre comportamiento esperado y observado conse
 1. Definir sintoma, alcance, frecuencia, plataforma, ultima version conocida y resultado esperado.
 2. Trazar el recorrido desde la accion visible hasta el primer estado o efecto divergente.
 3. Separar evidencia observada, inferencias e hipotesis; descartar cada hipotesis con una comprobacion focalizada.
-4. Clasificar la conducta como `preserve`, `separate_fix` o `blocked_pending_decision`.
+4. Clasificar la conducta como comportamiento vigente, compatibilidad a preservar, `separate_fix` o bloqueo demostrado.
 5. Reportar causa o punto de bloqueo, impacto y validacion necesaria sin implementar el fix.
 
 ## Reglas

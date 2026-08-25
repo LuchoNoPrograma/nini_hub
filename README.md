@@ -9,22 +9,23 @@ su disponibilidad, administrar suscripciones y lanzar agentes en diferentes
 carpetas de trabajo desde un solo lugar.
 
 Nini Hub está pensado para quienes trabajan con varias cuentas de **Codex**
-y **Claude Code**. Reúne los perfiles creados con Multi CLI, sus cuotas, sus
-renovaciones y los proyectos donde se utilizan, evitando saltar entre comandos,
-carpetas y anotaciones separadas.
+y **Claude Code**. Reúne perfiles administrados por `nini-agents`, incluidos
+perfiles compatibles creados anteriormente con Multi CLI, junto con sus cuotas,
+renovaciones y proyectos.
 
-## Basado en Multi CLI
+## Motor y compatibilidad
 
-Nini Hub se construye sobre
+Nini Hub conserva linaje y compatibilidad de perfiles con
 [multi-cli de Spielewoy](https://github.com/Spielewoy/multi-cli), el proyecto
-open source que proporciona la creación, separación y lanzamiento de perfiles
-para herramientas de programación con IA.
+open source que introdujo la creación y separación de perfiles para herramientas
+de programación con IA.
 
-Multi CLI administra los perfiles y su aislamiento a nivel de sistema;
-Nini Hub añade la experiencia visual para descubrirlos, organizarlos,
-consultar cuotas compatibles, registrar suscripciones y abrir cada agente en el
-workspace adecuado. Ambos proyectos mantienen responsabilidades distintas y
-Multi CLI continúa siendo el motor de perfiles utilizado por esta aplicación.
+El motor vigente es `nini-agents`: administra discovery, lifecycle y launch de
+perfiles mediante contratos machine-safe. Nini Hub es el plano de control
+desktop para organizarlos, consultar cuotas compatibles, registrar
+suscripciones y abrir cada agente en el workspace adecuado. Nombres como
+`MULTICLI_HOME` y `~/MultiCliProfiles` se preservan para no romper perfiles
+existentes; no representan el motor actual.
 
 ## Vista previa
 
@@ -39,14 +40,14 @@ Multi CLI continúa siendo el motor de perfiles utilizado por esta aplicación.
 ## Funciones principales
 
 - Descubre automáticamente perfiles de Codex y Claude Code administrados por
-  Multi CLI.
+  `nini-agents`.
 - Crea perfiles compartidos, independientes o específicos para CLI.
 - Renombra, elimina y abre perfiles sin abandonar la aplicación.
 - Consulta la identidad, el plan y las cuotas reales disponibles para Codex.
 - Actualiza todas las cuentas con concurrencia acotada y diferencia el estado
   actual del último resultado exitoso.
-- Puede iniciar en segundo plano una ventana semanal de Codex que siga casi
-  intacta, con una consulta breve y deduplicada por cuenta.
+- Puede iniciar en segundo plano una ventana de Codex que siga casi intacta,
+  respetando el ciclo informado para la cuenta.
 - Registra compras, precios, monedas, ciclos de facturación y próximas
   renovaciones.
 - Organiza pagos compartidos, aportes pendientes y notas por suscripción.
@@ -58,9 +59,9 @@ Multi CLI continúa siendo el motor de perfiles utilizado por esta aplicación.
 
 ## Perfiles y workspaces
 
-Cada perfil representa un entorno separado administrado por Multi CLI. Puede
-usar la configuración principal, ser independiente o compartir ajustes según el
-tipo elegido al crearlo.
+Cada perfil representa un entorno separado administrado por `nini-agents`.
+Puede usar la configuración principal, ser independiente o compartir ajustes
+según el tipo elegido al crearlo.
 
 Los workspaces se administran de forma global. Desde **Lanzar agente** se puede:
 
@@ -76,7 +77,7 @@ qué perfil tiene disponibilidad o cuál corresponde a cada trabajo.
 
 | Capacidad | Codex | Claude Code |
 | --- | :---: | :---: |
-| Descubrir perfiles Multi CLI | Sí | Sí |
+| Descubrir perfiles administrados | Sí | Sí |
 | Crear perfiles compartidos o aislados | Sí | Sí |
 | Lanzar en un workspace | Sí | Sí |
 | Consultar identidad y cuotas | Sí | No expuesto por el CLI |
@@ -111,7 +112,7 @@ Las consultas exitosas alimentan un historial local que permite visualizar:
 - Calendario mensual de actividad.
 - Consumo y cuota disponible por cuenta.
 - Tendencias de 7, 14, 30 y 90 días.
-- Próximos reinicios de cuota.
+- Próximos reinicios de cuota, diferenciando anclas confirmadas de estimaciones.
 
 Una consulta fallida nunca reemplaza silenciosamente el último dato válido. La
 interfaz muestra por separado el resultado actual y la fecha del último éxito.
@@ -137,8 +138,8 @@ caso contrario se utiliza `~/MultiCliProfiles`.
 - Drift y SQLite para persistencia local.
 - JSON-RPC para la integración con Codex app-server.
 - `fl_chart` y `table_calendar` para estadísticas.
-- [Multi CLI](https://github.com/Spielewoy/multi-cli) para crear, separar,
-  administrar y lanzar perfiles.
+- `nini-agents` para descubrir, crear, administrar y lanzar perfiles.
+- Compatibilidad de datos y rutas con perfiles existentes de Multi CLI.
 
 ## Arquitectura
 
@@ -161,13 +162,13 @@ lib/
 ```
 
 La interfaz trabaja con modelos comunes. Las particularidades de cada CLI se
-encapsulan en proveedores y gateways, de modo que una capacidad ausente no se
-presente como disponible.
+encapsulan en proveedores y adaptadores, de modo que una capacidad ausente no
+se presente como disponible.
 
 ## Requisitos
 
 - Flutter con soporte de escritorio habilitado.
-- [Multi CLI](https://github.com/Spielewoy/multi-cli) disponible en el `PATH`.
+- `nini-agents` disponible en el `PATH`.
 - Codex y/o Claude Code instalados según los perfiles que se utilizarán.
 - Linux para el entorno principal de desarrollo o Windows para generar el build
   nativo de esa plataforma.

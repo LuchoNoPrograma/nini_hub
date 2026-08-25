@@ -8,11 +8,12 @@
 - Administra datos locales reales, perfiles de herramientas de IA, credenciales
   controladas por cada herramienta, suscripciones, cuotas, workspaces, actividad
   y procesos.
-- `nini-agents` es el motor objetivo. Nini Hub es el plano de control desktop;
+- `nini-agents` es el motor vigente. Nini Hub es el plano de control desktop;
   no debe reimplementar dentro de Flutter el ownership del motor.
-- Durante la migracion, nombres `multi_cli_ai`, `MultiCli*` y rutas legacy pueden
-  seguir presentes. No tratarlos como identidad objetivo ni retirarlos sin una
-  fraccion aprobada.
+- Nombres `multi_cli_ai`, `MultiCli*`, `MULTICLI_HOME` y rutas legacy que aun
+  existen son compatibilidad preservada, no identidad objetivo ni evidencia de
+  una migracion activa. No retirarlos sin un alcance de compatibilidad/cutover
+  aprobado.
 - No tratar el proyecto como Android ni asumir capacidades fuera del escritorio.
 
 ## Lectura obligatoria
@@ -22,8 +23,9 @@ Antes de planificar o ejecutar trabajo relevante, leer en este orden:
 1. `AGENTS.md`.
 2. `.agents/references/architecture.md`.
 3. `.agents/references/project-index.md` para localizar owners y contratos.
-4. `.agents/references/product-migration.md` cuando el trabajo forme parte del
-   rebranding, SQLite, reemplazo del motor, cutover o deprecacion.
+4. `.agents/references/product-migration.md` solo cuando el trabajo afecte
+   bootstrap/rollback SQLite, compatibilidad legacy, QA de plataforma, cutover
+   o deprecacion.
 5. Las skills canonicas que correspondan al alcance real.
 
 Revalidar branch, HEAD, worktree, rutas y contratos cuando difieran del snapshot
@@ -40,17 +42,16 @@ del codigo vigente.
   schema, proceso, plataforma, permiso del sistema o efecto secundario, detenerse
   y solicitar ampliacion.
 - Analisis, diagnostico, explicacion o plan no autorizan implementar.
-- No mezclar una feature o fix con una fraccion amplia de migracion no aprobada.
+- No mezclar una feature o fix con compatibilidad legacy, QA o cutover no
+  aprobados.
 - Modificar `/home/nini/IdeaProjects/nini-agents`,
   `/home/nini/StudioProjects/multi_cli_ai`, Codexporter, datos reales o remotos
   externos requiere alcance y aprobacion separados.
 
 ## Skills canonicas
 
-Las skills vigentes viven exclusivamente en `.agents/skills/`:
+Las cinco skills vigentes viven exclusivamente en `.agents/skills/`:
 
-- `nini-hub-migrate-product`: migracion por fracciones, equivalencia, SQLite,
-  integracion con `nini-agents`, cutover y relevo.
 - `nini-hub-feature-integral`: features o cambios reales en dos o mas capas.
 - `nini-hub-domain-application`: entidades, reglas, casos de uso, puertos y
   fallos.
@@ -62,8 +63,8 @@ Las skills vigentes viven exclusivamente en `.agents/skills/`:
   concurrencia o resultado inconsistente sin implementar el fix.
 
 Activar solo las skills necesarias. La orquestadora no reemplaza las skills de
-capa. Ante un posible bug durante una migracion, diagnosticar y registrar
-`preserve`, `separate_fix` o `blocked` antes de cambiar conducta.
+capa. Ante un posible bug, diagnosticar antes de implementar; si afecta
+compatibilidad o Cierre, registrar `preserve`, `separate_fix` o `blocked`.
 
 ## Arquitectura oficial
 
@@ -80,24 +81,26 @@ app -> composicion de implementaciones concretas
 - `presentation` contiene estado visual y UI; no importa Data, Drift,
   filesystem, procesos ni gateways concretos.
 - `app` contiene composition root, shell, tema y navegacion; no reglas.
-- Durante la transicion, `core/database` es infraestructura Data compartida.
-  Solo Data y App pueden importarla.
+- `core/database` es infraestructura Data compartida. Solo Data y App pueden
+  importarla.
 - Crear solo artefactos con responsabilidad real. No completar plantillas con
   interfaces, DTO, mappers o estados vacios.
 
-## Migracion del producto
+## Compatibilidad y cierre
 
-- La bitacora parte de `0/14`, agrupada en siete bloques de dos puntos: Base,
-  Identidad, Datos, Motor, Perfiles, Operacion y Cierre.
-- Mantener una sola fraccion activa y una puerta de salida verificable.
-- Conservar comportamiento, datos, IDs, nulabilidad, UTC, procesos, timeouts,
-  perfiles, workspaces y settings aplicables.
-- Registrar cada corte en `.agents/references/product-migration.md`: HEAD,
-  archivos, contratos, decisiones, validacion, riesgos y siguiente accion.
-- El historial de MultiCLI AI es evidencia legacy. La gobernanza activa de Nini
-  Hub comienza en cero y no copia estados `complete` del proyecto anterior.
-- No presentar una capacidad de `nini-agents` como disponible solo porque este
-  documentada como objetivo. Verificar implementacion, pruebas y worktree real.
+- La implementacion principal de identidad, datos, motor, perfiles y operacion
+  ya esta migrada. La bitacora operativa conserva el roadmap formal `12/14`, con
+  QA Windows y cutover/deprecacion aun pendientes.
+- El archivo historico de migracion es auditoria, no lectura ordinaria ni fuente
+  de autorizacion. No acumular alli nuevas narraciones de features.
+- Mantener una sola fraccion de Cierre activa y una puerta verificable.
+- Conservar datos, IDs, nulabilidad, UTC, procesos, timeouts, perfiles,
+  workspaces, settings y rollback aplicables.
+- Registrar en la bitacora solo cambios del snapshot, decisiones, riesgos,
+  compatibilidad o gates. Los detalles de features viven en codigo, pruebas e
+  indice.
+- No presentar una capacidad de `nini-agents` como distribuida solo porque
+  exista en el checkout local. Verificar implementacion, pruebas y release real.
 
 ## Dominio y aplicacion
 
@@ -116,8 +119,8 @@ app -> composicion de implementaciones concretas
 ## Datos e integraciones desktop
 
 - Tratar SQLite como datos reales. Conservar schema, ruta de upgrade y rollback.
-- La migracion aprobada es unica e idempotente: no compartir el mismo archivo
-  SQLite vivo entre MultiCLI AI y Nini Hub.
+- La importacion historica fue unica e idempotente. Nini Hub usa su archivo
+  SQLite propio; no volver a compartirlo vivo con MultiCLI AI.
 - Si existe WAL, no copiar solamente el archivo `.sqlite`. Validar consistencia,
   destino ausente/existente, repeticion e interrupcion.
 - No editar `app_database.g.dart`; regenerarlo solo dentro de un cambio de schema
@@ -147,8 +150,8 @@ app -> composicion de implementaciones concretas
 
 ## Git, repositorios y scripts
 
-- Esta repo conserva el historial de MultiCLI AI, pero debe usar un remoto nuevo
-  e independiente cuando ese corte sea autorizado.
+- Esta repo conserva el historial de MultiCLI AI y usa un remoto Nini Hub nuevo
+  e independiente.
 - No agregar como `origin` el repositorio histórico ni empujar a su remoto.
 - No revertir, borrar, stagear, des-stagear, commitear o empujar sin instruccion
   expresa.
@@ -165,8 +168,9 @@ app -> composicion de implementaciones concretas
   alcance aprobado.
 - Ejecutar `test/architecture/import_boundaries_test.dart` cuando cambien
   limites o composicion.
-- Para skills, ejecutar `quick_validate.py`, comprobar disparadores, nombres
-  heredados, rutas inexistentes, contradicciones y secretos.
+- Para skills, ejecutar `quick_validate.py` cuando exista; si no esta disponible,
+  registrar la limitacion y comprobar frontmatter, disparadores, nombres,
+  rutas, contradicciones y secretos con validaciones equivalentes.
 - No afirmar que compila, migra o funciona en Linux/Windows sin evidencia.
 
 ## Seguimiento y cierre
@@ -180,5 +184,6 @@ Al cerrar una fraccion informar:
 4. **Validacion y pendientes:** evidencia, validaciones no ejecutadas, riesgos y
    pruebas manuales.
 
-Actualizar la bitacora en el mismo delta autorizado. El relevo debe indicar sin
-ambiguedad que esta aprobado, que esta prohibido y cual es la siguiente accion.
+Actualizar la bitacora en el mismo delta solo cuando cambien compatibilidad,
+riesgos o gates. El relevo debe indicar sin ambiguedad que esta aprobado, que
+esta prohibido y cual es la siguiente accion.

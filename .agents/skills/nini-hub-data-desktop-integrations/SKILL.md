@@ -12,11 +12,12 @@ Encapsular persistencia e integraciones de escritorio tras puertos estables sin 
 ## Alcance del proyecto
 
 - Implementaciones bajo `lib/features/{feature}/data`, infraestructura compartida en `lib/core/database` y `lib/core/process`, y adaptadores de plataforma autorizados.
-- Compatibilidad con SQLite schema v2, rutas legacy, WAL, perfiles, procesos y contratos machine-safe de nini-agents.
+- SQLite schema v2 ya importada al soporte propio de Nini Hub; ownership `NHUB`, rutas/rollback legacy, WAL, perfiles, procesos y contratos machine-safe de nini-agents siguen siendo compatibilidad protegida.
 
 ## Fuentes
 
-- Leer `AGENTS.md`, `.agents/references/architecture.md`, las secciones de persistencia e integraciones de `.agents/references/project-index.md` y la fraccion activa si existe.
+- Leer `AGENTS.md`, `.agents/references/architecture.md` y las secciones de persistencia e integraciones de `.agents/references/project-index.md`.
+- Leer `.agents/references/product-migration.md` solo para bootstrap/rollback SQLite, QA Windows o cutover; el historial detallado no es contexto ordinario.
 - Contrastar schema, upgrade y datos solo en el entorno autorizado; nunca inferir una migracion desde el modelo generado.
 
 ## Patrones del proyecto
@@ -24,6 +25,7 @@ Encapsular persistencia e integraciones de escritorio tras puertos estables sin 
 - `lib/features/profiles/data/drift_profile_repository.dart` - `DriftProfileRepository`: recibe `AppDatabase`, limita la query y mapea rows dentro de Data.
 - `lib/core/process/process_runner.dart` - `ProcessRunner`: ejecutable y argumentos separados, timeout, redaccion y Activity persistida.
 - `lib/core/database/app_database.dart` - `AppDatabase`: tablas Drift, schemaVersion y estrategia de upgrade vigente.
+- `lib/core/database/legacy_database_migrator.dart` - `LegacyDatabaseMigrator`: importacion historica, ownership del destino y rollback sin compartir una SQLite viva.
 
 ## Flujo
 

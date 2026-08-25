@@ -1,6 +1,6 @@
 ---
 name: nini-hub-feature-integral
-description: Orquestar features de Nini Hub que creen un flujo nuevo o cambien realmente dos o mas capas entre Domain/Application, Data, Presentation y App. Usar para coordinar contratos y entrega vertical; no usar para cambios aislados, migracion legacy ni diagnostico sin fix autorizado.
+description: Orquestar features de Nini Hub que creen un flujo nuevo o cambien realmente dos o mas capas entre Domain/Application, Data, Presentation y App. Usar para coordinar contratos y entrega vertical; no usar para cambios aislados, compatibilidad SQLite/cutover ni diagnostico sin fix autorizado.
 ---
 
 # Nini Hub Feature Integral

@@ -2,12 +2,11 @@
 
 ## Estado y objetivo
 
-Nini Hub adopta una Clean Architecture ligera por feature para Flutter Desktop.
-El source heredado ya separa la mayor parte de Domain, Application, Data,
-Presentation y App. La identidad de producto, paquete y ejecutables ya es Nini
-Hub; las integraciones `MultiCli*` y el nombre logico SQLite `multicli_ai`
-permanecen como contratos legacy preservados hasta su reemplazo verificado por
-`nini-agents` y la migracion unica de datos.
+Nini Hub usa una Clean Architecture ligera por feature para Flutter Desktop.
+La identidad, datos, motor, perfiles y operacion principales ya funcionan como
+Nini Hub sobre `nini-agents`. Los nombres `MultiCli*`, `MULTICLI_HOME`, rutas de
+perfiles y el nombre logico SQLite `multicli_ai` que aun existen son contratos
+de compatibilidad preservados, no arquitectura objetivo pendiente.
 
 ```text
 Flutter view/widget/dialog
@@ -36,9 +35,9 @@ Drift | filesystem | Process | terminal | nini-agents | Codex JSON-RPC
 | `presentation` | Application y modelos visibles de Domain | Data, Drift, filesystem, procesos |
 | `app` | Todas, solo para composicion | Reglas, queries o parsing de proveedores |
 
-`core` contiene solo capacidades compartidas con ownership real. Durante la
-transicion, `core/database` es infraestructura Data compartida y solo puede ser
-importada por Data y App.
+`core` contiene solo capacidades compartidas con ownership real.
+`core/database` es infraestructura Data compartida y solo puede ser importada
+por Data y App.
 
 ## Estructura
 
@@ -144,7 +143,7 @@ Settings gate
   -> Accounts
 ```
 
-El composition root conserva este orden hasta que una fraccion aprobada lo
+El composition root conserva este orden salvo que un cambio aprobado lo
 caracterice y sustituya.
 
 ## Persistencia
@@ -152,10 +151,10 @@ caracterice y sustituya.
 - Rows y companions permanecen en Data y se mapean a entidades.
 - SQLite filtra, ordena, agrega y limita; evitar queries por fila y tablas
   completas para contar.
-- Mantener schema, IDs, nulabilidad, dinero y UTC durante el cambio de identidad.
+- Mantener schema, IDs, nulabilidad, dinero y UTC en todo cambio compatible.
 - Un cambio de ubicacion no implica cambio de schema.
-- La migracion legacy a Nini Hub debe ser unica, idempotente, consistente con
-  WAL y reversible mediante copia conservada.
+- La importacion legacy a Nini Hub ya fue unica. Bootstrap y reparaciones deben
+  reconocer ownership `NHUB`, ser consistentes con WAL y conservar rollback.
 - No abrir simultaneamente el mismo archivo fisico desde la aplicacion vieja y
   la nueva.
 
@@ -205,4 +204,4 @@ adaptadores Data.
 - Procesos, rutas, secretos, timeout y plataforma quedan controlados.
 - Formato, analisis y pruebas focalizadas cubren el delta.
 - `test/architecture/import_boundaries_test.dart` mantiene los limites y su
-  baseline explicita durante la transicion.
+  baseline explicita.
