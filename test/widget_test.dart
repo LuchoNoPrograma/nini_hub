@@ -835,8 +835,8 @@ void main() {
     expect(data.lengthInBytes, greaterThan(1000));
   });
 
-  testWidgets('account card fits two distinct quota stacks', (tester) async {
-    await tester.binding.setSurfaceSize(const Size(460, 280));
+  testWidgets('account card fits every distinct quota stack', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(460, 320));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final database = AppDatabase(NativeDatabase.memory());
     addTearDown(database.close);
@@ -875,7 +875,8 @@ void main() {
         QuotaWindow(
           id: 'short',
           checkId: 'check',
-          limitId: 'codex',
+          limitId: 'codex_bengalfox',
+          limitName: 'GPT-5.3-Codex-Spark',
           windowType: 'primary',
           usedPercent: 12,
           windowDurationMinutes: 300,
@@ -885,10 +886,20 @@ void main() {
           id: 'weekly',
           checkId: 'check',
           limitId: 'codex',
-          windowType: 'secondary',
+          windowType: 'primary',
           usedPercent: 7,
           windowDurationMinutes: 10080,
           resetsAt: now.add(const Duration(days: 6)),
+        ),
+        QuotaWindow(
+          id: 'spark-weekly',
+          checkId: 'check',
+          limitId: 'codex_bengalfox',
+          limitName: 'GPT-5.3-Codex-Spark',
+          windowType: 'secondary',
+          usedPercent: 0,
+          windowDurationMinutes: 10080,
+          resetsAt: now.add(const Duration(days: 7)),
         ),
       ],
       lastSuccessfulCheck: check,
@@ -968,7 +979,7 @@ void main() {
           body: Center(
             child: SizedBox(
               width: 430,
-              height: 216,
+              height: 250,
               child: AccountCard(
                 account: account,
                 refreshing: false,
@@ -1013,17 +1024,23 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('codex-ari'), findsOneWidget);
-    expect(find.text('Ventana de 5 h'), findsOneWidget);
-    expect(find.text('Límite semanal'), findsOneWidget);
+    expect(find.text('GPT-5.3-Codex-Spark · Ventana de 5 h'), findsOneWidget);
+    expect(find.text('Codex · Límite semanal'), findsOneWidget);
+    expect(find.text('GPT-5.3-Codex-Spark · Límite semanal'), findsOneWidget);
     expect(find.text('93% disponible'), findsOneWidget);
+    final snapshotAge = find.byKey(const ValueKey('quota-snapshot-age-ari'));
+    expect(snapshotAge, findsOneWidget);
     expect(find.byTooltip('Lanzar agente con Ari'), findsOneWidget);
     final terminalRect = tester.getRect(
       find.byTooltip('Lanzar agente con Ari'),
     );
+    final snapshotAgeRect = tester.getRect(snapshotAge);
     final refreshRect = tester.getRect(
       find.byTooltip('Consultar sólo esta cuenta'),
     );
-    expect(terminalRect.right, lessThanOrEqualTo(refreshRect.left));
+    expect(terminalRect.right, lessThanOrEqualTo(snapshotAgeRect.left));
+    expect(snapshotAgeRect.right, lessThanOrEqualTo(refreshRect.left));
+    expect(snapshotAgeRect.center.dy, closeTo(refreshRect.center.dy, 1));
     expect(
       tester
           .widget<Icon>(
@@ -1048,7 +1065,7 @@ void main() {
     );
     final cardRect = tester.getRect(find.byType(AccountCard));
     final availableRect = tester.getRect(find.text('93% disponible'));
-    final weeklyRect = tester.getRect(find.text('Límite semanal'));
+    final weeklyRect = tester.getRect(find.text('Codex · Límite semanal'));
     final weeklyResetRect = tester.getRect(
       find.textContaining('Reinicia en').last,
     );
@@ -1199,8 +1216,14 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Ventana de 5 h'), findsOneWidget);
-    expect(find.text('Límite semanal'), findsNothing);
+    expect(find.text('GPT-5.3-Codex-Spark · Ventana de 5 h'), findsOneWidget);
+    expect(find.textContaining('Límite semanal'), findsNothing);
+    expect(
+      tester
+          .widget<Text>(find.byKey(const ValueKey('quota-snapshot-age-ari')))
+          .data,
+      contains('+2'),
+    );
     expect(tester.takeException(), isNull);
 
     final reserveAccount = _domainAccount(
@@ -1314,17 +1337,36 @@ void main() {
     await database.into(database.cliProfiles).insert(accountProfile);
     await database.into(database.cliProfiles).insert(zoeProfile);
     await database.into(database.usageChecks).insert(zoeCheck);
-    await database
-        .into(database.quotaWindows)
-        .insert(
-          QuotaWindow(
-            id: 'zoe-quota',
-            checkId: zoeCheck.id,
-            limitId: 'codex',
-            windowType: 'primary',
-            usedPercent: 20,
-          ),
-        );
+    await database.batch((batch) {
+      batch.insertAll(database.quotaWindows, [
+        QuotaWindow(
+          id: 'zoe-spark-short',
+          checkId: zoeCheck.id,
+          limitId: 'codex_bengalfox',
+          limitName: 'GPT-5.3-Codex-Spark',
+          windowType: 'primary',
+          usedPercent: 0,
+          windowDurationMinutes: 300,
+        ),
+        QuotaWindow(
+          id: 'zoe-codex-weekly',
+          checkId: zoeCheck.id,
+          limitId: 'codex',
+          windowType: 'primary',
+          usedPercent: 28,
+          windowDurationMinutes: 10080,
+        ),
+        QuotaWindow(
+          id: 'zoe-spark-weekly',
+          checkId: zoeCheck.id,
+          limitId: 'codex_bengalfox',
+          limitName: 'GPT-5.3-Codex-Spark',
+          windowType: 'secondary',
+          usedPercent: 0,
+          windowDurationMinutes: 10080,
+        ),
+      ]);
+    });
     final launcher = _RecordingWorkspaceAgentLauncher();
     final workspaces = [
       Workspace(
@@ -1399,6 +1441,26 @@ void main() {
       isTrue,
     );
     await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AccountCard), findsNWidgets(2));
+    for (final card in tester.widgetList<AccountCard>(
+      find.byType(AccountCard),
+    )) {
+      expect(tester.getSize(find.byWidget(card)).height, closeTo(252, .1));
+    }
+    expect(find.text('Codex · Límite semanal'), findsOneWidget);
+    expect(find.text('GPT-5.3-Codex-Spark · Límite semanal'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.binding.setSurfaceSize(const Size(1920, 1080));
+    await tester.pumpAndSettle();
+    final accountGrid = tester.widget<SliverGrid>(find.byType(SliverGrid));
+    final gridDelegate =
+        accountGrid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount;
+    expect(gridDelegate.crossAxisCount, 4);
+    expect(tester.takeException(), isNull);
+    await tester.binding.setSurfaceSize(const Size(900, 620));
     await tester.pumpAndSettle();
 
     expect(find.widgetWithText(ChoiceChip, 'Nombre'), findsOneWidget);

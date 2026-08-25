@@ -346,7 +346,9 @@ class AccountsView extends ConsumerWidget {
             sliver: SliverLayoutBuilder(
               builder: (context, constraints) {
                 final width = constraints.crossAxisExtent;
-                final columns = width >= 1120
+                final columns = width >= 1800
+                    ? 4
+                    : width >= 1120
                     ? 3
                     : width >= 720
                     ? 2
@@ -354,13 +356,17 @@ class AccountsView extends ConsumerWidget {
                 const spacing = 10.0;
                 final extent = (width - spacing * (columns - 1)) / columns;
                 final densityScale = cardLayout.fontScale.clamp(.9, 1.2);
+                final cardExtent = _accountCardExtent(
+                  accounts: visibleAccounts,
+                  compact: cardLayout.compactCards,
+                  densityScale: densityScale,
+                );
                 return SliverGrid(
                   gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: columns,
                     crossAxisSpacing: spacing,
                     mainAxisSpacing: spacing,
-                    mainAxisExtent:
-                        (cardLayout.compactCards ? 213 : 246) * densityScale,
+                    mainAxisExtent: cardExtent,
                   ),
                   delegate: SliverChildBuilderDelegate((context, index) {
                     final account = visibleAccounts[index];
@@ -459,6 +465,27 @@ class AccountsView extends ConsumerWidget {
       ],
     );
   }
+}
+
+double _accountCardExtent({
+  required Iterable<Account> accounts,
+  required bool compact,
+  required double densityScale,
+}) {
+  var maximumWindowCount = 0;
+  for (final account in accounts) {
+    final count = account.visibleWindows.length;
+    if (count > maximumWindowCount) maximumWindowCount = count;
+  }
+  final shownWindowCount = compact
+      ? (maximumWindowCount == 0 ? 0 : 1)
+      : maximumWindowCount;
+  final baselineWindowCount = compact ? 1 : 2;
+  final additionalWindows = shownWindowCount > baselineWindowCount
+      ? shownWindowCount - baselineWindowCount
+      : 0;
+  final baseExtent = compact ? 213.0 : 246.0;
+  return (baseExtent + additionalWindows * 34) * densityScale;
 }
 
 int? _heartbeatWindowMinutes(Account account) {
@@ -788,10 +815,15 @@ class _AccountCardState extends State<AccountCard> {
     final provider = profileProvider(account.profile.toolKey);
     final launchable = _canLaunchAccount(account, provider);
     final stateColor = _stateColor(context, account);
-    final windows = account.visibleWindows
-        .take(widget.compact ? 1 : 2)
-        .toList();
-    final windowTitles = _quotaWindowTitles(windows);
+    final allWindows = account.visibleWindows;
+    final shownWindowCount = widget.compact && allWindows.isNotEmpty
+        ? 1
+        : allWindows.length;
+    final windows = allWindows.take(shownWindowCount).toList();
+    final windowTitles = _quotaWindowTitles(
+      allWindows,
+    ).take(shownWindowCount).toList();
+    final hiddenWindowCount = allWindows.length - shownWindowCount;
     return MouseRegion(
       onEnter: (_) => setState(() => hovered = true),
       onExit: (_) => setState(() => hovered = false),
@@ -1060,6 +1092,16 @@ class _AccountCardState extends State<AccountCard> {
                       ? () => widget.onLaunchAgent(account.profile.id)
                       : null,
                 ),
+                if (provider.supportsUsage &&
+                    account.currentCheck?.state == AccountUsageState.success)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: _QuotaSnapshotAge(
+                      profileId: account.profile.id,
+                      checkedAt: account.currentCheck!.startedAt,
+                      hiddenWindowCount: hiddenWindowCount,
+                    ),
+                  ),
                 if (widget.refreshing && provider.supportsUsage)
                   const SizedBox(
                     width: 38,
@@ -1214,14 +1256,48 @@ List<String> _quotaWindowTitles(List<AccountQuotaWindow> windows) {
     for (final window in windows)
       formatQuotaWindowLabel(window.windowDurationMinutes, window.windowType),
   ];
+  final limitIds = windows
+      .map((window) => window.limitId.trim().toLowerCase())
+      .where((limitId) => limitId.isNotEmpty)
+      .toSet();
+  final hasMultipleLimits = limitIds.length > 1;
 
   return [
     for (var index = 0; index < windows.length; index++)
-      if (baseTitles.where((title) => title == baseTitles[index]).length == 1)
+      if (hasMultipleLimits)
+        '${_quotaLimitQualifier(windows[index], windows)} · ${baseTitles[index]}'
+      else if (baseTitles.where((title) => title == baseTitles[index]).length ==
+          1)
         baseTitles[index]
       else
         '${_quotaWindowQualifier(windows[index], windows, baseTitles[index], baseTitles)} · ${baseTitles[index]}',
   ];
+}
+
+String _quotaLimitQualifier(
+  AccountQuotaWindow window,
+  List<AccountQuotaWindow> windows,
+) {
+  final labelByLimitId = <String, String>{};
+  for (final item in windows) {
+    final limitId = item.limitId.trim();
+    if (limitId.isEmpty || labelByLimitId.containsKey(limitId.toLowerCase())) {
+      continue;
+    }
+    labelByLimitId[limitId.toLowerCase()] = _quotaLimitLabel(item);
+  }
+  final preferredLabels = labelByLimitId.values.toList();
+  if (_areDistinct(preferredLabels)) return _quotaLimitLabel(window);
+  return window.limitId.trim().isEmpty
+      ? window.windowType
+      : window.limitId.trim();
+}
+
+String _quotaLimitLabel(AccountQuotaWindow window) {
+  final limitName = _nonEmpty(window.limitName);
+  if (limitName != null) return limitName;
+  final limitId = window.limitId.trim();
+  return limitId.toLowerCase() == 'codex' ? 'Codex' : limitId;
 }
 
 String _quotaWindowQualifier(
@@ -1288,15 +1364,18 @@ class _QuotaBar extends StatelessWidget {
                 child: Row(
                   children: [
                     Flexible(
-                      child: Text(
-                        title,
-                        key: ValueKey(
-                          'quota-title-${window.limitId}-${window.windowType}',
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.labelMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
+                      child: Tooltip(
+                        message: title,
+                        child: Text(
+                          title,
+                          key: ValueKey(
+                            'quota-title-${window.limitId}-${window.windowType}',
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                     ),
@@ -1350,6 +1429,51 @@ class _QuotaBar extends StatelessWidget {
               borderRadius: BorderRadius.circular(3),
               color: color,
               backgroundColor: theme.colorScheme.surfaceContainerHighest,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _QuotaSnapshotAge extends StatelessWidget {
+  const _QuotaSnapshotAge({
+    required this.profileId,
+    required this.checkedAt,
+    required this.hiddenWindowCount,
+  });
+
+  final String profileId;
+  final DateTime checkedAt;
+  final int hiddenWindowCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final age = relativeTime(checkedAt);
+    final hiddenLabel = hiddenWindowCount == 0 ? '' : ' · +$hiddenWindowCount';
+    final hiddenDescription = hiddenWindowCount == 0
+        ? ''
+        : '\n$hiddenWindowCount ${hiddenWindowCount == 1 ? 'límite adicional' : 'límites adicionales'} ocultos por el modo compacto.';
+    return Tooltip(
+      message:
+          'Cuotas actualizadas: ${formatDateTime(checkedAt)}$hiddenDescription',
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.update,
+            size: 11,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 3),
+          Text(
+            '$age$hiddenLabel',
+            key: ValueKey('quota-snapshot-age-$profileId'),
+            maxLines: 1,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
         ],
