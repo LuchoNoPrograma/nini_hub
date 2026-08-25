@@ -36,7 +36,7 @@ Future<bool> showCodexHeartbeatConfirmation(
       context: context,
       builder: (dialogContext) => AlertDialog(
         icon: const Icon(Icons.monitor_heart_outlined),
-        title: Text('Enviar heartbeat a ${account.profile.displayName}'),
+        title: Text('Iniciar ciclo de uso de ${account.profile.displayName}'),
         content: const SizedBox(
           width: 430,
           child: Text(
@@ -52,7 +52,7 @@ Future<bool> showCodexHeartbeatConfirmation(
           FilledButton.icon(
             onPressed: () => Navigator.pop(dialogContext, true),
             icon: const Icon(Icons.play_arrow_rounded, size: 18),
-            label: const Text('Enviar'),
+            label: const Text('Iniciar ciclo'),
           ),
         ],
       ),
@@ -110,7 +110,6 @@ class _EditAccountDialogState extends State<_EditAccountDialog> {
   late final displayName = TextEditingController(
     text: widget.account.profile.displayName,
   );
-  late final email = TextEditingController(text: widget.account.displayEmail);
   late final accountName = TextEditingController(
     text: widget.account.metadata?.accountDisplayName ?? '',
   );
@@ -152,7 +151,6 @@ class _EditAccountDialogState extends State<_EditAccountDialog> {
 
   List<TextEditingController> get _controllers => [
     displayName,
-    email,
     accountName,
     plan,
     notes,
@@ -214,8 +212,7 @@ class _EditAccountDialogState extends State<_EditAccountDialog> {
           profileId: widget.account.profile.id,
           displayName: displayName.text,
           isFavorite: favorite,
-          metadata: AccountMetadata(
-            accountEmail: email.text,
+          metadata: AccountEditableMetadata(
             accountDisplayName: accountName.text,
             planName: plan.text,
             notes: notes.text,
@@ -386,11 +383,13 @@ class _EditAccountDialogState extends State<_EditAccountDialog> {
         children: [
           Expanded(
             child: TextFormField(
-              controller: email,
+              initialValue: widget.account.displayEmail,
+              readOnly: true,
               decoration: const InputDecoration(
-                labelText: 'Correo de la cuenta',
+                labelText: 'Correo reconocido',
+                helperText: 'Codex lo actualiza al consultar esta cuenta.',
+                prefixIcon: Icon(Icons.lock_outline, size: 18),
               ),
-              keyboardType: TextInputType.emailAddress,
             ),
           ),
           const SizedBox(width: 12),

@@ -112,7 +112,7 @@ void main() {
   });
 
   test(
-    'does not overwrite existing metadata or create it for blank email',
+    'refreshes the provider-owned email and preserves editable metadata',
     () async {
       await database.batch((batch) {
         batch.insertAll(database.cliProfiles, [
@@ -142,7 +142,9 @@ void main() {
       final metadata = await database.select(database.profileMetadatas).get();
       expect(metadata, hasLength(1));
       expect(metadata.single.profileId, 'existing');
-      expect(metadata.single.accountEmail, 'billing@example.com');
+      expect(metadata.single.accountEmail, 'observed@example.com');
+      expect(metadata.single.accountDisplayName, 'Billing');
+      expect(metadata.single.updatedAt.toUtc(), metadataNow);
       final checks = await database.select(database.usageChecks).get();
       expect(
         checks

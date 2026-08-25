@@ -236,8 +236,7 @@ void main() {
       await repository.saveDetails(
         AccountDetails(
           profileId: 'account',
-          metadata: AccountMetadata(
-            accountEmail: ' owner@example.com ',
+          metadata: AccountEditableMetadata(
             accountDisplayName: ' Owner ',
             planName: ' Team ',
             notes: ' Notes ',
@@ -281,7 +280,7 @@ void main() {
           .select(database.profileMetadatas)
           .getSingle();
       final shares = await database.select(database.costShares).get();
-      expect(metadata.accountEmail, 'owner@example.com');
+      expect(metadata.accountEmail, 'old@example.com');
       expect(metadata.accountDisplayName, 'Owner');
       expect(metadata.planName, 'Team');
       expect(metadata.notes, 'Notes');
@@ -333,7 +332,7 @@ void main() {
         repository.saveDetails(
           AccountDetails(
             profileId: 'account',
-            metadata: _domainMetadata(email: 'new@example.com'),
+            metadata: _editableMetadata(),
             costShares: const [
               AccountCostShare(
                 id: 'duplicate',
@@ -521,8 +520,7 @@ QuotaWindow _window({
   windowDurationMinutes: duration,
 );
 
-AccountMetadata _domainMetadata({required String email}) => AccountMetadata(
-  accountEmail: email,
+AccountEditableMetadata _editableMetadata() => AccountEditableMetadata(
   accountDisplayName: '',
   planName: '',
   notes: '',

@@ -49,9 +49,38 @@ final class AccountMetadata {
   final String subscriptionStatus;
   final String purchasedFrom;
   final String paymentMethodLabel;
+}
 
-  AccountMetadata normalizedForSave() => AccountMetadata(
-    accountEmail: accountEmail.trim(),
+final class AccountEditableMetadata {
+  const AccountEditableMetadata({
+    required this.accountDisplayName,
+    required this.planName,
+    required this.notes,
+    required this.purchasedOn,
+    required this.nextRenewalOn,
+    required this.billingInterval,
+    required this.expectedAmountMinor,
+    required this.currencyCode,
+    required this.autoRenew,
+    required this.subscriptionStatus,
+    required this.purchasedFrom,
+    required this.paymentMethodLabel,
+  });
+
+  final String accountDisplayName;
+  final String planName;
+  final String notes;
+  final DateTime? purchasedOn;
+  final DateTime? nextRenewalOn;
+  final String billingInterval;
+  final int expectedAmountMinor;
+  final String currencyCode;
+  final bool autoRenew;
+  final String subscriptionStatus;
+  final String purchasedFrom;
+  final String paymentMethodLabel;
+
+  AccountEditableMetadata normalizedForSave() => AccountEditableMetadata(
     accountDisplayName: accountDisplayName.trim(),
     planName: planName.trim(),
     notes: notes.trim(),
@@ -108,7 +137,7 @@ final class AccountDetails {
   }) : costShares = List.unmodifiable(costShares);
 
   final String profileId;
-  final AccountMetadata metadata;
+  final AccountEditableMetadata metadata;
   final List<AccountCostShare> costShares;
 
   AccountDetails normalizedForSave() => AccountDetails(
@@ -254,9 +283,13 @@ final class Account {
   String get displayPlan =>
       metadata?.planName.isNotEmpty == true ? metadata!.planName : observedPlan;
 
-  String get displayEmail => metadata?.accountEmail.isNotEmpty == true
-      ? metadata!.accountEmail
-      : (currentCheck?.accountEmail ?? lastSuccessfulCheck?.accountEmail ?? '');
+  String get observedEmail => _firstNonEmpty([
+    currentCheck?.accountEmail,
+    lastSuccessfulCheck?.accountEmail,
+  ]);
+
+  String get displayEmail =>
+      _firstNonEmpty([observedEmail, metadata?.accountEmail]);
 
   DateTime? get nextResetAt {
     DateTime? next;
@@ -283,4 +316,12 @@ final class Account {
   }
 
   bool get isUnlinked => profile.isAvailable && !profile.hasAuthFile;
+
+  static String _firstNonEmpty(Iterable<String?> values) {
+    for (final value in values) {
+      final normalized = value?.trim() ?? '';
+      if (normalized.isNotEmpty) return normalized;
+    }
+    return '';
+  }
 }

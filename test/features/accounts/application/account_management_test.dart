@@ -155,10 +155,7 @@ void main() {
       ]);
       expect(result.account, same(updated));
       expect(result.snapshot.findById('profile-id'), same(updated));
-      expect(
-        fixture.accounts.saved?.metadata.accountEmail,
-        'owner@example.com',
-      );
+      expect(fixture.accounts.saved?.metadata.accountDisplayName, 'Owner');
       expect(fixture.accounts.saved?.metadata.currencyCode, 'BOB');
       expect(fixture.accounts.saved?.costShares, hasLength(1));
       expect(fixture.accounts.saved?.costShares.single.personName, 'Bea');
@@ -345,10 +342,7 @@ UpdateAccountCommand _command({String displayName = '   '}) =>
       profileId: 'profile-id',
       displayName: displayName,
       isFavorite: true,
-      metadata: _metadata(
-        accountEmail: ' owner@example.com ',
-        currencyCode: ' bob ',
-      ),
+      metadata: _editableMetadata(currencyCode: ' bob '),
       costShares: const [
         AccountCostShare(
           id: 'blank',
@@ -451,3 +445,19 @@ AccountMetadata _metadata({
   purchasedFrom: '',
   paymentMethodLabel: '',
 );
+
+AccountEditableMetadata _editableMetadata({String currencyCode = 'USD'}) =>
+    AccountEditableMetadata(
+      accountDisplayName: ' Owner ',
+      planName: '',
+      notes: '',
+      purchasedOn: null,
+      nextRenewalOn: null,
+      billingInterval: 'monthly',
+      expectedAmountMinor: 0,
+      currencyCode: currencyCode,
+      autoRenew: true,
+      subscriptionStatus: 'active',
+      purchasedFrom: '',
+      paymentMethodLabel: '',
+    );

@@ -110,7 +110,7 @@ final class UpdateAccountCommand {
   final String profileId;
   final String displayName;
   final bool isFavorite;
-  final AccountMetadata metadata;
+  final AccountEditableMetadata metadata;
   final List<AccountCostShare> costShares;
 }
 

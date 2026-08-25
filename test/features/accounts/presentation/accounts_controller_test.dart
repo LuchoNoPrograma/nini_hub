@@ -425,26 +425,24 @@ UpdateAccountCommand _command({String displayName = 'Account'}) =>
       profileId: 'account',
       displayName: displayName,
       isFavorite: true,
-      metadata: _metadata(),
+      metadata: _editableMetadata(),
       costShares: const [],
     );
 
-AccountMetadata _metadata({String email = 'owner@example.com'}) =>
-    AccountMetadata(
-      accountEmail: email,
-      accountDisplayName: '',
-      planName: '',
-      notes: '',
-      purchasedOn: null,
-      nextRenewalOn: null,
-      billingInterval: 'monthly',
-      expectedAmountMinor: 0,
-      currencyCode: 'USD',
-      autoRenew: true,
-      subscriptionStatus: 'active',
-      purchasedFrom: '',
-      paymentMethodLabel: '',
-    );
+AccountEditableMetadata _editableMetadata() => const AccountEditableMetadata(
+  accountDisplayName: '',
+  planName: '',
+  notes: '',
+  purchasedOn: null,
+  nextRenewalOn: null,
+  billingInterval: 'monthly',
+  expectedAmountMinor: 0,
+  currencyCode: 'USD',
+  autoRenew: true,
+  subscriptionStatus: 'active',
+  purchasedFrom: '',
+  paymentMethodLabel: '',
+);
 
 Account _account({
   String id = 'account',

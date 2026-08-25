@@ -109,6 +109,18 @@ final class DriftUsageSnapshotRepository implements UsageSnapshotRepository {
                 updatedAt: _now().toUtc(),
               ),
             );
+      } else if (existing != null &&
+          observedEmail.isNotEmpty &&
+          existing.accountEmail.trim().toLowerCase() !=
+              observedEmail.toLowerCase()) {
+        await (database.update(
+          database.profileMetadatas,
+        )..where((row) => row.profileId.equals(profileId))).write(
+          ProfileMetadatasCompanion(
+            accountEmail: Value(observedEmail),
+            updatedAt: Value(_now().toUtc()),
+          ),
+        );
       }
     });
   }

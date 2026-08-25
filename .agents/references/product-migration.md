@@ -1277,6 +1277,62 @@ presentar perfiles administrados como operativos end-to-end. `QA-01` y
   perfil `codex/magic` conserva el pendiente de Device Auth por su token
   expirado. QA-01B y CUT-01 siguen siendo los unicos puntos restantes.
 
+## Fix separado FIX-ACC-01: correo de cuenta reconocido e inmutable
+
+- Estado global y HEAD observado: `12/14`; Nini Hub `main` /
+  `62a9dcaf3a792c21eb753e7d9cd668997f5dd2d5`. Este fix no agrega un punto al
+  roadmap ni cambia los gates pendientes de QA-01B/CUT-01.
+- Clasificacion: `separate_fix`. El diagnostico de solo lectura demostro que
+  discovery y Usage conservaban el `profileId` correcto, pero el correo visible
+  podia quedar obsoleto porque el primer reconocimiento inicializaba
+  `profile_metadatas` una sola vez y Accounts priorizaba esa metadata sobre el
+  ultimo resultado observado.
+- Alcance aprobado el 2026-08-25: hacer que el correo pertenezca exclusivamente
+  al reconocimiento Codex, retirarlo del contrato editable, bloquearlo en el
+  dialog, autocorregirlo al consultar la cuenta y preservar el resto de datos
+  administrativos. Se excluyeron schema, generated, SQLite real, motor externo,
+  builds, instalacion, Git y cambios concurrentes ajenos.
+- Skills consumidas: `nini-hub-diagnostico-incidentes`,
+  `nini-hub-feature-integral`, `nini-hub-domain-application`,
+  `nini-hub-data-desktop-integrations` y
+  `nini-hub-presentation-flutter-desktop`.
+
+### Contrato y antes/despues
+
+- Antes, `UpdateAccountCommand` aceptaba `AccountMetadata` completo y
+  `DriftAccountRepository.saveDetails()` podia sobrescribir
+  `account_email`. `DriftUsageSnapshotRepository` solo copiaba el correo
+  observado cuando no existia metadata; un cambio posterior de cuenta dejaba
+  visible la identidad anterior.
+- Ahora `AccountEditableMetadata` excluye el correo desde Domain/Application y
+  el repository Accounts no lo escribe. El dialog muestra `Correo reconocido`
+  como solo lectura. `Account.displayEmail` prioriza la observacion vigente y
+  despues el ultimo exito antes de recurrir a metadata persistida.
+- Usage es el unico owner de la sincronizacion: dentro de la misma transaccion
+  del snapshot actualiza solo `profile_metadatas.account_email` y `updated_at`
+  cuando Codex devuelve un correo no vacio diferente. Propietario, plan, notas,
+  renovacion, moneda, pagos y cost shares se conservan.
+- No se enlazan cuentas por alias, correo o nombre visible ni se mueven checks,
+  cuotas o metadata entre IDs. El perfil afectado se autocorrige con su siguiente
+  consulta/reconocimiento; no se hizo reparacion directa de datos reales.
+
+### Archivos y evidencia
+
+- Producto: `features/accounts/domain/account.dart`,
+  `application/account_management.dart`, `data/drift_account_repository.dart`,
+  `presentation/account_dialogs.dart` y
+  `features/usage/data/drift_usage_snapshot_repository.dart`.
+- Pruebas ajustadas en Accounts Domain/Application/Data/Controller/composicion
+  y Usage Data; se agrego
+  `test/features/accounts/presentation/account_edit_dialog_test.dart` para
+  comprobar correo observado visible y no editable.
+- `dart format` sobre los doce Dart del delta: limpio. `flutter analyze`
+  focalizado sobre los doce items: sin issues. Regresiones dirigidas:
+  33/33 aprobadas; guarda arquitectonica: 1/1 aprobada.
+- No se ejecuto suite completa, build, instalacion, runtime Windows, escritura
+  sobre SQLite real, Codex real, stage, commit, push, merge ni release. Los
+  cambios concurrentes fuera del alcance permanecieron intactos.
+
 ## Formato de relevo obligatorio
 
 ```text

@@ -29,7 +29,6 @@ final class DriftAccountRepository implements AccountRepository {
           .insertOnConflictUpdate(
             ProfileMetadatasCompanion.insert(
               profileId: normalized.profileId,
-              accountEmail: Value(metadata.accountEmail),
               accountDisplayName: Value(metadata.accountDisplayName),
               planName: Value(metadata.planName),
               notes: Value(metadata.notes),

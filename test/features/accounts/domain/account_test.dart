@@ -55,7 +55,8 @@ void main() {
     expect(account.lowestAvailablePercent, 88);
     expect(account.nextResetAt, fallbackReset);
     expect(account.displayPlan, 'Metadata plan');
-    expect(account.displayEmail, 'metadata@example.com');
+    expect(account.observedEmail, 'current@example.com');
+    expect(account.displayEmail, 'current@example.com');
     expect(account.isReady, isFalse);
     expect(account.needsAttention, isTrue);
   });
@@ -110,8 +111,7 @@ void main() {
     final paidOn = DateTime.utc(2026, 8, 1);
     final details = AccountDetails(
       profileId: 'profile-id',
-      metadata: AccountMetadata(
-        accountEmail: ' owner@example.com ',
+      metadata: AccountEditableMetadata(
         accountDisplayName: ' Owner ',
         planName: ' Team ',
         notes: ' Note ',
@@ -152,7 +152,6 @@ void main() {
     final normalized = details.normalizedForSave();
 
     expect(normalized.profileId, 'profile-id');
-    expect(normalized.metadata.accountEmail, 'owner@example.com');
     expect(normalized.metadata.accountDisplayName, 'Owner');
     expect(normalized.metadata.planName, 'Team');
     expect(normalized.metadata.notes, 'Note');

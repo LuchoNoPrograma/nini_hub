@@ -68,8 +68,7 @@ void main() {
           profileId: 'account',
           displayName: '  Equipo  ',
           isFavorite: true,
-          metadata: AccountMetadata(
-            accountEmail: ' owner@example.com ',
+          metadata: AccountEditableMetadata(
             accountDisplayName: ' Owner ',
             planName: ' Team ',
             notes: ' Notes ',
@@ -100,7 +99,7 @@ void main() {
 
       expect(updated?.profile.displayName, 'Equipo');
       expect(updated?.profile.isFavorite, isTrue);
-      expect(updated?.metadata?.accountEmail, 'owner@example.com');
+      expect(updated?.metadata?.accountEmail, isEmpty);
       expect(updated?.metadata?.currencyCode, 'BOB');
       expect(updated?.costShares.single.personName, 'Bea');
       expect(container.read(accountsControllerProvider).errorMessage, isNull);
@@ -116,7 +115,7 @@ void main() {
           .getSingle();
       expect(storedProfile.displayName, 'Equipo');
       expect(storedProfile.isFavorite, isTrue);
-      expect(storedMetadata.accountEmail, 'owner@example.com');
+      expect(storedMetadata.accountEmail, isEmpty);
       expect(storedMetadata.currencyCode, 'BOB');
       expect(storedShare.personName, 'Bea');
       expect(storedShare.currencyCode, 'BOB');
