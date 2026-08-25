@@ -462,7 +462,14 @@ final workspaceControllerProvider =
             profileRepository: DriftAgentProfileRepository(database),
             workspaceRepository: repository,
             selectionStore: selectionStore,
-            launcher: NiniAgentsAgentLauncher(database, runner),
+            launcher: NiniAgentsAgentLauncher(
+              database,
+              runner,
+              keepTerminalOpenAfterExit: () => ref
+                  .read(settingsControllerProvider)
+                  .preferences
+                  .keepTerminalOpenAfterExit,
+            ),
           ),
         );
       }),

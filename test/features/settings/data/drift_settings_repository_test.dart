@@ -29,6 +29,10 @@ void main() {
       preferences.weeklyKeepAliveEnabled,
       AppPreferences.defaults.weeklyKeepAliveEnabled,
     );
+    expect(
+      preferences.keepTerminalOpenAfterExit,
+      AppPreferences.defaults.keepTerminalOpenAfterExit,
+    );
     expect(preferences.profilesRoot, AppPreferences.defaults.profilesRoot);
   });
 
@@ -42,6 +46,7 @@ void main() {
       'timeout_seconds': '45',
       'compact_cards': 'true',
       'weekly_keep_alive_enabled': 'false',
+      'keep_terminal_open_after_exit': 'false',
       'profiles_root_path': '/configured/profiles',
     }.entries) {
       await database.saveSetting(entry.key, entry.value);
@@ -57,6 +62,7 @@ void main() {
     expect(preferences.timeoutSeconds, 45);
     expect(preferences.compactCards, isTrue);
     expect(preferences.weeklyKeepAliveEnabled, isFalse);
+    expect(preferences.keepTerminalOpenAfterExit, isFalse);
     expect(preferences.profilesRoot, '/configured/profiles');
   });
 
@@ -67,6 +73,7 @@ void main() {
       'timeout_seconds': '1',
       'compact_cards': 'TRUE',
       'weekly_keep_alive_enabled': 'FALSE',
+      'keep_terminal_open_after_exit': 'FALSE',
     }.entries) {
       await database.saveSetting(entry.key, entry.value);
     }
@@ -78,6 +85,7 @@ void main() {
     expect(outsideRange.timeoutSeconds, 1);
     expect(outsideRange.compactCards, isFalse);
     expect(outsideRange.weeklyKeepAliveEnabled, isTrue);
+    expect(outsideRange.keepTerminalOpenAfterExit, isTrue);
 
     await database.saveSetting('font_scale', 'invalid');
     await database.saveSetting('concurrency', 'invalid');
@@ -90,7 +98,7 @@ void main() {
     expect(invalid.timeoutSeconds, AppPreferences.defaults.timeoutSeconds);
   });
 
-  test('saves the nine legacy keys with current timestamps', () async {
+  test('saves every settings key with current timestamps', () async {
     const preferences = AppPreferences(
       theme: 'light',
       accent: 'amber',
@@ -100,6 +108,7 @@ void main() {
       timeoutSeconds: 5,
       compactCards: true,
       weeklyKeepAliveEnabled: false,
+      keepTerminalOpenAfterExit: false,
       profilesRoot: '/new/profiles',
     );
 
@@ -113,10 +122,11 @@ void main() {
     expect(await database.setting('timeout_seconds'), '5');
     expect(await database.setting('compact_cards'), 'true');
     expect(await database.setting('weekly_keep_alive_enabled'), 'false');
+    expect(await database.setting('keep_terminal_open_after_exit'), 'false');
     expect(await database.setting('profiles_root_path'), '/new/profiles');
 
     final rows = await database.select(database.appSettings).get();
-    expect(rows, hasLength(9));
+    expect(rows, hasLength(10));
     final now = DateTime.now();
     expect(
       rows.every(

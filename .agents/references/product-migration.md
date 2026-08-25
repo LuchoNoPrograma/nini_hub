@@ -46,7 +46,8 @@ Etiquetas de evidencia: `observed`, `inferred`, `decided`, `preserve`,
 - Repo: `/home/nini/StudioProjects/nini_hub`.
 - Branch y HEAD heredado: `main` /
   `5d378f24f49dc2d4594afbbf487890e463abc88d`.
-- Git: `.git` independiente; sin remoto configurado.
+- Git: `.git` independiente; `origin` apunta al repositorio nuevo
+  `https://github.com/LuchoNoPrograma/nini_hub.git`, nunca al remoto legacy.
 - Source legacy protegido: `/home/nini/StudioProjects/multi_cli_ai`, limpio en el
   mismo HEAD y con su `origin` original.
 - Motor externo observado: `/home/nini/IdeaProjects/nini-agents`, HEAD
@@ -127,7 +128,9 @@ Etiquetas de evidencia: `observed`, `inferred`, `decided`, `preserve`,
   `multicli_ai` y schemaVersion 2 preservados.
 - Scripts personales: variantes Nini Hub creadas y validadas; variantes legacy
   conservadas byte por byte; los cuatro archivos siguen ignorados por Git.
-- Remoto Nini Hub: pendiente; no crear ni empujar sin autorizacion separada.
+- Remoto Nini Hub: configurado como `origin`; el usuario autorizo categorizar,
+  commitear y empujar los deltas locales de Accounts, Heartbeat, Usage y
+  terminales de esta sesion hacia `origin/master`.
 
 ## Roadmap: 14 puntos en siete bloques
 
@@ -1408,6 +1411,61 @@ presentar perfiles administrados como operativos end-to-end. `QA-01` y
 - Resultado: FIX-UX-USAGE-01 queda implementado y validado dentro del worktree.
   El siguiente punto autorizado de migracion sigue siendo QA-01B; cualquier
   ajuste del assertion legacy u otra expansion requiere alcance independiente.
+
+## Mejora separada FEAT-TERM-01: terminal persistente configurable
+
+- Estado global y HEAD observado al iniciar: `12/14`; Nini Hub `main` /
+  `3450d1579f0d9af43995388a7f522872baaabb78`. Esta mejora no agrega un punto al
+  roadmap ni cambia QA-01B/CUT-01.
+- Skills consumidas: `nini-hub-feature-integral`,
+  `nini-hub-domain-application`, `nini-hub-data-desktop-integrations` y
+  `nini-hub-presentation-flutter-desktop`.
+- Alcance aprobado el 2026-08-25: mantener abierta, de forma configurable, la
+  terminal interactiva lanzada desde Workspaces cuando la sesion termine o el
+  usuario pulse Ctrl+C; versionar el delta y empujarlo junto con los commits
+  locales ya categorizados. Se excluyeron procesos internos, app-server,
+  Heartbeat, perfiles/datos reales, schema/generated, builds, instalacion y
+  cambios en `nini-agents`.
+
+### Contrato, persistencia y plataforma
+
+- `AppPreferences.keepTerminalOpenAfterExit` pertenece a Settings, queda activo
+  por defecto y se persiste como `keep_terminal_open_after_exit` en la tabla
+  key-value existente. La ausencia de la clave adopta el nuevo default; no
+  cambia schemaVersion, tablas, migraciones ni generated.
+- El switch `Mantener abierta al finalizar` se aplica a lanzamientos futuros.
+  Activado, una sesion terminada —incluido exit code 130 por Ctrl+C— informa el
+  resultado y vuelve a un shell login; el usuario cierra con `exit` o mediante
+  la ventana. Desactivado conserva el lanzamiento directo y cierre actual.
+- Solo `NiniAgentsAgentLauncher` consume la preferencia al abrir agentes
+  principal o gestionado. App inyecta una lectura tardia de Settings; Domain no
+  conoce plataforma y Presentation no importa ProcessRunner ni Data.
+- Linux usa un wrapper Bash temporal con ejecutable y argumentos posicionales.
+  Hyper conserva su transporte por environment y delega al mismo wrapper.
+  Windows Terminal usa un script PowerShell local mediante `-NoExit -File` y
+  conserva target/argumentos como elementos separados. No se interpola un
+  command string ni se modifica el motor externo.
+
+### Archivos y evidencia
+
+- Producto: `features/settings/domain/app_preferences.dart`, repository Drift y
+  dialog de Settings; `core/process/process_runner.dart`;
+  `features/workspaces/data/nini_agents_agent_launcher.dart`; y composicion en
+  `app/providers.dart`.
+- Pruebas ajustadas en Settings Application/Data/Controller/composicion/UI,
+  ProcessRunner, launcher de Workspaces y widget general. El wrapper Linux se
+  ejecuto con un target sintetico que termino en 130 y comprobo el retorno a un
+  shell `-l`; Windows se valido por composicion de argumentos y contrato del
+  script, no mediante runtime real.
+- `dart format` dejo limpios 14 Dart. `flutter analyze` focalizado sobre los 14
+  items termino sin issues. Pasaron 30/30 pruebas de Settings/ProcessRunner/
+  launcher, 27/27 de `widget_test.dart` y la guarda arquitectonica 1/1.
+  `git diff --check` queda como verificacion final previa al commit.
+- No se ejecutaron terminal interactiva con perfil real, runtime Windows,
+  suite global, build, instalacion, SQLite real, credenciales, stage de datos,
+  merge, tag ni release. El push autorizado publica solo commits locales de
+  Nini Hub en `origin/master`; QA-01B sigue pendiente como evidencia Windows
+  real del roadmap.
 
 ## Formato de relevo obligatorio
 

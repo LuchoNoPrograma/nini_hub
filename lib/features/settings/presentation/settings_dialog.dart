@@ -34,6 +34,7 @@ class _SettingsDialogState extends ConsumerState<_SettingsDialog> {
   late double timeout;
   late bool compact;
   late bool weeklyKeepAlive;
+  late bool keepTerminalOpenAfterExit;
   final root = TextEditingController();
 
   @override
@@ -48,6 +49,7 @@ class _SettingsDialogState extends ConsumerState<_SettingsDialog> {
     timeout = preferences.timeoutSeconds.toDouble();
     compact = preferences.compactCards;
     weeklyKeepAlive = preferences.weeklyKeepAliveEnabled;
+    keepTerminalOpenAfterExit = preferences.keepTerminalOpenAfterExit;
     root.text = preferences.profilesRoot;
   }
 
@@ -70,6 +72,7 @@ class _SettingsDialogState extends ConsumerState<_SettingsDialog> {
             timeoutSeconds: timeout.round(),
             compactCards: compact,
             weeklyKeepAliveEnabled: weeklyKeepAlive,
+            keepTerminalOpenAfterExit: keepTerminalOpenAfterExit,
             profilesRoot: root.text,
           ),
         );
@@ -227,6 +230,21 @@ class _SettingsDialogState extends ConsumerState<_SettingsDialog> {
                   'Cuando termine el ciclo actual de una cuenta de Codex, '
                   'Nini Hub hará una solicitud mínima para iniciar el '
                   'siguiente.',
+                ),
+              ),
+              const Divider(height: 32),
+              _Label('TERMINAL'),
+              const SizedBox(height: 9),
+              SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                value: keepTerminalOpenAfterExit,
+                onChanged: (value) =>
+                    setState(() => keepTerminalOpenAfterExit = value),
+                title: const Text('Mantener abierta al finalizar'),
+                subtitle: const Text(
+                  'Al terminar una sesión, incluso con Ctrl+C, deja la '
+                  'terminal disponible. Escribe exit o cierra la ventana '
+                  'cuando ya no la necesites.',
                 ),
               ),
               const Divider(height: 32),

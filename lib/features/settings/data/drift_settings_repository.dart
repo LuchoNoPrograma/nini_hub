@@ -13,6 +13,7 @@ final class DriftSettingsRepository implements SettingsRepository {
   static const _timeoutSecondsKey = 'timeout_seconds';
   static const _compactCardsKey = 'compact_cards';
   static const _weeklyKeepAliveEnabledKey = 'weekly_keep_alive_enabled';
+  static const _keepTerminalOpenAfterExitKey = 'keep_terminal_open_after_exit';
   static const _profilesRootPathKey = 'profiles_root_path';
 
   final AppDatabase _database;
@@ -28,6 +29,9 @@ final class DriftSettingsRepository implements SettingsRepository {
     final compactCards = await _database.setting(_compactCardsKey);
     final weeklyKeepAliveEnabled = await _database.setting(
       _weeklyKeepAliveEnabledKey,
+    );
+    final keepTerminalOpenAfterExit = await _database.setting(
+      _keepTerminalOpenAfterExitKey,
     );
     final profilesRoot = await _database.setting(_profilesRootPathKey);
     final fontScale =
@@ -47,6 +51,7 @@ final class DriftSettingsRepository implements SettingsRepository {
           AppPreferences.defaults.timeoutSeconds,
       compactCards: compactCards == 'true',
       weeklyKeepAliveEnabled: weeklyKeepAliveEnabled != 'false',
+      keepTerminalOpenAfterExit: keepTerminalOpenAfterExit != 'false',
       profilesRoot: profilesRoot ?? AppPreferences.defaults.profilesRoot,
     );
   }
@@ -73,6 +78,10 @@ final class DriftSettingsRepository implements SettingsRepository {
       _database.saveSetting(
         _weeklyKeepAliveEnabledKey,
         preferences.weeklyKeepAliveEnabled.toString(),
+      ),
+      _database.saveSetting(
+        _keepTerminalOpenAfterExitKey,
+        preferences.keepTerminalOpenAfterExit.toString(),
       ),
       _database.saveSetting(_profilesRootPathKey, preferences.profilesRoot),
     ]);

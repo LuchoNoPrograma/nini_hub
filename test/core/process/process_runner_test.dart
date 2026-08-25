@@ -36,6 +36,88 @@ void main() {
     );
   });
 
+  test('persistent terminal wrappers preserve every target argument', () {
+    const target = '/opt/nini agents/nini-agents';
+    const arguments = ['launch', 'codex/team', '--', 'value with spaces'];
+
+    final linux = ProcessRunner.buildPersistentTerminalCommand(
+      isWindows: false,
+      launcher: '/tmp/keep-session-open',
+      target: target,
+      arguments: arguments,
+    );
+    expect(linux.target, '/tmp/keep-session-open');
+    expect(linux.arguments, [target, ...arguments]);
+
+    final windows = ProcessRunner.buildPersistentTerminalCommand(
+      isWindows: true,
+      launcher: r'C:\Temp\keep-session-open.ps1',
+      powershell: r'C:\Windows\System32\WindowsPowerShell\powershell.exe',
+      target: r'C:\Program Files\Nini Hub\nini-agents.cmd',
+      arguments: arguments,
+    );
+    expect(
+      windows.target,
+      r'C:\Windows\System32\WindowsPowerShell\powershell.exe',
+    );
+    expect(windows.arguments, [
+      '-NoLogo',
+      '-NoProfile',
+      '-NoExit',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-File',
+      r'C:\Temp\keep-session-open.ps1',
+      r'C:\Program Files\Nini Hub\nini-agents.cmd',
+      ...arguments,
+    ]);
+    expect(
+      ProcessRunner.persistentWindowsSessionLauncherScript,
+      contains(r'& $Target @TargetArguments'),
+    );
+  });
+
+  test(
+    'Linux persistent wrapper returns to a login shell after target exit',
+    () async {
+      final root = await Directory.systemTemp.createTemp(
+        'nini-terminal-wrapper-',
+      );
+      addTearDown(() => root.delete(recursive: true));
+      final launcher = File('${root.path}/keep-session-open');
+      final target = File('${root.path}/target');
+      final shell = File('${root.path}/shell');
+      await launcher.writeAsString(
+        ProcessRunner.persistentLinuxSessionLauncherScript,
+      );
+      await target.writeAsString('#!/usr/bin/env bash\nexit 130\n');
+      await shell.writeAsString(
+        '#!/usr/bin/env bash\nprintf "SHELL:%s\\n" "\$*"\n',
+      );
+      final chmod = await Process.run('chmod', [
+        '700',
+        launcher.path,
+        target.path,
+        shell.path,
+      ]);
+      expect(chmod.exitCode, 0);
+
+      final result = await Process.run(
+        launcher.path,
+        [target.path],
+        environment: {'SHELL': shell.path},
+        includeParentEnvironment: true,
+      );
+
+      expect(result.exitCode, 0);
+      expect(result.stdout, contains('código 130'));
+      expect(result.stdout, contains('SHELL:-l'));
+    },
+    skip: Platform.isWindows
+        ? 'La ejecución real del wrapper Bash solo aplica a Linux.'
+        : false,
+  );
+
   test('timeout terminates the supervised Windows process tree', () async {
     final database = AppDatabase(NativeDatabase.memory());
     final root = await Directory.systemTemp.createTemp('nini-runner-timeout-');

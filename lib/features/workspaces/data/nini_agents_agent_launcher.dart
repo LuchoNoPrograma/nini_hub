@@ -8,10 +8,15 @@ import 'package:nini_hub/features/workspaces/domain/agent_launcher.dart';
 import 'package:path/path.dart' as p;
 
 final class NiniAgentsAgentLauncher implements AgentLauncher {
-  const NiniAgentsAgentLauncher(this._database, this._runner);
+  const NiniAgentsAgentLauncher(
+    this._database,
+    this._runner, {
+    required this.keepTerminalOpenAfterExit,
+  });
 
   final AppDatabase _database;
   final ProcessRunner _runner;
+  final bool Function() keepTerminalOpenAfterExit;
 
   @override
   Future<void> launch(
@@ -27,6 +32,7 @@ final class NiniAgentsAgentLauncher implements AgentLauncher {
         workingDirectory: launchDirectory,
       );
       final provider = profileProvider(profile.toolKey);
+      final keepOpenAfterExit = keepTerminalOpenAfterExit();
       if (profile.profileSource == 'multicli') {
         final profilesRoot = p.dirname(
           p.dirname(p.normalize(p.absolute(profile.profileHome))),
@@ -49,6 +55,7 @@ final class NiniAgentsAgentLauncher implements AgentLauncher {
             'MULTICLI_HOME': profilesRoot,
             'NINI_AGENTS_HYPER_TITLE_LOCK': '1',
           },
+          keepOpenAfterExit: keepOpenAfterExit,
         );
       } else {
         await _runner.startInTerminal(
@@ -58,6 +65,7 @@ final class NiniAgentsAgentLauncher implements AgentLauncher {
           profileId: profile.id,
           workingDirectory: launchDirectory,
           title: title,
+          keepOpenAfterExit: keepOpenAfterExit,
         );
       }
       await (_database.update(

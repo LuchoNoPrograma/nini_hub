@@ -15,6 +15,7 @@ void main() {
     expect(preferences.timeoutSeconds, 15);
     expect(preferences.compactCards, isFalse);
     expect(preferences.weeklyKeepAliveEnabled, isTrue);
+    expect(preferences.keepTerminalOpenAfterExit, isTrue);
     expect(preferences.profilesRoot, isEmpty);
   });
 
@@ -29,6 +30,7 @@ void main() {
       timeoutSeconds: 45,
       compactCards: true,
       weeklyKeepAliveEnabled: false,
+      keepTerminalOpenAfterExit: false,
       profilesRoot: '/configured/profiles',
     );
     final repository = _MemorySettingsRepository(stored, events);
@@ -40,6 +42,7 @@ void main() {
     )();
 
     expect(result, same(stored));
+    expect(result.keepTerminalOpenAfterExit, isFalse);
     expect(events, ['load', 'keep-alive:false', 'timeout:45']);
   });
 
@@ -61,6 +64,7 @@ void main() {
         timeoutSeconds: 1,
         compactCards: true,
         weeklyKeepAliveEnabled: false,
+        keepTerminalOpenAfterExit: false,
         profilesRoot: '  /new/profiles  ',
       ),
     );
@@ -70,6 +74,7 @@ void main() {
     expect(result.preferences.concurrency, 6);
     expect(result.preferences.timeoutSeconds, 5);
     expect(result.preferences.profilesRoot, '/new/profiles');
+    expect(result.preferences.keepTerminalOpenAfterExit, isFalse);
     expect(repository.saved, same(result.preferences));
     expect(events, [
       'keep-alive:false',
@@ -100,6 +105,7 @@ void main() {
           timeoutSeconds: 30,
           compactCards: true,
           weeklyKeepAliveEnabled: false,
+          keepTerminalOpenAfterExit: false,
           profilesRoot: '/profiles',
         ),
       ),

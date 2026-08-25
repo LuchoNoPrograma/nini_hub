@@ -39,7 +39,11 @@ void main() {
 
   test('launches a managed profile through Nini Agents', () async {
     final runner = _RecordingProcessRunner(database);
-    final launcher = NiniAgentsAgentLauncher(database, runner);
+    final launcher = NiniAgentsAgentLauncher(
+      database,
+      runner,
+      keepTerminalOpenAfterExit: () => true,
+    );
 
     await launcher.launch(profile, workingDirectory: workspaceDirectory.path);
 
@@ -59,6 +63,7 @@ void main() {
       'MULTICLI_HOME': Directory('${root.path}/profiles').absolute.path,
       'NINI_AGENTS_HYPER_TITLE_LOCK': '1',
     });
+    expect(runner.keepOpenAfterExit, isTrue);
     final stored = await _storedProfile(database, profile.id);
     expect(stored.lastLaunchedAt, isNotNull);
   });
@@ -80,12 +85,14 @@ void main() {
     await NiniAgentsAgentLauncher(
       database,
       runner,
+      keepTerminalOpenAfterExit: () => false,
     ).launch(principal, workingDirectory: workspaceDirectory.path);
 
     expect(runner.executable, 'codex');
     expect(runner.arguments, ['-c', 'tui.terminal_title=[]']);
     expect(runner.summary, 'Abrir Codex principal');
     expect(runner.environment, isNull);
+    expect(runner.keepOpenAfterExit, isFalse);
     expect(
       (await _storedProfile(database, principal.id)).lastLaunchedAt,
       isNotNull,
@@ -99,6 +106,7 @@ void main() {
       NiniAgentsAgentLauncher(
         database,
         runner,
+        keepTerminalOpenAfterExit: () => true,
       ).launch(profile, workingDirectory: '${root.path}/missing'),
       throwsA(isA<AgentLauncherFailure>()),
     );
@@ -117,6 +125,7 @@ void main() {
       NiniAgentsAgentLauncher(
         database,
         runner,
+        keepTerminalOpenAfterExit: () => true,
       ).launch(profile, workingDirectory: workspaceDirectory.path),
       throwsA(isA<AgentLauncherFailure>()),
     );
@@ -166,6 +175,7 @@ final class _RecordingProcessRunner extends ProcessRunner {
   String? workingDirectory;
   String? title;
   Map<String, String>? environment;
+  bool? keepOpenAfterExit;
 
   @override
   Future<void> startInTerminal({
@@ -176,6 +186,7 @@ final class _RecordingProcessRunner extends ProcessRunner {
     String? workingDirectory,
     String? title,
     Map<String, String>? environment,
+    bool keepOpenAfterExit = false,
   }) async {
     this.executable = executable;
     this.arguments = List.unmodifiable(arguments);
@@ -186,6 +197,7 @@ final class _RecordingProcessRunner extends ProcessRunner {
     this.environment = environment == null
         ? null
         : Map.unmodifiable(environment);
+    this.keepOpenAfterExit = keepOpenAfterExit;
     if (failure != null) throw failure!;
   }
 }

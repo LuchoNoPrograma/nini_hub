@@ -35,6 +35,7 @@ void main() {
     expect(preferences.timeoutSeconds, 15);
     expect(preferences.compactCards, isFalse);
     expect(preferences.weeklyKeepAliveEnabled, isTrue);
+    expect(preferences.keepTerminalOpenAfterExit, isTrue);
     expect(fixture.codexRuntime.current.timeout, const Duration(seconds: 15));
     expect(fixture.scheduler.enabled, isTrue);
     expect(fixture.discovery.calls, 0);
@@ -54,6 +55,7 @@ void main() {
       'timeout_seconds': '45',
       'compact_cards': 'true',
       'weekly_keep_alive_enabled': 'false',
+      'keep_terminal_open_after_exit': 'false',
       'profiles_root_path': '/configured/profiles',
     }.entries) {
       await fixture.database.saveSetting(entry.key, entry.value);
@@ -73,6 +75,7 @@ void main() {
     expect(preferences.timeoutSeconds, 45);
     expect(preferences.compactCards, isTrue);
     expect(preferences.weeklyKeepAliveEnabled, isFalse);
+    expect(preferences.keepTerminalOpenAfterExit, isFalse);
     expect(fixture.codexRuntime.current.timeout, const Duration(seconds: 45));
     expect(fixture.scheduler.enabled, isFalse);
     expect(fixture.discovery.rootsSeen, isEmpty);
@@ -106,6 +109,7 @@ void main() {
                 timeoutSeconds: 1,
                 compactCards: true,
                 weeklyKeepAliveEnabled: false,
+                keepTerminalOpenAfterExit: false,
                 profilesRoot: '  /new/profiles  ',
               ),
             ),
@@ -121,6 +125,7 @@ void main() {
       expect(preferences.timeoutSeconds, 5);
       expect(preferences.compactCards, isTrue);
       expect(preferences.weeklyKeepAliveEnabled, isFalse);
+      expect(preferences.keepTerminalOpenAfterExit, isFalse);
       expect(fixture.scheduler.enabled, isFalse);
       expect(fixture.codexRuntime.current.timeout, const Duration(seconds: 5));
       expect(fixture.discovery.calls, 1);
@@ -134,6 +139,10 @@ void main() {
       expect(await fixture.database.setting('compact_cards'), 'true');
       expect(
         await fixture.database.setting('weekly_keep_alive_enabled'),
+        'false',
+      );
+      expect(
+        await fixture.database.setting('keep_terminal_open_after_exit'),
         'false',
       );
       expect(
@@ -183,10 +192,11 @@ void main() {
     expect(find.text('Configuración'), findsOneWidget);
     expect(find.text('APARIENCIA'), findsOneWidget);
     expect(find.text('CONSULTAS'), findsOneWidget);
+    expect(find.text('TERMINAL'), findsOneWidget);
     expect(find.text('MULTI-CLI'), findsOneWidget);
     expect(find.byType(DropdownButtonFormField<String>), findsNWidgets(2));
     expect(find.byType(Slider), findsNWidgets(3));
-    expect(find.byType(SwitchListTile), findsNWidgets(2));
+    expect(find.byType(SwitchListTile), findsNWidgets(3));
     expect(find.byTooltip('Cian'), findsOneWidget);
     expect(find.byTooltip('Menta'), findsOneWidget);
     expect(find.byTooltip('Ámbar'), findsOneWidget);
@@ -200,6 +210,8 @@ void main() {
       ),
       findsOneWidget,
     );
+    expect(find.text('Mantener abierta al finalizar'), findsOneWidget);
+    expect(find.textContaining('incluso con Ctrl+C'), findsOneWidget);
     expect(find.textContaining('Si desactivas'), findsNothing);
     expect(find.textContaining('backoff'), findsNothing);
     expect(find.textContaining('app-server'), findsNothing);

@@ -1942,7 +1942,11 @@ WorkspaceController _workspaceController(
       selectionStore: selectionStore,
       launcher:
           launcher ??
-          NiniAgentsAgentLauncher(database, ProcessRunner(database)),
+          NiniAgentsAgentLauncher(
+            database,
+            ProcessRunner(database),
+            keepTerminalOpenAfterExit: () => false,
+          ),
     ),
   );
 }

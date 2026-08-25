@@ -186,6 +186,7 @@ AppPreferences _preferences({
   double fontScale = .9,
   int concurrency = 3,
   int timeoutSeconds = 15,
+  bool keepTerminalOpenAfterExit = true,
   String profilesRoot = '',
 }) => AppPreferences(
   theme: theme,
@@ -196,5 +197,6 @@ AppPreferences _preferences({
   timeoutSeconds: timeoutSeconds,
   compactCards: false,
   weeklyKeepAliveEnabled: true,
+  keepTerminalOpenAfterExit: keepTerminalOpenAfterExit,
   profilesRoot: profilesRoot,
 );

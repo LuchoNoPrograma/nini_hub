@@ -7,6 +7,7 @@ import 'package:nini_hub/core/database/app_database.dart';
 import 'package:uuid/uuid.dart';
 
 typedef ProcessTreeTerminator = Future<void> Function(int pid);
+typedef TerminalLaunchCommand = ({String target, List<String> arguments});
 
 class SafeProcessResult {
   const SafeProcessResult({
@@ -46,6 +47,39 @@ class ProcessRunner {
   final ProcessTreeTerminator _processTreeTerminator;
   final Uuid _uuid = const Uuid();
   static Future<String>? _hyperShellLauncher;
+  static Future<String>? _persistentLinuxSessionLauncher;
+  static Future<String>? _persistentWindowsSessionLauncher;
+
+  static const persistentLinuxSessionLauncherScript = r'''#!/usr/bin/env bash
+set -u
+
+target=${1:?}
+shift
+"$target" "$@"
+exit_code=$?
+
+printf '\nLa sesión terminó (código %s). La terminal seguirá abierta; escribe "exit" para cerrarla.\n' "$exit_code"
+shell_path=${SHELL:-/bin/bash}
+if [[ ! -x "$shell_path" ]]; then
+  shell_path=/bin/bash
+fi
+exec "$shell_path" -l
+''';
+
+  static const persistentWindowsSessionLauncherScript = r'''param(
+  [Parameter(Mandatory = $true, Position = 0)]
+  [string] $Target,
+  [Parameter(Position = 1, ValueFromRemainingArguments = $true)]
+  [string[]] $TargetArguments
+)
+
+& $Target @TargetArguments
+$sessionExitCode = $LASTEXITCODE
+if ($null -eq $sessionExitCode) {
+  $sessionExitCode = 0
+}
+Write-Host "`nLa sesión terminó (código $sessionExitCode). La terminal seguirá abierta; escribe 'exit' para cerrarla."
+''';
 
   static String? findExecutable(String name) {
     final executableNames = executableFileNames(
@@ -290,8 +324,35 @@ class ProcessRunner {
     String? workingDirectory,
     String? title,
     Map<String, String>? environment,
+    bool keepOpenAfterExit = false,
   }) async {
     final target = resolveExecutable(executable);
+    var terminalCommand = (
+      target: target,
+      arguments: List<String>.unmodifiable(arguments),
+    );
+    if (keepOpenAfterExit && Platform.isLinux) {
+      terminalCommand = buildPersistentTerminalCommand(
+        isWindows: false,
+        launcher: await _ensurePersistentLinuxSessionLauncher(),
+        target: target,
+        arguments: arguments,
+      );
+    } else if (keepOpenAfterExit && Platform.isWindows) {
+      final powershell = findExecutable('powershell') ?? findExecutable('pwsh');
+      if (powershell == null) {
+        throw StateError(
+          'No se encontró PowerShell para mantener abierta la terminal.',
+        );
+      }
+      terminalCommand = buildPersistentTerminalCommand(
+        isWindows: true,
+        launcher: await _ensurePersistentWindowsSessionLauncher(),
+        powershell: powershell,
+        target: target,
+        arguments: arguments,
+      );
+    }
     final launchDirectory = workingDirectory == null
         ? null
         : Directory(workingDirectory).absolute.path;
@@ -308,8 +369,8 @@ class ProcessRunner {
             ? buildHyperTerminalEnvironment(
                 terminalEnvironment,
                 shellLauncher: await _ensureHyperShellLauncher(),
-                target: target,
-                arguments: arguments,
+                target: terminalCommand.target,
+                arguments: terminalCommand.arguments,
                 title: title,
               )
             : terminalEnvironment;
@@ -317,8 +378,8 @@ class ProcessRunner {
           executable: terminal,
           arguments: buildTerminalArguments(
             terminal: terminalKind,
-            target: target,
-            arguments: arguments,
+            target: terminalCommand.target,
+            arguments: terminalCommand.arguments,
             workingDirectory: launchDirectory,
             title: title,
           ),
@@ -338,8 +399,8 @@ class ProcessRunner {
           executable: terminal,
           arguments: buildTerminalArguments(
             terminal: 'wt',
-            target: target,
-            arguments: arguments,
+            target: terminalCommand.target,
+            arguments: terminalCommand.arguments,
             workingDirectory: launchDirectory,
             title: title,
           ),
@@ -355,6 +416,43 @@ class ProcessRunner {
     }
     throw StateError(
       'No se encontró una terminal compatible para abrir el comando.',
+    );
+  }
+
+  static TerminalLaunchCommand buildPersistentTerminalCommand({
+    required bool isWindows,
+    required String launcher,
+    required String target,
+    required List<String> arguments,
+    String? powershell,
+  }) {
+    if (!isWindows) {
+      return (
+        target: launcher,
+        arguments: List<String>.unmodifiable([target, ...arguments]),
+      );
+    }
+    final windowsShell = powershell?.trim();
+    if (windowsShell == null || windowsShell.isEmpty) {
+      throw ArgumentError.value(
+        powershell,
+        'powershell',
+        'Se requiere PowerShell para mantener abierta la terminal.',
+      );
+    }
+    return (
+      target: windowsShell,
+      arguments: List<String>.unmodifiable([
+        '-NoLogo',
+        '-NoProfile',
+        '-NoExit',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-File',
+        launcher,
+        target,
+        ...arguments,
+      ]),
     );
   }
 
@@ -494,6 +592,39 @@ class ProcessRunner {
 
   static Future<String> _ensureHyperShellLauncher() =>
       _hyperShellLauncher ??= _createHyperShellLauncher();
+
+  static Future<String> _ensurePersistentLinuxSessionLauncher() =>
+      _persistentLinuxSessionLauncher ??=
+          _createPersistentLinuxSessionLauncher();
+
+  static Future<String> _ensurePersistentWindowsSessionLauncher() =>
+      _persistentWindowsSessionLauncher ??=
+          _createPersistentWindowsSessionLauncher();
+
+  static Future<String> _createPersistentLinuxSessionLauncher() async {
+    final directory = await Directory.systemTemp.createTemp(
+      'nini-hub-terminal-session-',
+    );
+    final launcher = File('${directory.path}/keep-session-open');
+    await launcher.writeAsString(persistentLinuxSessionLauncherScript);
+    final chmod = await Process.run('chmod', ['700', launcher.path]);
+    if (chmod.exitCode != 0) {
+      throw FileSystemException(
+        'No se pudo preparar la sesión persistente de terminal.',
+        launcher.path,
+      );
+    }
+    return launcher.path;
+  }
+
+  static Future<String> _createPersistentWindowsSessionLauncher() async {
+    final directory = await Directory.systemTemp.createTemp(
+      'nini-hub-terminal-session-',
+    );
+    final launcher = File('${directory.path}/keep-session-open.ps1');
+    await launcher.writeAsString(persistentWindowsSessionLauncherScript);
+    return launcher.path;
+  }
 
   static Future<String> _createHyperShellLauncher() async {
     final directory = await Directory.systemTemp.createTemp(

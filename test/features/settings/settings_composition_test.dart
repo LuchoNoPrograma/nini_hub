@@ -54,6 +54,7 @@ void main() {
               timeoutSeconds: 30,
               compactCards: true,
               weeklyKeepAliveEnabled: false,
+              keepTerminalOpenAfterExit: false,
               profilesRoot: '  /new/profiles  ',
             ),
           );
@@ -75,6 +76,13 @@ void main() {
       expect(
         container.read(settingsControllerProvider).preferences.concurrency,
         4,
+      );
+      expect(
+        container
+            .read(settingsControllerProvider)
+            .preferences
+            .keepTerminalOpenAfterExit,
+        isFalse,
       );
       expect(await database.setting('profiles_root_path'), '/new/profiles');
     },
@@ -112,6 +120,7 @@ void main() {
               timeoutSeconds: 30,
               compactCards: true,
               weeklyKeepAliveEnabled: false,
+              keepTerminalOpenAfterExit: false,
               profilesRoot: '  /new/profiles  ',
             ),
           );
@@ -122,6 +131,7 @@ void main() {
       expect(await database.setting('profiles_root_path'), '/new/profiles');
       expect(settingsState.preferences.profilesRoot, '/new/profiles');
       expect(settingsState.preferences.timeoutSeconds, 30);
+      expect(settingsState.preferences.keepTerminalOpenAfterExit, isFalse);
       expect(settingsState.failure, same(failure));
       expect(
         settingsState.errorMessage,

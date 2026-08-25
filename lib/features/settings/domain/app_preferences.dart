@@ -8,6 +8,7 @@ final class AppPreferences {
     required this.timeoutSeconds,
     required this.compactCards,
     required this.weeklyKeepAliveEnabled,
+    required this.keepTerminalOpenAfterExit,
     required this.profilesRoot,
   });
 
@@ -20,6 +21,7 @@ final class AppPreferences {
     timeoutSeconds: 15,
     compactCards: false,
     weeklyKeepAliveEnabled: true,
+    keepTerminalOpenAfterExit: true,
     profilesRoot: '',
   );
 
@@ -31,6 +33,7 @@ final class AppPreferences {
   final int timeoutSeconds;
   final bool compactCards;
   final bool weeklyKeepAliveEnabled;
+  final bool keepTerminalOpenAfterExit;
   final String profilesRoot;
 
   AppPreferences normalizedForSave() => AppPreferences(
@@ -42,6 +45,7 @@ final class AppPreferences {
     timeoutSeconds: timeoutSeconds.clamp(5, 60),
     compactCards: compactCards,
     weeklyKeepAliveEnabled: weeklyKeepAliveEnabled,
+    keepTerminalOpenAfterExit: keepTerminalOpenAfterExit,
     profilesRoot: profilesRoot.trim(),
   );
 }
