@@ -1058,7 +1058,7 @@ void main() {
 
     await tester.tap(find.byTooltip('Más acciones'));
     await tester.pumpAndSettle();
-    expect(find.text('Enviar heartbeat'), findsOneWidget);
+    expect(find.text('Iniciar ciclo'), findsOneWidget);
     expect(find.text('Renombrar alias físico'), findsOneWidget);
     expect(find.text('Eliminar perfil'), findsOneWidget);
     expect(
@@ -1074,9 +1074,9 @@ void main() {
       AppTheme.dark('cyan').colorScheme.onSurfaceVariant,
     );
     expect(tester.takeException(), isNull);
-    await tester.tap(find.text('Enviar heartbeat'));
+    await tester.tap(find.text('Iniciar ciclo'));
     await tester.pumpAndSettle();
-    expect(find.text('Enviar heartbeat a Ari'), findsOneWidget);
+    expect(find.text('Iniciar ciclo de Ari'), findsOneWidget);
     expect(find.textContaining('consulta mínima real'), findsOneWidget);
     await tester.tap(find.text('Cancelar'));
     await tester.pumpAndSettle();

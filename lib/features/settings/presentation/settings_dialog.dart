@@ -220,19 +220,14 @@ class _SettingsDialogState extends ConsumerState<_SettingsDialog> {
                 contentPadding: EdgeInsets.zero,
                 value: weeklyKeepAlive,
                 onChanged: (value) => setState(() => weeklyKeepAlive = value),
-                title: const Text('Iniciar semanas de Codex'),
-                subtitle: const Text(
-                  'Comprueba una vez al iniciar. Después revisa cada cuenta '
-                  'sólo al acercarse a su reinicio, al confirmar un ancla '
-                  'ambigua o al reintentar con backoff.',
+                title: const Text(
+                  'Iniciar automáticamente cada ciclo de 7 días',
                 ),
-              ),
-              Text(
-                'La concurrencia está acotada para no abrir demasiados app-server '
-                'al mismo tiempo. Cada cuenta conserva su propio límite y error.',
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant),
+                subtitle: const Text(
+                  'Cuando termine el ciclo actual de una cuenta de Codex, '
+                  'Nini Hub hará una solicitud mínima para iniciar el '
+                  'siguiente.',
+                ),
               ),
               const Divider(height: 32),
               _Label('MULTI-CLI'),

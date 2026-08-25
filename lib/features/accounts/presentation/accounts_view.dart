@@ -942,7 +942,7 @@ class _AccountCardState extends State<AccountCard> {
                               SizedBox(width: 8),
                               Expanded(
                                 child: Text(
-                                  'Enviar heartbeat',
+                                  'Iniciar ciclo',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),

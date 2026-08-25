@@ -36,7 +36,7 @@ Future<bool> showCodexHeartbeatConfirmation(
       context: context,
       builder: (dialogContext) => AlertDialog(
         icon: const Icon(Icons.monitor_heart_outlined),
-        title: Text('Iniciar ciclo de uso de ${account.profile.displayName}'),
+        title: Text('Iniciar ciclo de ${account.profile.displayName}'),
         content: const SizedBox(
           width: 430,
           child: Text(
@@ -52,7 +52,7 @@ Future<bool> showCodexHeartbeatConfirmation(
           FilledButton.icon(
             onPressed: () => Navigator.pop(dialogContext, true),
             icon: const Icon(Icons.play_arrow_rounded, size: 18),
-            label: const Text('Iniciar ciclo'),
+            label: const Text('Iniciar'),
           ),
         ],
       ),

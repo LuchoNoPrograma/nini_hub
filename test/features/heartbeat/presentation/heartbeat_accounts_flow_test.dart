@@ -136,10 +136,10 @@ Future<void> _runFlow(
   await tester.pumpAndSettle();
   await tester.tap(find.byTooltip('Más acciones'));
   await tester.pumpAndSettle();
-  await tester.tap(find.text('Enviar heartbeat'));
+  await tester.tap(find.text('Iniciar ciclo'));
   await tester.pumpAndSettle();
-  expect(find.text('Enviar heartbeat a Account'), findsOneWidget);
-  await tester.tap(find.text('Enviar'));
+  expect(find.text('Iniciar ciclo de Account'), findsOneWidget);
+  await tester.tap(find.text('Iniciar'));
   await tester.pump();
   await started.future;
 

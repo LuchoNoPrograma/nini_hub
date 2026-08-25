@@ -191,6 +191,19 @@ void main() {
     expect(find.byTooltip('Menta'), findsOneWidget);
     expect(find.byTooltip('Ámbar'), findsOneWidget);
     expect(
+      find.text('Iniciar automáticamente cada ciclo de 7 días'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining(
+        'Nini Hub hará una solicitud mínima para iniciar el siguiente',
+      ),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Si desactivas'), findsNothing);
+    expect(find.textContaining('backoff'), findsNothing);
+    expect(find.textContaining('app-server'), findsNothing);
+    expect(
       tester.widget<TextField>(find.byType(TextField)).controller?.text,
       '/configured/profiles',
     );
