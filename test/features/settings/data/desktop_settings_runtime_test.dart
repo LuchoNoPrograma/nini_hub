@@ -1,8 +1,8 @@
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/features/profiles/data/profile_discovery_service.dart';
-import 'package:multi_cli_ai/features/settings/data/desktop_settings_runtime.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/features/profiles/data/profile_discovery_service.dart';
+import 'package:nini_hub/features/settings/data/desktop_settings_runtime.dart';
 
 void main() {
   late AppDatabase database;
@@ -60,7 +60,7 @@ void main() {
 }
 
 final class _RecordingDiscovery extends ProfileDiscoveryService {
-  _RecordingDiscovery(super.database, this.profiles);
+  _RecordingDiscovery(super.database, this.profiles) : super.test();
 
   final List<CliProfile> profiles;
   int calls = 0;

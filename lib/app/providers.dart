@@ -2,75 +2,81 @@ import 'dart:async';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/core/process/process_runner.dart';
-import 'package:multi_cli_ai/features/accounts/application/account_device_auth.dart';
-import 'package:multi_cli_ai/features/accounts/application/account_management.dart';
-import 'package:multi_cli_ai/features/accounts/data/codex_account_device_auth_gateway.dart';
-import 'package:multi_cli_ai/features/accounts/data/drift_account_repository.dart';
-import 'package:multi_cli_ai/features/accounts/data/process_account_device_auth_activity_recorder.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account_device_auth.dart';
-import 'package:multi_cli_ai/features/accounts/presentation/controllers/accounts_controller.dart';
-import 'package:multi_cli_ai/features/accounts/presentation/state/accounts_state.dart';
-import 'package:multi_cli_ai/features/activity/application/activity_history.dart';
-import 'package:multi_cli_ai/features/activity/data/drift_activity_repository.dart';
-import 'package:multi_cli_ai/features/activity/presentation/controllers/activity_controller.dart';
-import 'package:multi_cli_ai/features/activity/presentation/state/activity_state.dart';
-import 'package:multi_cli_ai/features/heartbeat/application/heartbeat.dart';
-import 'package:multi_cli_ai/features/heartbeat/data/codex_heartbeat_quota_probe.dart';
-import 'package:multi_cli_ai/features/heartbeat/data/dart_heartbeat_runtime.dart';
-import 'package:multi_cli_ai/features/heartbeat/data/dart_heartbeat_scheduler.dart';
-import 'package:multi_cli_ai/features/heartbeat/data/drift_heartbeat_repository.dart';
-import 'package:multi_cli_ai/features/heartbeat/data/heartbeat_usage_keep_alive_scheduler.dart';
-import 'package:multi_cli_ai/features/heartbeat/data/process_heartbeat_activity_recorder.dart';
-import 'package:multi_cli_ai/features/heartbeat/data/process_heartbeat_command_gateway.dart';
-import 'package:multi_cli_ai/features/heartbeat/domain/heartbeat.dart';
-import 'package:multi_cli_ai/features/heartbeat/domain/heartbeat_policy.dart';
-import 'package:multi_cli_ai/features/heartbeat/presentation/controllers/heartbeat_controller.dart';
-import 'package:multi_cli_ai/features/heartbeat/presentation/state/heartbeat_state.dart';
-import 'package:multi_cli_ai/features/profiles/application/profile_management.dart';
-import 'package:multi_cli_ai/features/profiles/data/drift_agent_profile_repository.dart';
-import 'package:multi_cli_ai/features/profiles/data/drift_profile_repository.dart';
-import 'package:multi_cli_ai/features/profiles/data/multi_cli_gateway.dart';
-import 'package:multi_cli_ai/features/profiles/data/multi_cli_profile_lifecycle.dart';
-import 'package:multi_cli_ai/features/profiles/data/profile_discovery_service.dart';
-import 'package:multi_cli_ai/features/profiles/presentation/controllers/profiles_controller.dart';
-import 'package:multi_cli_ai/features/profiles/presentation/state/profiles_state.dart';
-import 'package:multi_cli_ai/features/settings/application/settings.dart';
-import 'package:multi_cli_ai/features/settings/data/desktop_settings_runtime.dart';
-import 'package:multi_cli_ai/features/settings/data/drift_settings_repository.dart';
-import 'package:multi_cli_ai/features/settings/presentation/controllers/settings_controller.dart';
-import 'package:multi_cli_ai/features/settings/presentation/state/settings_state.dart';
-import 'package:multi_cli_ai/features/usage/application/usage_calendar.dart';
-import 'package:multi_cli_ai/features/usage/application/usage_refresh.dart';
-import 'package:multi_cli_ai/features/usage/data/codex_usage_provider.dart';
-import 'package:multi_cli_ai/features/usage/data/drift_usage_calendar_repository.dart';
-import 'package:multi_cli_ai/features/usage/data/drift_usage_snapshot_repository.dart';
-import 'package:multi_cli_ai/features/usage/data/process_usage_activity_recorder.dart';
-import 'package:multi_cli_ai/features/usage/domain/usage_ports.dart';
-import 'package:multi_cli_ai/features/usage/presentation/controllers/usage_controller.dart';
-import 'package:multi_cli_ai/features/usage/presentation/controllers/usage_refresh_coordinator.dart';
-import 'package:multi_cli_ai/features/usage/presentation/state/usage_state.dart';
-import 'package:multi_cli_ai/features/workspaces/application/launch_agent.dart';
-import 'package:multi_cli_ai/features/workspaces/application/workspace_history.dart';
-import 'package:multi_cli_ai/features/workspaces/data/drift_workspace_repository.dart';
-import 'package:multi_cli_ai/features/workspaces/data/drift_workspace_selection_store.dart';
-import 'package:multi_cli_ai/features/workspaces/data/multi_cli_agent_launcher.dart';
-import 'package:multi_cli_ai/features/workspaces/presentation/controllers/workspace_controller.dart';
-import 'package:multi_cli_ai/features/workspaces/presentation/state/workspace_state.dart';
-import 'package:multi_cli_ai/providers/codex/codex_client_runtime.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/core/process/nini_agents_read_client.dart';
+import 'package:nini_hub/core/process/process_runner.dart';
+import 'package:nini_hub/features/accounts/application/account_device_auth.dart';
+import 'package:nini_hub/features/accounts/application/account_management.dart';
+import 'package:nini_hub/features/accounts/data/codex_account_device_auth_gateway.dart';
+import 'package:nini_hub/features/accounts/data/drift_account_authentication_store.dart';
+import 'package:nini_hub/features/accounts/data/drift_account_repository.dart';
+import 'package:nini_hub/features/accounts/data/process_account_device_auth_activity_recorder.dart';
+import 'package:nini_hub/features/accounts/domain/account_device_auth.dart';
+import 'package:nini_hub/features/accounts/presentation/controllers/accounts_controller.dart';
+import 'package:nini_hub/features/accounts/presentation/state/accounts_state.dart';
+import 'package:nini_hub/features/activity/application/activity_history.dart';
+import 'package:nini_hub/features/activity/data/drift_activity_repository.dart';
+import 'package:nini_hub/features/activity/presentation/controllers/activity_controller.dart';
+import 'package:nini_hub/features/activity/presentation/state/activity_state.dart';
+import 'package:nini_hub/features/heartbeat/application/heartbeat.dart';
+import 'package:nini_hub/features/heartbeat/data/codex_heartbeat_quota_probe.dart';
+import 'package:nini_hub/features/heartbeat/data/dart_heartbeat_runtime.dart';
+import 'package:nini_hub/features/heartbeat/data/dart_heartbeat_scheduler.dart';
+import 'package:nini_hub/features/heartbeat/data/drift_heartbeat_repository.dart';
+import 'package:nini_hub/features/heartbeat/data/heartbeat_usage_keep_alive_scheduler.dart';
+import 'package:nini_hub/features/heartbeat/data/process_heartbeat_activity_recorder.dart';
+import 'package:nini_hub/features/heartbeat/data/process_heartbeat_command_gateway.dart';
+import 'package:nini_hub/features/heartbeat/domain/heartbeat.dart';
+import 'package:nini_hub/features/heartbeat/domain/heartbeat_policy.dart';
+import 'package:nini_hub/features/heartbeat/presentation/controllers/heartbeat_controller.dart';
+import 'package:nini_hub/features/heartbeat/presentation/state/heartbeat_state.dart';
+import 'package:nini_hub/features/profiles/application/profile_management.dart';
+import 'package:nini_hub/features/profiles/data/drift_agent_profile_repository.dart';
+import 'package:nini_hub/features/profiles/data/drift_profile_repository.dart';
+import 'package:nini_hub/features/profiles/data/nini_agents_profile_lifecycle.dart';
+import 'package:nini_hub/features/profiles/data/profile_discovery_service.dart';
+import 'package:nini_hub/features/profiles/presentation/controllers/profiles_controller.dart';
+import 'package:nini_hub/features/profiles/presentation/state/profiles_state.dart';
+import 'package:nini_hub/features/settings/application/settings.dart';
+import 'package:nini_hub/features/settings/data/desktop_settings_runtime.dart';
+import 'package:nini_hub/features/settings/data/drift_settings_repository.dart';
+import 'package:nini_hub/features/settings/presentation/controllers/settings_controller.dart';
+import 'package:nini_hub/features/settings/presentation/state/settings_state.dart';
+import 'package:nini_hub/features/usage/application/usage_calendar.dart';
+import 'package:nini_hub/features/usage/application/usage_refresh.dart';
+import 'package:nini_hub/features/usage/data/codex_usage_provider.dart';
+import 'package:nini_hub/features/usage/data/drift_usage_calendar_repository.dart';
+import 'package:nini_hub/features/usage/data/drift_usage_snapshot_repository.dart';
+import 'package:nini_hub/features/usage/data/process_usage_activity_recorder.dart';
+import 'package:nini_hub/features/usage/domain/usage_ports.dart';
+import 'package:nini_hub/features/usage/presentation/controllers/usage_controller.dart';
+import 'package:nini_hub/features/usage/presentation/controllers/usage_refresh_coordinator.dart';
+import 'package:nini_hub/features/usage/presentation/state/usage_state.dart';
+import 'package:nini_hub/features/workspaces/application/launch_agent.dart';
+import 'package:nini_hub/features/workspaces/application/workspace_history.dart';
+import 'package:nini_hub/features/workspaces/data/desktop_workspace_runtime.dart';
+import 'package:nini_hub/features/workspaces/data/drift_workspace_repository.dart';
+import 'package:nini_hub/features/workspaces/data/drift_workspace_selection_store.dart';
+import 'package:nini_hub/features/workspaces/data/nini_agents_agent_launcher.dart';
+import 'package:nini_hub/features/workspaces/presentation/controllers/workspace_controller.dart';
+import 'package:nini_hub/features/workspaces/presentation/state/workspace_state.dart';
+import 'package:nini_hub/providers/codex/codex_client_runtime.dart';
 
 typedef WorkspaceDirectoryPicker =
     Future<String?> Function(String? initialDirectory);
 
 final databaseProvider = Provider<AppDatabase>((ref) {
-  final database = AppDatabase();
-  ref.onDispose(() => unawaited(database.close()));
-  return database;
+  throw StateError(
+    'databaseProvider must receive the database prepared by DatabaseBootstrap.',
+  );
 });
 
 final processRunnerProvider = Provider<ProcessRunner>(
   (ref) => ProcessRunner(ref.watch(databaseProvider)),
+);
+
+final niniAgentsClientProvider = Provider<NiniAgentsReadClient>(
+  (ref) => NiniAgentsReadClient(ref.watch(processRunnerProvider)),
 );
 
 final codexClientRuntimeProvider = Provider<CodexClientRuntime>(
@@ -213,7 +219,10 @@ final heartbeatPostRunRefreshProvider = Provider<HeartbeatPostRunRefresh>(
 );
 
 final profileDiscoveryProvider = Provider<ProfileDiscoveryService>(
-  (ref) => ProfileDiscoveryService(ref.watch(databaseProvider)),
+  (ref) => ProfileDiscoveryService(
+    ref.watch(databaseProvider),
+    ref.watch(niniAgentsClientProvider),
+  ),
 );
 
 final NotifierProvider<ProfilesController, ProfilesState>
@@ -223,8 +232,10 @@ profilesControllerProvider =
         final database = ref.watch(databaseProvider);
         final repository = DriftProfileRepository(database);
         final discovery = ref.watch(profileDiscoveryProvider);
-        final lifecycle = MultiCliProfileLifecycle(
-          MultiCliGateway(database, ref.watch(processRunnerProvider)),
+        final lifecycle = NiniAgentsProfileLifecycle(
+          database,
+          ref.watch(niniAgentsClientProvider),
+          discovery,
         );
         return ProfilesControllerDependencies(
           discoverProfiles: DiscoverProfiles(discovery: discovery),
@@ -278,6 +289,7 @@ accountsControllerProvider =
           ),
           completeDeviceAuth: CompleteAccountDeviceAuth(
             activity: activity,
+            authenticationStore: DriftAccountAuthenticationStore(database),
             discovery: ref.watch(profileDiscoveryProvider),
             accountRepository: accountRepository,
             monitorHeartbeatProfiles: (profiles) {
@@ -418,10 +430,7 @@ final workspaceDirectoryPickerProvider = Provider<WorkspaceDirectoryPicker>(
 );
 
 final workspaceFallbackDirectoryProvider = Provider<String>(
-  (ref) => MultiCliGateway(
-    ref.watch(databaseProvider),
-    ref.watch(processRunnerProvider),
-  ).userHomeDirectory,
+  (ref) => DesktopWorkspaceRuntime.userHomeDirectory(),
 );
 
 final workspaceControllerProvider =
@@ -430,7 +439,7 @@ final workspaceControllerProvider =
         final database = ref.watch(databaseProvider);
         final repository = DriftWorkspaceRepository(database);
         final selectionStore = DriftWorkspaceSelectionStore(database);
-        final gateway = MultiCliGateway(database, ProcessRunner(database));
+        final runner = ref.watch(processRunnerProvider);
         return WorkspaceControllerDependencies(
           loadWorkspaceHistory: LoadWorkspaceHistory(
             repository: repository,
@@ -453,7 +462,7 @@ final workspaceControllerProvider =
             profileRepository: DriftAgentProfileRepository(database),
             workspaceRepository: repository,
             selectionStore: selectionStore,
-            launcher: MultiCliAgentLauncher(gateway),
+            launcher: NiniAgentsAgentLauncher(database, runner),
           ),
         );
       }),

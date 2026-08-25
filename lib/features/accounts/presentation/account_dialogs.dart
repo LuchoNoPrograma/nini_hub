@@ -2,14 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:multi_cli_ai/core/currency_catalog.dart';
-import 'package:multi_cli_ai/core/formatters.dart';
-import 'package:multi_cli_ai/features/accounts/application/account_management.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account_device_auth.dart';
-import 'package:multi_cli_ai/features/accounts/presentation/controllers/accounts_controller.dart';
-import 'package:multi_cli_ai/features/accounts/presentation/state/accounts_state.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile_provider.dart';
+import 'package:nini_hub/core/currency_catalog.dart';
+import 'package:nini_hub/core/formatters.dart';
+import 'package:nini_hub/features/accounts/application/account_management.dart';
+import 'package:nini_hub/features/accounts/domain/account.dart';
+import 'package:nini_hub/features/accounts/domain/account_device_auth.dart';
+import 'package:nini_hub/features/accounts/presentation/controllers/accounts_controller.dart';
+import 'package:nini_hub/features/accounts/presentation/state/accounts_state.dart';
+import 'package:nini_hub/features/profiles/domain/profile_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
 

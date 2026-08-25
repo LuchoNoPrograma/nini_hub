@@ -1,4 +1,0 @@
-interface:
-  display_name: "MultiCLI AI Feature Integral"
-  short_description: "Coordina features completas entre capas"
-  default_prompt: "Usa $multi-cli-ai-feature-integral para delimitar y ejecutar una feature completa de MultiCLI AI."

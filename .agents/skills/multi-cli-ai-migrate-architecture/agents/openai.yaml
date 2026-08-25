@@ -1,4 +1,0 @@
-interface:
-  display_name: "MultiCLI AI Migrate Architecture"
-  short_description: "Migra legacy por fracciones con relevo"
-  default_prompt: "Usa $multi-cli-ai-migrate-architecture para continuar una fraccion arquitectonica preservando funcionalidad y actualizando la bitacora."

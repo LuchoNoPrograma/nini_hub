@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/features/settings/application/settings.dart';
-import 'package:multi_cli_ai/features/settings/domain/app_preferences.dart';
-import 'package:multi_cli_ai/features/settings/domain/settings_ports.dart';
+import 'package:nini_hub/features/settings/application/settings.dart';
+import 'package:nini_hub/features/settings/domain/app_preferences.dart';
+import 'package:nini_hub/features/settings/domain/settings_ports.dart';
 
 void main() {
   test('defaults preserve the legacy settings values', () {

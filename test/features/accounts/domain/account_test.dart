@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile.dart';
+import 'package:nini_hub/features/accounts/domain/account.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
 
 void main() {
   test('account preserves visible fallback and descriptive issue rules', () {

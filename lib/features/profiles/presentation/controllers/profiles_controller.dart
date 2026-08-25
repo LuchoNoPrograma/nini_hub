@@ -1,8 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:multi_cli_ai/features/profiles/application/profile_management.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile_failure.dart';
-import 'package:multi_cli_ai/features/profiles/presentation/state/profiles_state.dart';
+import 'package:nini_hub/features/profiles/application/profile_management.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
+import 'package:nini_hub/features/profiles/domain/profile_failure.dart';
+import 'package:nini_hub/features/profiles/presentation/state/profiles_state.dart';
 
 typedef ProfilesControllerDependenciesBuilder =
     ProfilesControllerDependencies Function(Ref<ProfilesState> ref);
@@ -73,7 +73,7 @@ final class ProfilesController extends Notifier<ProfilesState> {
       );
       return result.profile;
     } catch (error) {
-      _completeFailure(error);
+      await _completeMutationFailure(error);
       return null;
     }
   }
@@ -90,7 +90,7 @@ final class ProfilesController extends Notifier<ProfilesState> {
       );
       return result.profile;
     } catch (error) {
-      _completeFailure(error);
+      await _completeMutationFailure(error);
       return null;
     }
   }
@@ -104,7 +104,7 @@ final class ProfilesController extends Notifier<ProfilesState> {
       state = ProfilesState(profiles: snapshot.profiles, isInitialized: true);
       return true;
     } catch (error) {
-      _completeFailure(error);
+      await _completeMutationFailure(error);
       return false;
     }
   }
@@ -158,41 +158,80 @@ final class ProfilesController extends Notifier<ProfilesState> {
     );
   }
 
-  static String _failureMessage(Object error, ProfilesOperation? operation) =>
-      switch (error) {
-        InvalidProfileNameFailure() =>
-          'Usa entre 1 y 48 caracteres: letras, números, guion o guion bajo.',
-        UnsupportedProfileToolFailure() =>
-          'La herramienta seleccionada no es compatible.',
-        ProfileNotFoundFailure() => 'El perfil ya no está disponible.',
-        ProfileUnavailableFailure() => 'El perfil no está disponible.',
-        ProfileDeactivatedFailure() =>
-          'La cuenta está desactivada en este equipo.',
-        ProfileNameUnchangedFailure() => 'El nombre físico no cambió.',
-        ProfileNotManagedFailure() when operation == ProfilesOperation.rename =>
-          'El perfil principal no puede renombrarse con Multi CLI.',
-        ProfileNotManagedFailure() when operation == ProfilesOperation.delete =>
-          'El perfil principal no se elimina desde esta aplicación.',
-        ProfileNotManagedFailure() =>
-          'El perfil principal no admite esta operación.',
-        ProfileMutationAppliedFailure(:final operation) => switch (operation) {
-          ProfileOperation.create =>
-            'El perfil se creó, pero no se pudo completar la actualización.',
-          ProfileOperation.rename =>
-            'El perfil se renombró, pero no se pudo actualizar la lista.',
-          ProfileOperation.delete =>
-            'El perfil se eliminó, pero no se pudo actualizar la lista.',
-        },
-        ProfileResultNotFoundFailure() =>
-          'La operación terminó, pero el perfil no apareció al actualizar.',
-        _ => switch (operation) {
-          ProfilesOperation.load => 'No se pudieron cargar los perfiles.',
-          ProfilesOperation.create => 'No se pudo crear el perfil.',
-          ProfilesOperation.rename => 'No se pudo renombrar el perfil.',
-          ProfilesOperation.delete => 'No se pudo eliminar el perfil.',
-          ProfilesOperation.updateDisplay =>
-            'No se pudieron guardar los datos visibles del perfil.',
-          null => 'No se pudo completar la operación.',
-        },
-      };
+  Future<void> _completeMutationFailure(Object error) async {
+    if (error is ProfileMutationAppliedFailure) {
+      try {
+        final snapshot = await _dependencies.discoverProfiles();
+        state = ProfilesState(
+          profiles: snapshot.profiles,
+          isInitialized: true,
+          failure: error,
+          errorMessage: _failureMessage(error, state.operation),
+        );
+        return;
+      } catch (_) {
+        // Keep the original mutation failure as the user-facing cause.
+      }
+    }
+    _completeFailure(error);
+  }
+
+  static String _failureMessage(
+    Object error,
+    ProfilesOperation? operation,
+  ) => switch (error) {
+    InvalidProfileNameFailure() =>
+      'Usa entre 1 y 48 caracteres: letras, números, guion o guion bajo.',
+    UnsupportedProfileToolFailure() =>
+      'La herramienta seleccionada no es compatible.',
+    ProfileNotFoundFailure() => 'El perfil ya no está disponible.',
+    ProfileUnavailableFailure() => 'El perfil no está disponible.',
+    ProfileDeactivatedFailure() => 'La cuenta está desactivada en este equipo.',
+    ProfileNameUnchangedFailure() => 'El nombre físico no cambió.',
+    ProfileNotManagedFailure() when operation == ProfilesOperation.rename =>
+      'El perfil principal no puede renombrarse con Nini Agents.',
+    ProfileNotManagedFailure() when operation == ProfilesOperation.delete =>
+      'El perfil principal no se elimina desde esta aplicación.',
+    ProfileNotManagedFailure() =>
+      'El perfil principal no admite esta operación.',
+    ProfileDiscoveryUnavailableFailure() =>
+      'Nini Agents no pudo entregar la lista de perfiles.',
+    ProfileMutationRejectedFailure(
+      reason: ProfileMutationRejectionReason.alreadyExists,
+    ) =>
+      'Ya existe un perfil con ese nombre.',
+    ProfileMutationRejectedFailure(
+      reason: ProfileMutationRejectionReason.engineUnavailable,
+    ) =>
+      'Nini Agents no está disponible en este equipo.',
+    ProfileMutationRejectedFailure(
+      reason: ProfileMutationRejectionReason.inconsistentResponse,
+    ) =>
+      'Nini Agents devolvió una respuesta inconsistente.',
+    ProfileMutationRejectedFailure() => switch (operation) {
+      ProfilesOperation.create => 'Nini Agents rechazó crear el perfil.',
+      ProfilesOperation.rename => 'Nini Agents rechazó renombrar el perfil.',
+      ProfilesOperation.delete => 'Nini Agents rechazó eliminar el perfil.',
+      _ => 'Nini Agents rechazó la operación.',
+    },
+    ProfileMutationAppliedFailure(:final operation) => switch (operation) {
+      ProfileOperation.create =>
+        'Nini Agents inició la creación, pero no confirmó el resultado.',
+      ProfileOperation.rename =>
+        'Nini Agents inició el cambio de nombre, pero no confirmó el resultado.',
+      ProfileOperation.delete =>
+        'Nini Agents inició la eliminación, pero no confirmó el resultado.',
+    },
+    ProfileResultNotFoundFailure() =>
+      'La operación terminó, pero el perfil no apareció al actualizar.',
+    _ => switch (operation) {
+      ProfilesOperation.load => 'No se pudieron cargar los perfiles.',
+      ProfilesOperation.create => 'No se pudo crear el perfil.',
+      ProfilesOperation.rename => 'No se pudo renombrar el perfil.',
+      ProfilesOperation.delete => 'No se pudo eliminar el perfil.',
+      ProfilesOperation.updateDisplay =>
+        'No se pudieron guardar los datos visibles del perfil.',
+      null => 'No se pudo completar la operación.',
+    },
+  };
 }

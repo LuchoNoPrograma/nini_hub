@@ -23,7 +23,7 @@ static void set_window_icon(GtkWindow* window) {
 
   g_autofree gchar* executable_dir = g_path_get_dirname(executable_path);
   g_autofree gchar* icon_path = g_build_filename(
-      executable_dir, "data", "multicli_ai.png", nullptr);
+      executable_dir, "data", "nini_hub.png", nullptr);
   g_autoptr(GError) error = nullptr;
   if (!gtk_window_set_icon_from_file(window, icon_path, &error)) {
     g_warning("Failed to load application icon: %s",
@@ -63,11 +63,11 @@ static void my_application_activate(GApplication* application) {
   if (use_header_bar) {
     GtkHeaderBar* header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
     gtk_widget_show(GTK_WIDGET(header_bar));
-    gtk_header_bar_set_title(header_bar, "MultiCLI AI");
+    gtk_header_bar_set_title(header_bar, "Nini Hub");
     gtk_header_bar_set_show_close_button(header_bar, TRUE);
     gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
   } else {
-    gtk_window_set_title(window, "MultiCLI AI");
+    gtk_window_set_title(window, "Nini Hub");
   }
 
   gtk_window_set_default_size(window, 1280, 720);

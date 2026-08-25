@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:multi_cli_ai/core/theme/app_theme.dart';
-import 'package:multi_cli_ai/features/settings/domain/app_preferences.dart';
-import 'package:multi_cli_ai/features/settings/presentation/controllers/settings_controller.dart';
-import 'package:multi_cli_ai/features/settings/presentation/state/settings_state.dart';
+import 'package:nini_hub/core/theme/app_theme.dart';
+import 'package:nini_hub/features/settings/domain/app_preferences.dart';
+import 'package:nini_hub/features/settings/presentation/controllers/settings_controller.dart';
+import 'package:nini_hub/features/settings/presentation/state/settings_state.dart';
 
 Future<bool> showSettingsDialog(
   BuildContext context,

@@ -2,17 +2,17 @@ import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/core/theme/app_theme.dart';
-import 'package:multi_cli_ai/features/profiles/data/profile_discovery_service.dart';
-import 'package:multi_cli_ai/features/settings/application/settings.dart';
-import 'package:multi_cli_ai/features/settings/data/desktop_settings_runtime.dart';
-import 'package:multi_cli_ai/features/settings/data/drift_settings_repository.dart';
-import 'package:multi_cli_ai/features/settings/domain/app_preferences.dart';
-import 'package:multi_cli_ai/features/settings/presentation/controllers/settings_controller.dart';
-import 'package:multi_cli_ai/features/settings/presentation/settings_dialog.dart';
-import 'package:multi_cli_ai/features/settings/presentation/state/settings_state.dart';
-import 'package:multi_cli_ai/providers/codex/codex_client_runtime.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/core/theme/app_theme.dart';
+import 'package:nini_hub/features/profiles/data/profile_discovery_service.dart';
+import 'package:nini_hub/features/settings/application/settings.dart';
+import 'package:nini_hub/features/settings/data/desktop_settings_runtime.dart';
+import 'package:nini_hub/features/settings/data/drift_settings_repository.dart';
+import 'package:nini_hub/features/settings/domain/app_preferences.dart';
+import 'package:nini_hub/features/settings/presentation/controllers/settings_controller.dart';
+import 'package:nini_hub/features/settings/presentation/settings_dialog.dart';
+import 'package:nini_hub/features/settings/presentation/state/settings_state.dart';
+import 'package:nini_hub/providers/codex/codex_client_runtime.dart';
 
 void main() {
   test('loads settings defaults and applies their runtime values', () async {
@@ -261,7 +261,7 @@ final class _RecordingWeeklyScheduler {
 }
 
 final class _RecordingProfileDiscoveryService extends ProfileDiscoveryService {
-  _RecordingProfileDiscoveryService(super.database);
+  _RecordingProfileDiscoveryService(super.database) : super.test();
 
   int calls = 0;
   final List<String?> rootsSeen = [];

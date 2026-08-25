@@ -1,4 +1,0 @@
-interface:
-  display_name: "MultiCLI AI Flutter Desktop"
-  short_description: "Construye presentation Flutter de escritorio"
-  default_prompt: "Usa $multi-cli-ai-presentation-flutter-desktop para implementar esta experiencia de escritorio con Riverpod."

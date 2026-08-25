@@ -1,8 +1,8 @@
 import 'package:drift/drift.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/features/heartbeat/data/heartbeat_state_mapper.dart';
-import 'package:multi_cli_ai/features/heartbeat/domain/heartbeat.dart';
-import 'package:multi_cli_ai/features/heartbeat/domain/heartbeat_ports.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/features/heartbeat/data/heartbeat_state_mapper.dart';
+import 'package:nini_hub/features/heartbeat/domain/heartbeat.dart';
+import 'package:nini_hub/features/heartbeat/domain/heartbeat_ports.dart';
 
 final class DriftHeartbeatRepository
     implements HeartbeatStateRepository, HeartbeatHistoryRepository {

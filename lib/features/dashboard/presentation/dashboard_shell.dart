@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:multi_cli_ai/app/app_startup.dart';
-import 'package:multi_cli_ai/app/providers.dart';
-import 'package:multi_cli_ai/core/widgets/app_primitives.dart';
-import 'package:multi_cli_ai/features/accounts/presentation/accounts_view.dart';
-import 'package:multi_cli_ai/features/activity/presentation/activity_view.dart';
-import 'package:multi_cli_ai/features/settings/presentation/settings_dialog.dart';
-import 'package:multi_cli_ai/features/usage/presentation/calendar_view.dart';
+import 'package:nini_hub/app/app_startup.dart';
+import 'package:nini_hub/app/providers.dart';
+import 'package:nini_hub/core/widgets/app_primitives.dart';
+import 'package:nini_hub/features/accounts/presentation/accounts_view.dart';
+import 'package:nini_hub/features/activity/presentation/activity_view.dart';
+import 'package:nini_hub/features/settings/presentation/settings_dialog.dart';
+import 'package:nini_hub/features/usage/presentation/calendar_view.dart';
 
 enum DashboardSection { accounts, calendar, activity }
 
@@ -225,14 +225,14 @@ class _OperationsBar extends ConsumerWidget {
                 ClipRRect(
                   borderRadius: BorderRadius.circular(4),
                   child: Image.asset(
-                    'assets/branding/multicli-ai-icon.png',
+                    'assets/branding/nini-hub-icon.png',
                     width: 20,
                     height: 20,
                     filterQuality: FilterQuality.medium,
                   ),
                 ),
                 const SizedBox(width: 7),
-                Text('MultiCLI AI', style: theme.textTheme.titleMedium),
+                Text('Nini Hub', style: theme.textTheme.titleMedium),
               ],
             ),
           ),

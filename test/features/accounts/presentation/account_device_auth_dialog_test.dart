@@ -2,11 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/core/theme/app_theme.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account_device_auth.dart';
-import 'package:multi_cli_ai/features/accounts/presentation/account_dialogs.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile.dart';
+import 'package:nini_hub/core/theme/app_theme.dart';
+import 'package:nini_hub/features/accounts/domain/account.dart';
+import 'package:nini_hub/features/accounts/domain/account_device_auth.dart';
+import 'package:nini_hub/features/accounts/presentation/account_dialogs.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
 
 void main() {
   testWidgets('shows the domain session and closes after confirmed access', (

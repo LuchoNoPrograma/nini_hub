@@ -44,6 +44,31 @@ final class ProfileNameUnchangedFailure extends ProfileFailure {
 
 enum ProfileOperation { create, rename, delete }
 
+enum ProfileMutationRejectionReason {
+  alreadyExists,
+  engineUnavailable,
+  rejected,
+  inconsistentResponse,
+}
+
+final class ProfileMutationRejectedFailure extends ProfileFailure {
+  const ProfileMutationRejectedFailure({
+    required this.operation,
+    required this.reason,
+    this.profileId,
+    this.profileName,
+  });
+
+  final ProfileOperation operation;
+  final ProfileMutationRejectionReason reason;
+  final String? profileId;
+  final String? profileName;
+}
+
+final class ProfileDiscoveryUnavailableFailure extends ProfileFailure {
+  const ProfileDiscoveryUnavailableFailure();
+}
+
 final class ProfileResultNotFoundFailure extends ProfileFailure {
   const ProfileResultNotFoundFailure({
     required this.operation,

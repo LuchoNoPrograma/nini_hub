@@ -1,4 +1,4 @@
-import 'package:multi_cli_ai/features/profiles/domain/profile_provider.dart';
+import 'package:nini_hub/features/profiles/domain/profile_provider.dart';
 
 final class AgentProfile {
   const AgentProfile({

@@ -1,5 +1,5 @@
-import 'package:multi_cli_ai/features/accounts/application/account_management.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account.dart';
+import 'package:nini_hub/features/accounts/application/account_management.dart';
+import 'package:nini_hub/features/accounts/domain/account.dart';
 
 enum AccountsOperation { load, update, deviceAuthStart, deviceAuthComplete }
 

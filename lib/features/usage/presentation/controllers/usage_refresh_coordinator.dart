@@ -1,7 +1,7 @@
 import 'dart:async';
 
-import 'package:multi_cli_ai/features/usage/presentation/controllers/usage_controller.dart';
-import 'package:multi_cli_ai/features/usage/presentation/state/usage_state.dart';
+import 'package:nini_hub/features/usage/presentation/controllers/usage_controller.dart';
+import 'package:nini_hub/features/usage/presentation/state/usage_state.dart';
 
 final class UsageRefreshCoordinator {
   UsageRefreshCoordinator({

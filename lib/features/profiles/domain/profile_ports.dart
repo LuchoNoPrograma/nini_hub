@@ -1,4 +1,4 @@
-import 'package:multi_cli_ai/features/profiles/domain/profile.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
 
 abstract interface class ProfileRepository {
   Future<Profile?> findById(String profileId);

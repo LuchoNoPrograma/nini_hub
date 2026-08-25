@@ -4,19 +4,20 @@ import 'dart:io';
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/app/providers.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/core/process/process_runner.dart';
-import 'package:multi_cli_ai/providers/codex/codex_app_server_models.dart';
-import 'package:multi_cli_ai/features/profiles/data/profile_discovery_service.dart';
-import 'package:multi_cli_ai/features/usage/domain/usage_failure.dart';
-import 'package:multi_cli_ai/providers/codex/codex_app_server_client.dart';
-import 'package:multi_cli_ai/providers/codex/codex_client_runtime.dart';
+import 'package:nini_hub/app/providers.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/core/process/process_runner.dart';
+import 'package:nini_hub/providers/codex/codex_app_server_models.dart';
+import 'package:nini_hub/features/profiles/data/profile_discovery_service.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
+import 'package:nini_hub/features/usage/domain/usage_failure.dart';
+import 'package:nini_hub/providers/codex/codex_app_server_client.dart';
+import 'package:nini_hub/providers/codex/codex_client_runtime.dart';
 
 void main() {
   test('usage refresh rediscovers profiles before starting Codex', () async {
     final root = await Directory.systemTemp.createTemp(
-      'multicli-ai-refresh-safety-',
+      'nini-hub-refresh-safety-',
     );
     addTearDown(() => root.delete(recursive: true));
     final database = AppDatabase(NativeDatabase.memory());
@@ -144,8 +145,8 @@ class _RecordingCodexClient extends CodexAppServerClient {
   final List<String> profileHomes = [];
 
   @override
-  Future<CodexRefreshResult> refresh(String profileHome) async {
-    profileHomes.add(profileHome);
+  Future<CodexRefreshResult> refresh(Profile profile) async {
+    profileHomes.add(profile.profileHome);
     return _result();
   }
 }
@@ -156,8 +157,8 @@ final class _GatedCodexClient extends _RecordingCodexClient {
   int maxActive = 0;
 
   @override
-  Future<CodexRefreshResult> refresh(String profileHome) async {
-    profileHomes.add(profileHome);
+  Future<CodexRefreshResult> refresh(Profile profile) async {
+    profileHomes.add(profile.profileHome);
     active++;
     if (active > maxActive) maxActive = active;
     try {
@@ -170,7 +171,7 @@ final class _GatedCodexClient extends _RecordingCodexClient {
 }
 
 final class _StaticProfileDiscovery extends ProfileDiscoveryService {
-  _StaticProfileDiscovery(super.database);
+  _StaticProfileDiscovery(super.database) : super.test();
 
   @override
   Future<List<CliProfile>> discoverProfiles() =>

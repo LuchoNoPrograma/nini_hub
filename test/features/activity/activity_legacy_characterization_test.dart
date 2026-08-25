@@ -1,10 +1,10 @@
 import 'package:drift/drift.dart' hide isNotNull, isNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/core/process/process_runner.dart';
-import 'package:multi_cli_ai/features/activity/data/drift_activity_repository.dart';
-import 'package:multi_cli_ai/features/activity/domain/activity_log.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/core/process/process_runner.dart';
+import 'package:nini_hub/features/activity/data/drift_activity_repository.dart';
+import 'package:nini_hub/features/activity/domain/activity_log.dart';
 
 void main() {
   test('activity loads the latest 250 logs in descending order', () async {

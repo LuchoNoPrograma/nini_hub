@@ -1,11 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/features/accounts/application/account_device_auth.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account_device_auth.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account_failure.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account_repository.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile_ports.dart';
+import 'package:nini_hub/features/accounts/application/account_device_auth.dart';
+import 'package:nini_hub/features/accounts/domain/account.dart';
+import 'package:nini_hub/features/accounts/domain/account_device_auth.dart';
+import 'package:nini_hub/features/accounts/domain/account_failure.dart';
+import 'package:nini_hub/features/accounts/domain/account_repository.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
+import 'package:nini_hub/features/profiles/domain/profile_ports.dart';
 
 void main() {
   test('start records Activity before opening the provider session', () async {
@@ -48,6 +48,7 @@ void main() {
       final repository = _FakeAccountRepository(events, [_account()]);
       final useCase = CompleteAccountDeviceAuth(
         activity: _FakeActivity(events),
+        authenticationStore: _FakeAuthenticationStore(events),
         discovery: _FakeDiscovery(events, [
           _profile('account'),
           _profile('missing-auth', hasAuthFile: false),
@@ -70,6 +71,7 @@ void main() {
       expect(snapshot?.accounts.single.profile.id, 'account');
       expect(events, [
         'activity.completed:true',
+        'authentication.persist:account',
         'profiles.discover',
         'heartbeat.monitor:account',
         'usage.refresh:account',
@@ -85,6 +87,7 @@ void main() {
       final events = <String>[];
       final useCase = CompleteAccountDeviceAuth(
         activity: _FakeActivity(events),
+        authenticationStore: _FakeAuthenticationStore(events),
         discovery: _FakeDiscovery(events, [_profile('account')]),
         accountRepository: _FakeAccountRepository(events, [_account()]),
         monitorHeartbeatProfiles: (_) => events.add('heartbeat.monitor'),
@@ -102,11 +105,82 @@ void main() {
     },
   );
 
-  test('completion reports the last definitely applied progress', () {
+  test(
+    'confirmed completion reports persistence failure before discovery',
+    () async {
+      final events = <String>[];
+      final cause = StateError('profile disappeared');
+      final useCase = CompleteAccountDeviceAuth(
+        activity: _FakeActivity(events),
+        authenticationStore: _FakeAuthenticationStore(events, failure: cause),
+        discovery: _FakeDiscovery(events, [_profile('account')]),
+        accountRepository: _FakeAccountRepository(events, [_account()]),
+        monitorHeartbeatProfiles: (_) => events.add('heartbeat.monitor'),
+        refreshUsage: (_) async => events.add('usage.refresh'),
+        synchronizeUsageProjections: () async =>
+            events.add('usage.synchronize'),
+      );
+
+      await expectLater(
+        useCase(_account(), success: true),
+        throwsA(
+          isA<AccountDeviceAuthAppliedFailure>()
+              .having(
+                (failure) => failure.progress,
+                'progress',
+                AccountDeviceAuthProgress.completionRecorded,
+              )
+              .having((failure) => failure.cause, 'cause', same(cause)),
+        ),
+      );
+      expect(events, [
+        'activity.completed:true',
+        'authentication.persist:account',
+      ]);
+    },
+  );
+
+  test(
+    'completion exposes persisted authentication before discovery failure',
+    () async {
+      final events = <String>[];
+      final cause = StateError('discovery failed');
+      final useCase = CompleteAccountDeviceAuth(
+        activity: _FakeActivity(events),
+        authenticationStore: _FakeAuthenticationStore(events),
+        discovery: _FakeDiscovery(events, const [], failure: cause),
+        accountRepository: _FakeAccountRepository(events, [_account()]),
+        monitorHeartbeatProfiles: (_) {},
+        refreshUsage: (_) async {},
+        synchronizeUsageProjections: () async {},
+      );
+
+      await expectLater(
+        useCase(_account(), success: true),
+        throwsA(
+          isA<AccountDeviceAuthAppliedFailure>()
+              .having(
+                (failure) => failure.progress,
+                'progress',
+                AccountDeviceAuthProgress.authenticationPersisted,
+              )
+              .having((failure) => failure.cause, 'cause', same(cause)),
+        ),
+      );
+      expect(events, [
+        'activity.completed:true',
+        'authentication.persist:account',
+        'profiles.discover',
+      ]);
+    },
+  );
+
+  test('completion reports the last definitely applied progress', () async {
     final events = <String>[];
     final cause = StateError('usage failed');
     final useCase = CompleteAccountDeviceAuth(
       activity: _FakeActivity(events),
+      authenticationStore: _FakeAuthenticationStore(events),
       discovery: _FakeDiscovery(events, [_profile('account')]),
       accountRepository: _FakeAccountRepository(events, [_account()]),
       monitorHeartbeatProfiles: (_) {},
@@ -114,7 +188,7 @@ void main() {
       synchronizeUsageProjections: () async {},
     );
 
-    expectLater(
+    await expectLater(
       useCase(_account(), success: true),
       throwsA(
         isA<AccountDeviceAuthAppliedFailure>()
@@ -178,15 +252,32 @@ final class _FakeActivity implements AccountDeviceAuthActivityRecorder {
   }
 }
 
+final class _FakeAuthenticationStore implements AccountAuthenticationStore {
+  const _FakeAuthenticationStore(this.events, {this.failure});
+
+  final List<String> events;
+  final Object? failure;
+
+  @override
+  Future<void> markAuthenticated(String profileId) async {
+    events.add('authentication.persist:$profileId');
+    final failure = this.failure;
+    if (failure != null) throw failure;
+  }
+}
+
 final class _FakeDiscovery implements ProfileDiscovery {
-  const _FakeDiscovery(this.events, this.profiles);
+  const _FakeDiscovery(this.events, this.profiles, {this.failure});
 
   final List<String> events;
   final List<Profile> profiles;
+  final Object? failure;
 
   @override
   Future<List<Profile>> discover() async {
     events.add('profiles.discover');
+    final failure = this.failure;
+    if (failure != null) throw failure;
     return profiles;
   }
 }

@@ -1,5 +1,5 @@
-import 'package:multi_cli_ai/core/database/app_database.dart' as db;
-import 'package:multi_cli_ai/features/profiles/domain/profile.dart';
+import 'package:nini_hub/core/database/app_database.dart' as db;
+import 'package:nini_hub/features/profiles/domain/profile.dart';
 
 abstract final class ProfileMapper {
   static Profile fromRow(db.CliProfile row) => Profile(
@@ -27,6 +27,7 @@ abstract final class ProfileMapper {
     'full' => ProfileKind.full,
     'shared' => ProfileKind.shared,
     'cli' => ProfileKind.cli,
+    'isolated' => ProfileKind.isolated,
     'deactivated' => ProfileKind.deactivated,
     _ => throw StateError('Tipo de perfil persistido no compatible: $value'),
   };

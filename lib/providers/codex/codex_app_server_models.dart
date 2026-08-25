@@ -27,6 +27,35 @@ enum UsageCheckState {
   };
 }
 
+enum CodexAppServerFailureKind {
+  executableUnavailable,
+  profileMissing,
+  timeout,
+  processExited,
+  protocolViolation,
+  rpc,
+  cancelled,
+}
+
+final class CodexAppServerFailure implements Exception {
+  const CodexAppServerFailure({
+    required this.kind,
+    required this.code,
+    required this.message,
+    this.exitCode,
+    this.diagnostic,
+  });
+
+  final CodexAppServerFailureKind kind;
+  final String code;
+  final String message;
+  final int? exitCode;
+  final String? diagnostic;
+
+  @override
+  String toString() => message;
+}
+
 class QuotaSnapshot {
   const QuotaSnapshot({
     required this.limitId,

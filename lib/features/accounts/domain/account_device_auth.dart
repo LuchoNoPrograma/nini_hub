@@ -1,4 +1,4 @@
-import 'package:multi_cli_ai/features/profiles/domain/profile.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
 
 abstract interface class AccountDeviceAuthSession {
   String get verificationUrl;
@@ -20,4 +20,8 @@ abstract interface class AccountDeviceAuthActivityRecorder {
   Future<void> recordStarted(Profile profile);
 
   Future<void> recordCompleted(Profile profile, {required bool success});
+}
+
+abstract interface class AccountAuthenticationStore {
+  Future<void> markAuthenticated(String profileId);
 }

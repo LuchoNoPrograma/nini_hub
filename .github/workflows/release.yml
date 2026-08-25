@@ -81,7 +81,7 @@ jobs:
         shell: bash
         run: |
           version="${GITHUB_REF_NAME#v}"
-          package_name="MultiCLI-AI-${version}-linux-x86_64"
+          package_name="Nini-Hub-${version}-linux-x86_64"
           package_dir="${RUNNER_TEMP}/${package_name}"
           mkdir -p "${package_dir}"
           cp -a build/linux/x64/release/bundle/. "${package_dir}/"
@@ -93,8 +93,8 @@ jobs:
         with:
           name: release-linux-x86_64
           path: |
-            MultiCLI-AI-*-linux-x86_64.tar.gz
-            MultiCLI-AI-*-linux-x86_64.tar.gz.sha256
+            Nini-Hub-*-linux-x86_64.tar.gz
+            Nini-Hub-*-linux-x86_64.tar.gz.sha256
           if-no-files-found: error
           retention-days: 7
 
@@ -124,7 +124,7 @@ jobs:
         shell: pwsh
         run: |
           $version = $env:GITHUB_REF_NAME -replace '^v', ''
-          $packageName = "MultiCLI-AI-$version-windows-x64"
+          $packageName = "Nini-Hub-$version-windows-x64"
           $packageDirectory = Join-Path $env:RUNNER_TEMP $packageName
           New-Item -ItemType Directory -Path $packageDirectory | Out-Null
           Copy-Item -Path 'build\windows\x64\runner\Release\*' -Destination $packageDirectory -Recurse -Force
@@ -138,8 +138,8 @@ jobs:
         with:
           name: release-windows-x64
           path: |
-            MultiCLI-AI-*-windows-x64.zip
-            MultiCLI-AI-*-windows-x64.zip.sha256
+            Nini-Hub-*-windows-x64.zip
+            Nini-Hub-*-windows-x64.zip.sha256
           if-no-files-found: error
           retention-days: 7
 
@@ -168,7 +168,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          title="MultiCLI AI ${GITHUB_REF_NAME#v}"
+          title="Nini Hub ${GITHUB_REF_NAME#v}"
           if gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             gh release upload "${GITHUB_REF_NAME}" dist/* --clobber --repo "${GITHUB_REPOSITORY}"
             gh release edit "${GITHUB_REF_NAME}" --prerelease --title "${title}" --repo "${GITHUB_REPOSITORY}"

@@ -2,12 +2,12 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/features/profiles/application/profile_management.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile_failure.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile_ports.dart';
-import 'package:multi_cli_ai/features/profiles/presentation/controllers/profiles_controller.dart';
-import 'package:multi_cli_ai/features/profiles/presentation/state/profiles_state.dart';
+import 'package:nini_hub/features/profiles/application/profile_management.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
+import 'package:nini_hub/features/profiles/domain/profile_failure.dart';
+import 'package:nini_hub/features/profiles/domain/profile_ports.dart';
+import 'package:nini_hub/features/profiles/presentation/controllers/profiles_controller.dart';
+import 'package:nini_hub/features/profiles/presentation/state/profiles_state.dart';
 
 void main() {
   late _Fixture fixture;
@@ -189,11 +189,37 @@ void main() {
       );
       expect(
         fixture.state.errorMessage,
-        'El perfil se creó, pero no se pudo completar la actualización.',
+        'Nini Agents inició la creación, pero no confirmó el resultado.',
       );
       expect(fixture.state.operation, isNull);
     },
   );
+
+  test('refreshes visible profiles after a partial engine result', () async {
+    final reconciled = _profile(id: 'created', profileName: 'created');
+    fixture.discovery.profiles = [reconciled];
+    fixture.lifecycle.createFailure = ProfileMutationAppliedFailure(
+      operation: ProfileOperation.create,
+      profileName: 'created',
+      cause: StateError('partial'),
+    );
+
+    expect(
+      await fixture.controller.create(
+        const CreateProfileCommand(
+          toolKey: 'codex',
+          name: 'created',
+          displayName: '',
+        ),
+      ),
+      isNull,
+    );
+
+    expect(fixture.discovery.calls, 1);
+    expect(fixture.state.findById('created'), same(reconciled));
+    expect(fixture.state.isInitialized, isTrue);
+    expect(fixture.state.failure, isA<ProfileMutationAppliedFailure>());
+  });
 
   test(
     'keeps unexpected failures with an operation-specific message',
@@ -293,6 +319,7 @@ final class _MemoryDiscovery implements ProfileDiscovery {
 
 final class _MemoryLifecycle implements ProfileLifecycle {
   Completer<void>? renameGate;
+  Object? createFailure;
   int renameCalls = 0;
 
   @override
@@ -301,7 +328,10 @@ final class _MemoryLifecycle implements ProfileLifecycle {
     required ProfileName profileName,
     required ProfileSetupMode setupMode,
     required bool seedFromBase,
-  }) async {}
+  }) async {
+    final failure = createFailure;
+    if (failure != null) throw failure;
+  }
 
   @override
   Future<void> rename({

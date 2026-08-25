@@ -1,5 +1,5 @@
-import 'package:multi_cli_ai/features/activity/domain/activity_log.dart';
-import 'package:multi_cli_ai/features/activity/domain/activity_repository.dart';
+import 'package:nini_hub/features/activity/domain/activity_log.dart';
+import 'package:nini_hub/features/activity/domain/activity_repository.dart';
 
 final class ActivityHistorySnapshot {
   ActivityHistorySnapshot({required List<ActivityLog> logs})

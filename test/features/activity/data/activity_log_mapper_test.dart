@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/features/activity/data/activity_log_mapper.dart';
-import 'package:multi_cli_ai/features/activity/domain/activity_log.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/features/activity/data/activity_log_mapper.dart';
+import 'package:nini_hub/features/activity/domain/activity_log.dart';
 
 void main() {
   test('maps persisted fields, nullability, and instants to UTC', () {

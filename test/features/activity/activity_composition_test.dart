@@ -2,9 +2,9 @@ import 'package:drift/drift.dart' hide isNotNull, isNull;
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/app/providers.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/features/profiles/data/profile_discovery_service.dart';
+import 'package:nini_hub/app/providers.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/features/profiles/data/profile_discovery_service.dart';
 
 void main() {
   test(
@@ -136,7 +136,7 @@ final class _SelectCounter extends QueryInterceptor {
 }
 
 final class _StaticProfileDiscovery extends ProfileDiscoveryService {
-  _StaticProfileDiscovery(super.database);
+  _StaticProfileDiscovery(super.database) : super.test();
 
   @override
   Future<List<CliProfile>> discoverProfiles() =>

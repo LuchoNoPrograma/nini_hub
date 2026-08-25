@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/features/accounts/application/account_management.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account_failure.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account_repository.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile_ports.dart';
+import 'package:nini_hub/features/accounts/application/account_management.dart';
+import 'package:nini_hub/features/accounts/domain/account.dart';
+import 'package:nini_hub/features/accounts/domain/account_failure.dart';
+import 'package:nini_hub/features/accounts/domain/account_repository.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
+import 'package:nini_hub/features/profiles/domain/profile_ports.dart';
 
 void main() {
   test('snapshot preserves search, status, and selection lookup semantics', () {

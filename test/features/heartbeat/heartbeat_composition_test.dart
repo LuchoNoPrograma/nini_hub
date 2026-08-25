@@ -1,12 +1,12 @@
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/app/providers.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/features/heartbeat/domain/heartbeat.dart';
-import 'package:multi_cli_ai/features/heartbeat/domain/heartbeat_policy.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile.dart';
-import 'package:multi_cli_ai/features/usage/domain/usage.dart';
+import 'package:nini_hub/app/providers.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/features/heartbeat/domain/heartbeat.dart';
+import 'package:nini_hub/features/heartbeat/domain/heartbeat_policy.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
+import 'package:nini_hub/features/usage/domain/usage.dart';
 
 void main() {
   test('real composition observes Usage without running Codex', () async {

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile_provider.dart';
+import 'package:nini_hub/features/profiles/domain/profile_provider.dart';
 
 class ProfileProviderIcon extends StatelessWidget {
   const ProfileProviderIcon({required this.toolKey, this.size = 20, super.key});

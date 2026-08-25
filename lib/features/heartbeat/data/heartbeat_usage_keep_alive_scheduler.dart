@@ -1,8 +1,8 @@
-import 'package:multi_cli_ai/core/process/process_runner.dart';
-import 'package:multi_cli_ai/features/heartbeat/data/dart_heartbeat_scheduler.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile.dart';
-import 'package:multi_cli_ai/features/usage/domain/usage.dart';
-import 'package:multi_cli_ai/features/usage/domain/usage_ports.dart';
+import 'package:nini_hub/core/process/process_runner.dart';
+import 'package:nini_hub/features/heartbeat/data/dart_heartbeat_scheduler.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
+import 'package:nini_hub/features/usage/domain/usage.dart';
+import 'package:nini_hub/features/usage/domain/usage_ports.dart';
 
 typedef HeartbeatUsageObservation =
     Future<void> Function({

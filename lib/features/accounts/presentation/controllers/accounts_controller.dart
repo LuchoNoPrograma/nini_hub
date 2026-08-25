@@ -1,10 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:multi_cli_ai/features/accounts/application/account_device_auth.dart';
-import 'package:multi_cli_ai/features/accounts/application/account_management.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account_device_auth.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account_failure.dart';
-import 'package:multi_cli_ai/features/accounts/presentation/state/accounts_state.dart';
+import 'package:nini_hub/features/accounts/application/account_device_auth.dart';
+import 'package:nini_hub/features/accounts/application/account_management.dart';
+import 'package:nini_hub/features/accounts/domain/account.dart';
+import 'package:nini_hub/features/accounts/domain/account_device_auth.dart';
+import 'package:nini_hub/features/accounts/domain/account_failure.dart';
+import 'package:nini_hub/features/accounts/presentation/state/accounts_state.dart';
 
 typedef AccountsControllerDependenciesBuilder =
     AccountsControllerDependencies Function(Ref<AccountsState> ref);

@@ -1,8 +1,8 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/features/heartbeat/data/heartbeat_state_mapper.dart';
-import 'package:multi_cli_ai/features/heartbeat/domain/heartbeat.dart';
+import 'package:nini_hub/features/heartbeat/data/heartbeat_state_mapper.dart';
+import 'package:nini_hub/features/heartbeat/domain/heartbeat.dart';
 
 void main() {
   group('HeartbeatStateMapper', () {

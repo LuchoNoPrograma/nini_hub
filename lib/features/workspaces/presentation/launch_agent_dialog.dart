@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:multi_cli_ai/core/widgets/app_primitives.dart';
-import 'package:multi_cli_ai/features/profiles/presentation/profile_provider_icon.dart';
-import 'package:multi_cli_ai/features/workspaces/domain/workspace.dart';
-import 'package:multi_cli_ai/features/workspaces/presentation/controllers/workspace_controller.dart';
-import 'package:multi_cli_ai/features/workspaces/presentation/state/workspace_state.dart';
-import 'package:multi_cli_ai/features/workspaces/presentation/workspace_dialogs.dart';
+import 'package:nini_hub/core/widgets/app_primitives.dart';
+import 'package:nini_hub/features/profiles/presentation/profile_provider_icon.dart';
+import 'package:nini_hub/features/workspaces/domain/workspace.dart';
+import 'package:nini_hub/features/workspaces/presentation/controllers/workspace_controller.dart';
+import 'package:nini_hub/features/workspaces/presentation/state/workspace_state.dart';
+import 'package:nini_hub/features/workspaces/presentation/workspace_dialogs.dart';
 
 final class LaunchProfileOption {
   const LaunchProfileOption({

@@ -1,8 +1,8 @@
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/features/profiles/data/drift_profile_repository.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/features/profiles/data/drift_profile_repository.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
 
 void main() {
   late AppDatabase database;
@@ -23,6 +23,7 @@ void main() {
         ('multicli', 'full', ProfileSource.multiCli, ProfileKind.full),
         ('multicli', 'shared', ProfileSource.multiCli, ProfileKind.shared),
         ('multicli', 'cli', ProfileSource.multiCli, ProfileKind.cli),
+        ('multicli', 'isolated', ProfileSource.multiCli, ProfileKind.isolated),
         (
           'multicli',
           'deactivated',

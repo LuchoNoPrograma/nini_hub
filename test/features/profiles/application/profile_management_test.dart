@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/features/profiles/application/profile_management.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile_failure.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile_ports.dart';
+import 'package:nini_hub/features/profiles/application/profile_management.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
+import 'package:nini_hub/features/profiles/domain/profile_failure.dart';
+import 'package:nini_hub/features/profiles/domain/profile_ports.dart';
 
 void main() {
   test('discover returns an immutable snapshot', () async {

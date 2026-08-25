@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/features/usage/application/usage_calendar.dart';
-import 'package:multi_cli_ai/features/usage/domain/usage.dart';
-import 'package:multi_cli_ai/features/usage/domain/usage_ports.dart';
+import 'package:nini_hub/features/usage/application/usage_calendar.dart';
+import 'package:nini_hub/features/usage/domain/usage.dart';
+import 'package:nini_hub/features/usage/domain/usage_ports.dart';
 
 void main() {
   test('load delegates once and returns the repository calendar', () async {

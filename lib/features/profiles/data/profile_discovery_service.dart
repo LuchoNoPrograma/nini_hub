@@ -1,18 +1,24 @@
 import 'dart:io';
 
 import 'package:drift/drift.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/features/profiles/data/profile_mapper.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile_ports.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile_provider.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/core/process/nini_agents_read_client.dart';
+import 'package:nini_hub/features/profiles/data/profile_mapper.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
+import 'package:nini_hub/features/profiles/domain/profile_failure.dart';
+import 'package:nini_hub/features/profiles/domain/profile_ports.dart';
+import 'package:nini_hub/features/profiles/domain/profile_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
 class ProfileDiscoveryService implements ProfileDiscovery {
-  ProfileDiscoveryService(this.database);
+  ProfileDiscoveryService(this.database, NiniAgentsReadClient client)
+    : _client = client;
+
+  ProfileDiscoveryService.test(this.database) : _client = null;
 
   final AppDatabase database;
+  final NiniAgentsReadClient? _client;
   final Uuid _uuid = const Uuid();
   Future<void> _discoveryTail = Future<void>.value();
 
@@ -53,60 +59,86 @@ class ProfileDiscoveryService implements ProfileDiscovery {
     return operation;
   }
 
+  Future<List<CliProfile>> reconcileProfiles(
+    NiniAgentsProfileList profiles,
+  ) async {
+    try {
+      final tools = await _requiredClient.tools();
+      return _synchronize(profiles: profiles, tools: tools);
+    } on NiniAgentsReadFailure {
+      throw const ProfileDiscoveryUnavailableFailure();
+    }
+  }
+
   @override
   Future<List<Profile>> discover() async => (await discoverProfiles())
       .map(ProfileMapper.fromRow)
       .toList(growable: false);
 
+  NiniAgentsReadClient get _requiredClient =>
+      _client ??
+      (throw StateError('ProfileDiscoveryService requires Nini Agents.'));
+
   Future<List<CliProfile>> _discoverProfiles() async {
+    try {
+      final root = await profilesRoot();
+      final profiles = await _requiredClient.list(profilesRoot: root);
+      final tools = await _requiredClient.tools();
+      return _synchronize(profiles: profiles, tools: tools, root: root);
+    } on NiniAgentsReadFailure {
+      throw const ProfileDiscoveryUnavailableFailure();
+    }
+  }
+
+  Future<List<CliProfile>> _synchronize({
+    required NiniAgentsProfileList profiles,
+    required NiniAgentsToolList tools,
+    String? root,
+  }) async {
     final now = DateTime.now().toUtc();
-    final root = await profilesRoot();
+    final profilesRootPath = root ?? await profilesRoot();
+    final installedTools = {
+      for (final tool in tools.tools) tool.id: tool.installed,
+    };
     final discovered = <_DiscoveredProfile>[];
 
     for (final provider in supportedProfileProviders) {
-      if (provider.showsDefaultProfile) {
-        discovered.add(
-          _profile(
-            provider: provider,
-            name: 'principal',
-            home: p.join(userHome, provider.defaultHomeName),
-            source: 'default',
-            type: 'base',
-            command: provider.executable,
-            display: '${provider.productName} principal',
+      if (!provider.showsDefaultProfile) continue;
+      discovered.add(
+        _DiscoveredProfile(
+          toolKey: provider.toolKey,
+          profileName: 'principal',
+          commandName: provider.executable,
+          displayName: '${provider.productName} principal',
+          profileHome: p.normalize(
+            p.absolute(p.join(userHome, provider.defaultHomeName)),
           ),
-        );
-      }
+          profileSource: 'default',
+          profileType: 'base',
+          hasAuthFile: null,
+          isAvailable: installedTools[provider.multiCliTool] ?? false,
+        ),
+      );
+    }
 
-      final providerRoot = Directory(p.join(root, provider.multiCliTool));
-      if (await providerRoot.exists()) {
-        final entries = await providerRoot
-            .list(followLinks: false)
-            .where((entry) => entry is Directory)
-            .cast<Directory>()
-            .toList();
-        entries.sort((a, b) => a.path.compareTo(b.path));
-        for (final directory in entries) {
-          final name = p.basename(directory.path);
-          if (name.startsWith('.')) continue;
-          final type = await File(p.join(directory.path, '.shared')).exists()
-              ? 'shared'
-              : await File(p.join(directory.path, '.cli')).exists()
-              ? 'cli'
-              : 'full';
-          discovered.add(
-            _profile(
-              provider: provider,
-              name: name,
-              home: directory.path,
-              source: 'multicli',
-              type: type,
-              command: provider.commandName(name),
-              display: _title(name),
-            ),
-          );
-        }
-      }
+    for (final summary in profiles.profiles) {
+      final provider = _providerForEngineTool(summary.tool);
+      if (provider == null) continue;
+      discovered.add(
+        _DiscoveredProfile(
+          toolKey: provider.toolKey,
+          profileName: summary.name,
+          commandName: provider.commandName(summary.name),
+          displayName: _title(summary.name),
+          profileHome: p.normalize(
+            p.absolute(p.join(profilesRootPath, summary.tool, summary.name)),
+          ),
+          profileSource: 'multicli',
+          profileType: summary.type,
+          hasAuthFile: null,
+          isAvailable: true,
+        ),
+      );
     }
 
     await database.transaction(() async {
@@ -120,10 +152,7 @@ class ProfileDiscoveryService implements ProfileDiscovery {
                   row.profileSource.equals('multicli'),
             ))
             .write(
-              const CliProfilesCompanion(
-                profileType: Value('deactivated'),
-                hasAuthFile: Value(false),
-              ),
+              const CliProfilesCompanion(profileType: Value('deactivated')),
             );
       }
       for (final item in discovered) {
@@ -154,7 +183,9 @@ class ProfileDiscoveryService implements ProfileDiscovery {
                 profileHome: item.profileHome,
                 profileSource: item.profileSource,
                 profileType: item.profileType,
-                hasAuthFile: Value(item.hasAuthFile),
+                hasAuthFile: Value(
+                  item.hasAuthFile ?? existingByIdentity?.hasAuthFile ?? false,
+                ),
                 isAvailable: Value(item.isAvailable),
                 isFavorite: Value(existingByIdentity?.isFavorite ?? false),
                 createdAt: existingByIdentity?.createdAt ?? now,
@@ -165,42 +196,24 @@ class ProfileDiscoveryService implements ProfileDiscovery {
       }
     });
 
-    final profiles =
+    final storedProfiles =
         await (database.select(database.cliProfiles)..orderBy([
               (row) => OrderingTerm.desc(row.isFavorite),
               (row) => OrderingTerm.asc(row.toolKey),
               (row) => OrderingTerm.asc(row.displayName),
             ]))
             .get();
-    return profiles.where((profile) {
+    return storedProfiles.where((profile) {
       final provider = profileProviderOrNull(profile.toolKey);
       return provider?.showsProfileSource(profile.profileSource) ?? false;
     }).toList();
   }
 
-  _DiscoveredProfile _profile({
-    required ProfileProvider provider,
-    required String name,
-    required String home,
-    required String source,
-    required String type,
-    required String command,
-    required String display,
-  }) {
-    final normalized = p.normalize(p.absolute(home));
-    return _DiscoveredProfile(
-      toolKey: provider.toolKey,
-      profileName: name,
-      commandName: command,
-      displayName: display,
-      profileHome: normalized,
-      profileSource: source,
-      profileType: type,
-      hasAuthFile: provider.credentialFiles.any(
-        (fileName) => File(p.join(normalized, fileName)).existsSync(),
-      ),
-      isAvailable: Directory(normalized).existsSync(),
-    );
+  static ProfileProvider? _providerForEngineTool(String tool) {
+    for (final provider in supportedProfileProviders) {
+      if (provider.multiCliTool == tool) return provider;
+    }
+    return null;
   }
 
   static String _title(String input) => input
@@ -230,6 +243,6 @@ final class _DiscoveredProfile {
   final String profileHome;
   final String profileSource;
   final String profileType;
-  final bool hasAuthFile;
+  final bool? hasAuthFile;
   final bool isAvailable;
 }

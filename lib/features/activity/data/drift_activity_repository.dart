@@ -1,8 +1,8 @@
 import 'package:drift/drift.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart' as db;
-import 'package:multi_cli_ai/features/activity/data/activity_log_mapper.dart';
-import 'package:multi_cli_ai/features/activity/domain/activity_log.dart';
-import 'package:multi_cli_ai/features/activity/domain/activity_repository.dart';
+import 'package:nini_hub/core/database/app_database.dart' as db;
+import 'package:nini_hub/features/activity/data/activity_log_mapper.dart';
+import 'package:nini_hub/features/activity/domain/activity_log.dart';
+import 'package:nini_hub/features/activity/domain/activity_repository.dart';
 
 final class DriftActivityRepository implements ActivityRepository {
   const DriftActivityRepository(this._database);

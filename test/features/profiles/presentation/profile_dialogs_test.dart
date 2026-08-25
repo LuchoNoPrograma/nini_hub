@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/features/profiles/application/profile_management.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile_ports.dart';
-import 'package:multi_cli_ai/features/profiles/presentation/controllers/profiles_controller.dart';
-import 'package:multi_cli_ai/features/profiles/presentation/profile_dialogs.dart';
-import 'package:multi_cli_ai/features/profiles/presentation/state/profiles_state.dart';
+import 'package:nini_hub/features/profiles/application/profile_management.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
+import 'package:nini_hub/features/profiles/domain/profile_ports.dart';
+import 'package:nini_hub/features/profiles/presentation/controllers/profiles_controller.dart';
+import 'package:nini_hub/features/profiles/presentation/profile_dialogs.dart';
+import 'package:nini_hub/features/profiles/presentation/state/profiles_state.dart';
 
 void main() {
   testWidgets(

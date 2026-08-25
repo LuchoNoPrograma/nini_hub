@@ -1,4 +1,0 @@
-interface:
-  display_name: "MultiCLI AI Data Desktop"
-  short_description: "Integra Drift, procesos, terminales y CLI"
-  default_prompt: "Usa $multi-cli-ai-data-desktop-integrations para implementar esta persistencia o integracion de escritorio."

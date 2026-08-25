@@ -1,6 +1,6 @@
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/features/settings/domain/app_preferences.dart';
-import 'package:multi_cli_ai/features/settings/domain/settings_ports.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/features/settings/domain/app_preferences.dart';
+import 'package:nini_hub/features/settings/domain/settings_ports.dart';
 
 final class DriftSettingsRepository implements SettingsRepository {
   const DriftSettingsRepository(this._database);

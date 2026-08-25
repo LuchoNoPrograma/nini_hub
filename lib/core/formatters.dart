@@ -1,5 +1,5 @@
 import 'package:intl/intl.dart';
-import 'package:multi_cli_ai/core/currency_catalog.dart';
+import 'package:nini_hub/core/currency_catalog.dart';
 
 final _dateFormat = DateFormat('d MMM yyyy', 'es');
 final _fullDateFormat = DateFormat('EEEE d MMM yyyy', 'es');

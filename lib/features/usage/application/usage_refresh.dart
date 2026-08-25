@@ -1,11 +1,11 @@
 import 'dart:collection';
 
-import 'package:multi_cli_ai/features/profiles/domain/profile.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile_ports.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile_provider.dart';
-import 'package:multi_cli_ai/features/usage/domain/usage.dart';
-import 'package:multi_cli_ai/features/usage/domain/usage_failure.dart';
-import 'package:multi_cli_ai/features/usage/domain/usage_ports.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
+import 'package:nini_hub/features/profiles/domain/profile_ports.dart';
+import 'package:nini_hub/features/profiles/domain/profile_provider.dart';
+import 'package:nini_hub/features/usage/domain/usage.dart';
+import 'package:nini_hub/features/usage/domain/usage_failure.dart';
+import 'package:nini_hub/features/usage/domain/usage_ports.dart';
 
 typedef UsageRefreshProgressCallback =
     void Function(String profileId, UsageSnapshot snapshot);

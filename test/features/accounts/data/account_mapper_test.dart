@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/features/accounts/data/account_mapper.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/features/accounts/data/account_mapper.dart';
+import 'package:nini_hub/features/accounts/domain/account.dart';
 
 void main() {
   test('maps persisted account values without reinterpreting them', () {

@@ -1,13 +1,13 @@
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/core/process/process_runner.dart';
-import 'package:multi_cli_ai/providers/codex/codex_app_server_models.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile.dart';
-import 'package:multi_cli_ai/features/usage/data/codex_usage_provider.dart';
-import 'package:multi_cli_ai/features/usage/data/process_usage_activity_recorder.dart';
-import 'package:multi_cli_ai/features/usage/domain/usage.dart';
-import 'package:multi_cli_ai/providers/codex/codex_app_server_client.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/core/process/process_runner.dart';
+import 'package:nini_hub/providers/codex/codex_app_server_models.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
+import 'package:nini_hub/features/usage/data/codex_usage_provider.dart';
+import 'package:nini_hub/features/usage/data/process_usage_activity_recorder.dart';
+import 'package:nini_hub/features/usage/domain/usage.dart';
+import 'package:nini_hub/providers/codex/codex_app_server_client.dart';
 
 void main() {
   test(
@@ -118,8 +118,8 @@ final class _RecordingClient extends CodexAppServerClient {
   final List<String> profileHomes = [];
 
   @override
-  Future<CodexRefreshResult> refresh(String profileHome) async {
-    profileHomes.add(profileHome);
+  Future<CodexRefreshResult> refresh(Profile profile) async {
+    profileHomes.add(profile.profileHome);
     return result;
   }
 }

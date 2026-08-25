@@ -7,46 +7,47 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
-import 'package:multi_cli_ai/app/app_startup.dart';
-import 'package:multi_cli_ai/app/providers.dart';
-import 'package:multi_cli_ai/core/currency_catalog.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/core/formatters.dart';
-import 'package:multi_cli_ai/core/process/process_runner.dart';
-import 'package:multi_cli_ai/core/theme/app_theme.dart';
-import 'package:multi_cli_ai/core/widgets/app_primitives.dart';
-import 'package:multi_cli_ai/features/accounts/application/account_management.dart';
-import 'package:multi_cli_ai/features/accounts/data/account_mapper.dart';
-import 'package:multi_cli_ai/features/accounts/data/drift_account_repository.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account.dart';
-import 'package:multi_cli_ai/providers/codex/codex_app_server_models.dart';
-import 'package:multi_cli_ai/features/accounts/presentation/account_dialogs.dart';
-import 'package:multi_cli_ai/features/accounts/presentation/accounts_view.dart';
-import 'package:multi_cli_ai/features/profiles/data/drift_agent_profile_repository.dart';
-import 'package:multi_cli_ai/features/profiles/data/multi_cli_gateway.dart';
-import 'package:multi_cli_ai/features/profiles/data/profile_discovery_service.dart';
-import 'package:multi_cli_ai/features/profiles/domain/agent_profile.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile_ports.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile_provider.dart';
-import 'package:multi_cli_ai/features/profiles/presentation/profile_dialogs.dart';
-import 'package:multi_cli_ai/features/usage/application/usage_calendar.dart';
-import 'package:multi_cli_ai/features/usage/application/usage_refresh.dart';
-import 'package:multi_cli_ai/features/usage/data/drift_usage_calendar_repository.dart';
-import 'package:multi_cli_ai/features/usage/domain/usage.dart';
-import 'package:multi_cli_ai/features/usage/domain/usage_ports.dart';
-import 'package:multi_cli_ai/features/usage/presentation/controllers/usage_controller.dart';
-import 'package:multi_cli_ai/features/usage/presentation/calendar_view.dart';
-import 'package:multi_cli_ai/features/workspaces/application/launch_agent.dart';
-import 'package:multi_cli_ai/features/workspaces/application/workspace_history.dart';
-import 'package:multi_cli_ai/features/workspaces/data/drift_workspace_repository.dart';
-import 'package:multi_cli_ai/features/workspaces/data/drift_workspace_selection_store.dart';
-import 'package:multi_cli_ai/features/workspaces/data/multi_cli_agent_launcher.dart';
-import 'package:multi_cli_ai/features/workspaces/domain/agent_launcher.dart';
-import 'package:multi_cli_ai/features/workspaces/presentation/controllers/workspace_controller.dart';
-import 'package:multi_cli_ai/features/workspaces/presentation/launch_agent_dialog.dart';
-import 'package:multi_cli_ai/features/workspaces/presentation/state/workspace_state.dart';
-import 'package:multi_cli_ai/providers/codex/codex_app_server_client.dart';
+import 'package:nini_hub/app/app_startup.dart';
+import 'package:nini_hub/app/providers.dart';
+import 'package:nini_hub/core/currency_catalog.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/core/formatters.dart';
+import 'package:nini_hub/core/process/nini_agents_read_client.dart';
+import 'package:nini_hub/core/process/process_runner.dart';
+import 'package:nini_hub/core/theme/app_theme.dart';
+import 'package:nini_hub/core/widgets/app_primitives.dart';
+import 'package:nini_hub/features/accounts/application/account_management.dart';
+import 'package:nini_hub/features/accounts/data/account_mapper.dart';
+import 'package:nini_hub/features/accounts/data/drift_account_repository.dart';
+import 'package:nini_hub/features/accounts/domain/account.dart';
+import 'package:nini_hub/providers/codex/codex_app_server_models.dart';
+import 'package:nini_hub/features/accounts/presentation/account_dialogs.dart';
+import 'package:nini_hub/features/accounts/presentation/accounts_view.dart';
+import 'package:nini_hub/features/profiles/data/drift_agent_profile_repository.dart';
+import 'package:nini_hub/features/profiles/data/profile_discovery_service.dart';
+import 'package:nini_hub/features/profiles/domain/agent_profile.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
+import 'package:nini_hub/features/profiles/domain/profile_ports.dart';
+import 'package:nini_hub/features/profiles/domain/profile_provider.dart';
+import 'package:nini_hub/features/profiles/presentation/profile_dialogs.dart';
+import 'package:nini_hub/features/usage/application/usage_calendar.dart';
+import 'package:nini_hub/features/usage/application/usage_refresh.dart';
+import 'package:nini_hub/features/usage/data/drift_usage_calendar_repository.dart';
+import 'package:nini_hub/features/usage/domain/usage.dart';
+import 'package:nini_hub/features/usage/domain/usage_ports.dart';
+import 'package:nini_hub/features/usage/presentation/controllers/usage_controller.dart';
+import 'package:nini_hub/features/usage/presentation/calendar_view.dart';
+import 'package:nini_hub/features/workspaces/application/launch_agent.dart';
+import 'package:nini_hub/features/workspaces/application/workspace_history.dart';
+import 'package:nini_hub/features/workspaces/data/desktop_workspace_runtime.dart';
+import 'package:nini_hub/features/workspaces/data/drift_workspace_repository.dart';
+import 'package:nini_hub/features/workspaces/data/drift_workspace_selection_store.dart';
+import 'package:nini_hub/features/workspaces/data/nini_agents_agent_launcher.dart';
+import 'package:nini_hub/features/workspaces/domain/agent_launcher.dart';
+import 'package:nini_hub/features/workspaces/presentation/controllers/workspace_controller.dart';
+import 'package:nini_hub/features/workspaces/presentation/launch_agent_dialog.dart';
+import 'package:nini_hub/features/workspaces/presentation/state/workspace_state.dart';
+import 'package:nini_hub/providers/codex/codex_app_server_client.dart';
 
 void main() {
   setUpAll(() => initializeDateFormatting('es'));
@@ -81,41 +82,65 @@ void main() {
   });
 
   test('discovery indexes ChatGPT and Claude profiles', () async {
-    final root = await Directory.systemTemp.createTemp(
-      'multicli-ai-providers-',
-    );
-    addTearDown(() => root.delete(recursive: true));
-    final codex = Directory('${root.path}/codex/team');
-    final claude = Directory('${root.path}/claude-cli/research');
-    await codex.create(recursive: true);
-    await claude.create(recursive: true);
-    await File('${codex.path}/auth.json').writeAsString('{}');
-    await File('${claude.path}/.credentials.json').writeAsString('{}');
+    const root = '/synthetic/providers';
     final database = AppDatabase(NativeDatabase.memory());
     addTearDown(database.close);
-    await database.saveSetting('profiles_root_path', root.path);
+    await database.saveSetting('profiles_root_path', root);
     final now = DateTime.now().toUtc();
-    await database
-        .into(database.cliProfiles)
-        .insert(
-          CliProfile(
-            id: 'legacy-claude-default',
-            toolKey: 'claude-cli',
-            profileName: 'principal',
-            commandName: 'claude',
-            displayName: 'Claude Code principal',
-            profileHome: '${root.path}/legacy-claude-default',
-            profileSource: 'default',
-            profileType: 'base',
-            hasAuthFile: false,
-            isAvailable: true,
-            isFavorite: false,
-            createdAt: now,
-            lastDiscoveredAt: now,
-          ),
-        );
+    await database.batch((batch) {
+      batch.insertAll(database.cliProfiles, [
+        CliProfile(
+          id: 'codex-team',
+          toolKey: 'codex',
+          profileName: 'team',
+          commandName: 'codex-team',
+          displayName: 'Team',
+          profileHome: '$root/codex/team',
+          profileSource: 'multicli',
+          profileType: 'full',
+          hasAuthFile: true,
+          isAvailable: true,
+          isFavorite: false,
+          createdAt: now,
+          lastDiscoveredAt: now,
+        ),
+        CliProfile(
+          id: 'claude-research',
+          toolKey: 'claude-cli',
+          profileName: 'research',
+          commandName: 'claude-cli-research',
+          displayName: 'Research',
+          profileHome: '$root/claude-cli/research',
+          profileSource: 'multicli',
+          profileType: 'full',
+          hasAuthFile: true,
+          isAvailable: true,
+          isFavorite: false,
+          createdAt: now,
+          lastDiscoveredAt: now,
+        ),
+        CliProfile(
+          id: 'legacy-claude-default',
+          toolKey: 'claude-cli',
+          profileName: 'principal',
+          commandName: 'claude',
+          displayName: 'Claude Code principal',
+          profileHome: '$root/legacy-claude-default',
+          profileSource: 'default',
+          profileType: 'base',
+          hasAuthFile: false,
+          isAvailable: true,
+          isFavorite: false,
+          createdAt: now,
+          lastDiscoveredAt: now,
+        ),
+      ]);
+    });
 
-    final profiles = await ProfileDiscoveryService(database).discoverProfiles();
+    final profiles = await ProfileDiscoveryService(
+      database,
+      NiniAgentsReadClient(_ProviderDiscoveryRunner(database)),
+    ).discoverProfiles();
     final team = profiles.singleWhere(
       (profile) => profile.toolKey == 'codex' && profile.profileName == 'team',
     );
@@ -147,16 +172,16 @@ void main() {
     'Codex launch directories are validated without touching profiles',
     () async {
       final directory = await Directory.systemTemp.createTemp(
-        'multicli-ai-working-dir-',
+        'nini-hub-working-dir-',
       );
       addTearDown(() => directory.delete(recursive: true));
 
       expect(
-        MultiCliGateway.validateWorkingDirectory(directory.path),
+        DesktopWorkspaceRuntime.validateWorkingDirectory(directory.path),
         directory.absolute.path,
       );
       expect(
-        () => MultiCliGateway.validateWorkingDirectory(
+        () => DesktopWorkspaceRuntime.validateWorkingDirectory(
           '${directory.path}-missing',
         ),
         throwsStateError,
@@ -167,7 +192,7 @@ void main() {
   test('workspace history is global, normalized, and ordered by use', () async {
     final root = await Directory.systemTemp.createTemp('multicli-workspaces-');
     addTearDown(() => root.delete(recursive: true));
-    final first = Directory('${root.path}/multi_cli_ai');
+    final first = Directory('${root.path}/nini_hub');
     final second = Directory('${root.path}/parla');
     await first.create();
     await second.create();
@@ -203,7 +228,7 @@ void main() {
 
   test('terminal arguments preserve native working directories', () {
     const project = '/home/nini/StudioProjects/bora asai';
-    const target = '/home/nini/.local/bin/multi-cli';
+    const target = '/home/nini/.local/bin/nini-agents';
     const command = ['launch', 'codex/ari'];
     const title = 'codex-ari | bora asai';
 
@@ -270,16 +295,16 @@ void main() {
   test('Hyper receives the command, its arguments, and the tab title', () {
     final environment = ProcessRunner.buildHyperTerminalEnvironment(
       {'PATH': '/usr/bin', 'NO_COLOR': '1', 'MULTICLI_TERMINAL_ARG_9': 'stale'},
-      shellLauncher: '/tmp/multi-cli-ai/launch-command',
-      target: '/home/nini/.local/bin/multi-cli',
+      shellLauncher: '/tmp/nini-hub/launch-command',
+      target: '/home/nini/.local/bin/nini-agents',
       arguments: const ['launch', 'codex/ari', '--workspace', 'bora asai'],
       title: 'ari · bora asai',
     );
 
-    expect(environment['SHELL'], '/tmp/multi-cli-ai/launch-command');
+    expect(environment['SHELL'], '/tmp/nini-hub/launch-command');
     expect(
       environment['MULTICLI_TERMINAL_TARGET'],
-      '/home/nini/.local/bin/multi-cli',
+      '/home/nini/.local/bin/nini-agents',
     );
     expect(environment['MULTICLI_TERMINAL_ARGC'], '4');
     expect(environment['MULTICLI_TERMINAL_ARG_0'], 'launch');
@@ -301,11 +326,11 @@ void main() {
     expect(environment['TERM'], 'xterm-256color');
     expect(environment['COLORTERM'], 'truecolor');
     expect(
-      MultiCliGateway.buildTerminalTitle(
+      DesktopWorkspaceRuntime.buildTerminalTitle(
         profileName: 'magic',
-        workingDirectory: '/home/nini/StudioProjects/multi_cli_ai',
+        workingDirectory: '/home/nini/StudioProjects/nini_hub',
       ),
-      'magic · multi_cli_ai',
+      'magic · nini_hub',
     );
   });
 
@@ -805,7 +830,7 @@ void main() {
   });
 
   testWidgets('brand icon is bundled as a Flutter asset', (tester) async {
-    final data = await rootBundle.load('assets/branding/multicli-ai-icon.png');
+    final data = await rootBundle.load('assets/branding/nini-hub-icon.png');
 
     expect(data.lengthInBytes, greaterThan(1000));
   });
@@ -815,10 +840,7 @@ void main() {
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final database = AppDatabase(NativeDatabase.memory());
     addTearDown(database.close);
-    final fallbackDirectory = MultiCliGateway(
-      database,
-      ProcessRunner(database),
-    ).userHomeDirectory;
+    final fallbackDirectory = DesktopWorkspaceRuntime.userHomeDirectory();
     final now = DateTime(2026, 8, 13);
     final check = UsageCheck(
       id: 'check',
@@ -917,9 +939,9 @@ void main() {
     final workspaces = [
       Workspace(
         id: 'workspace',
-        path: '/home/nini/StudioProjects/multi_cli_ai',
-        pathKey: '/home/nini/StudioProjects/multi_cli_ai',
-        name: 'multi_cli_ai',
+        path: '/home/nini/StudioProjects/nini_hub',
+        pathKey: '/home/nini/StudioProjects/nini_hub',
+        name: 'nini_hub',
         openCount: 1,
         createdAt: now,
         lastUsedAt: now,
@@ -1309,7 +1331,7 @@ void main() {
         id: 'workspace',
         path: currentWorkspacePath,
         pathKey: currentWorkspacePath,
-        name: 'multi_cli_ai',
+        name: 'nini_hub',
         openCount: 3,
         createdAt: now,
         lastUsedAt: now,
@@ -1391,7 +1413,7 @@ void main() {
     );
 
     expect(find.text('Workspaces recientes'), findsNothing);
-    expect(find.text('multi_cli_ai'), findsNothing);
+    expect(find.text('nini_hub'), findsNothing);
     expect(find.text('3 de 4'), findsNothing);
     expect(find.text('parla'), findsNothing);
     expect(find.text('bora_asai'), findsNothing);
@@ -1402,7 +1424,7 @@ void main() {
 
     expect(find.text('Workspaces'), findsOneWidget);
     expect(find.text('Cuenta para lanzar'), findsOneWidget);
-    expect(find.text('multi_cli_ai'), findsOneWidget);
+    expect(find.text('nini_hub'), findsOneWidget);
     expect(find.byKey(const Key('launch-workspace-search')), findsOneWidget);
 
     final compactDialogSize = tester.getSize(find.byType(AlertDialog));
@@ -1456,7 +1478,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('archivo'), findsNWidgets(2));
-    expect(find.text('multi_cli_ai'), findsNothing);
+    expect(find.text('nini_hub'), findsNothing);
     expect(find.text('parla'), findsNothing);
     expect(find.text('Ari'), findsNWidgets(2));
     expect(find.text('Abrir en Inicio'), findsNothing);
@@ -1472,7 +1494,7 @@ void main() {
     expect(launchButton.onPressed, isNull);
     await tester.tap(find.byTooltip('Limpiar búsqueda'));
     await tester.pumpAndSettle();
-    expect(find.text('multi_cli_ai'), findsOneWidget);
+    expect(find.text('nini_hub'), findsOneWidget);
     expect(find.text('parla'), findsOneWidget);
     expect(find.text('bora_asai'), findsOneWidget);
     launchButton = tester.widget<FilledButton>(
@@ -1502,7 +1524,7 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byKey(const Key('launch-workspace-list')),
-        matching: find.text('multi_cli_ai'),
+        matching: find.text('nini_hub'),
       ),
     );
     await tester.pumpAndSettle();
@@ -1704,13 +1726,49 @@ final class _StaticUsageCalendarRepository implements UsageCalendarRepository {
   Future<UsageCalendar> loadCalendar() async => calendar;
 }
 
+final class _ProviderDiscoveryRunner extends ProcessRunner {
+  _ProviderDiscoveryRunner(super.database);
+
+  @override
+  Future<SafeProcessResult> run({
+    required String executable,
+    required List<String> arguments,
+    required String summary,
+    String? profileId,
+    String? workingDirectory,
+    Map<String, String>? environment,
+    String? stdinText,
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    final command = arguments[1];
+    final data = command == 'tools'
+        ? '{"platform":"linux","tools":['
+              '{"id":"claude-cli","kind":"cli","strategy":"accountOverlay","supportLevel":"supported","installed":true},'
+              '{"id":"codex","kind":"cli","strategy":"accountOverlay","supportLevel":"supported","installed":true}'
+              '],"count":2}'
+        : '{"profiles":['
+              '{"tool":"claude-cli","name":"research","type":"full","schemaVersion":1,"sizeBytes":1},'
+              '{"tool":"codex","name":"team","type":"full","schemaVersion":2,"sizeBytes":1}'
+              '],"count":2}';
+    final now = DateTime.utc(2026, 8, 24);
+    return SafeProcessResult(
+      exitCode: 0,
+      stdout:
+          '{"schemaVersion":1,"command":"$command","ok":true,'
+          '"data":$data,"error":null}',
+      stderr: '',
+      startedAt: now,
+      completedAt: now,
+    );
+  }
+}
+
 WorkspaceController _workspaceController(
   AppDatabase database, {
   AgentLauncher? launcher,
 }) {
   final repository = DriftWorkspaceRepository(database);
   final selectionStore = DriftWorkspaceSelectionStore(database);
-  final gateway = MultiCliGateway(database, ProcessRunner(database));
   return WorkspaceController(
     loadWorkspaceHistory: LoadWorkspaceHistory(
       repository: repository,
@@ -1733,7 +1791,9 @@ WorkspaceController _workspaceController(
       profileRepository: DriftAgentProfileRepository(database),
       workspaceRepository: repository,
       selectionStore: selectionStore,
-      launcher: launcher ?? MultiCliAgentLauncher(gateway),
+      launcher:
+          launcher ??
+          NiniAgentsAgentLauncher(database, ProcessRunner(database)),
     ),
   );
 }

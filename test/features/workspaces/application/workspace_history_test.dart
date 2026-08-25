@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/features/workspaces/application/workspace_history.dart';
-import 'package:multi_cli_ai/features/workspaces/domain/workspace.dart';
-import 'package:multi_cli_ai/features/workspaces/domain/workspace_failure.dart';
-import 'package:multi_cli_ai/features/workspaces/domain/workspace_repository.dart';
+import 'package:nini_hub/features/workspaces/application/workspace_history.dart';
+import 'package:nini_hub/features/workspaces/domain/workspace.dart';
+import 'package:nini_hub/features/workspaces/domain/workspace_failure.dart';
+import 'package:nini_hub/features/workspaces/domain/workspace_repository.dart';
 
 void main() {
   test(

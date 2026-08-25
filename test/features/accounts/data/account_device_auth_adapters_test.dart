@@ -1,11 +1,11 @@
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/core/process/process_runner.dart';
-import 'package:multi_cli_ai/features/accounts/data/codex_account_device_auth_gateway.dart';
-import 'package:multi_cli_ai/features/accounts/data/process_account_device_auth_activity_recorder.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account_device_auth.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/core/process/process_runner.dart';
+import 'package:nini_hub/features/accounts/data/codex_account_device_auth_gateway.dart';
+import 'package:nini_hub/features/accounts/data/process_account_device_auth_activity_recorder.dart';
+import 'package:nini_hub/features/accounts/domain/account_device_auth.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
 
 void main() {
   test(

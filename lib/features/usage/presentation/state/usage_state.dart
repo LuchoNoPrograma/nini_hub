@@ -1,4 +1,4 @@
-import 'package:multi_cli_ai/features/usage/domain/usage.dart';
+import 'package:nini_hub/features/usage/domain/usage.dart';
 
 final class UsageOperationFailure {
   const UsageOperationFailure({required this.cause, required this.message});

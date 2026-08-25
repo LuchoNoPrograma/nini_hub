@@ -1,9 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:multi_cli_ai/features/usage/application/usage_calendar.dart';
-import 'package:multi_cli_ai/features/usage/application/usage_refresh.dart';
-import 'package:multi_cli_ai/features/usage/domain/usage.dart';
-import 'package:multi_cli_ai/features/usage/domain/usage_failure.dart';
-import 'package:multi_cli_ai/features/usage/presentation/state/usage_state.dart';
+import 'package:nini_hub/features/usage/application/usage_calendar.dart';
+import 'package:nini_hub/features/usage/application/usage_refresh.dart';
+import 'package:nini_hub/features/usage/domain/usage.dart';
+import 'package:nini_hub/features/usage/domain/usage_failure.dart';
+import 'package:nini_hub/features/usage/presentation/state/usage_state.dart';
 
 typedef UsageControllerDependenciesBuilder =
     UsageControllerDependencies Function(Ref<UsageState> ref);

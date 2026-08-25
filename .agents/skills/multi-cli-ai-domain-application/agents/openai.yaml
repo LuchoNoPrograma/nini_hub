@@ -1,4 +1,0 @@
-interface:
-  display_name: "MultiCLI AI Domain Application"
-  short_description: "Modela dominio y casos de uso puros"
-  default_prompt: "Usa $multi-cli-ai-domain-application para modelar este caso de uso y sus contratos de dominio."

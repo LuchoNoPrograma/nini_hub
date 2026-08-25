@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:multi_cli_ai/features/settings/application/settings.dart';
-import 'package:multi_cli_ai/features/settings/domain/app_preferences.dart';
-import 'package:multi_cli_ai/features/settings/presentation/state/settings_state.dart';
+import 'package:nini_hub/features/settings/application/settings.dart';
+import 'package:nini_hub/features/settings/domain/app_preferences.dart';
+import 'package:nini_hub/features/settings/presentation/state/settings_state.dart';
 
 typedef SettingsControllerDependenciesBuilder =
     SettingsControllerDependencies Function(Ref<SettingsState> ref);

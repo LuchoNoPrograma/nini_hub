@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/providers/codex/codex_app_server_models.dart';
-import 'package:multi_cli_ai/features/usage/data/usage_mapper.dart';
-import 'package:multi_cli_ai/features/usage/domain/usage.dart';
+import 'package:nini_hub/providers/codex/codex_app_server_models.dart';
+import 'package:nini_hub/features/usage/data/usage_mapper.dart';
+import 'package:nini_hub/features/usage/domain/usage.dart';
 
 void main() {
   test('maps the complete Codex snapshot', () {

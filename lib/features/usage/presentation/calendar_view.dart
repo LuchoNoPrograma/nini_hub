@@ -4,10 +4,10 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:multi_cli_ai/app/providers.dart';
-import 'package:multi_cli_ai/core/formatters.dart';
-import 'package:multi_cli_ai/core/widgets/app_primitives.dart';
-import 'package:multi_cli_ai/features/usage/domain/usage.dart';
+import 'package:nini_hub/app/providers.dart';
+import 'package:nini_hub/core/formatters.dart';
+import 'package:nini_hub/core/widgets/app_primitives.dart';
+import 'package:nini_hub/features/usage/domain/usage.dart';
 import 'package:table_calendar/table_calendar.dart';
 
 class UsageCalendarView extends ConsumerStatefulWidget {

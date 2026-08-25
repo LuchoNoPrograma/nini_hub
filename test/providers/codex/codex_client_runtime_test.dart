@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/providers/codex/codex_app_server_client.dart';
-import 'package:multi_cli_ai/providers/codex/codex_client_runtime.dart';
+import 'package:nini_hub/providers/codex/codex_app_server_client.dart';
+import 'package:nini_hub/providers/codex/codex_client_runtime.dart';
 
 void main() {
   test('replaces the current client with the configured timeout', () {

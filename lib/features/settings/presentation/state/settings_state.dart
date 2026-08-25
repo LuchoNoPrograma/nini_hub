@@ -1,4 +1,4 @@
-import 'package:multi_cli_ai/features/settings/domain/app_preferences.dart';
+import 'package:nini_hub/features/settings/domain/app_preferences.dart';
 
 enum SettingsOperation { load, save }
 

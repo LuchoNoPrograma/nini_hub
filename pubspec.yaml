@@ -1,5 +1,5 @@
-name: multi_cli_ai
-description: "GUI account AI management"
+name: nini_hub
+description: "Desktop control plane for AI profiles, usage, workspaces, and processes."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -73,7 +73,7 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/branding/multicli-ai-icon.png
+    - assets/branding/nini-hub-icon.png
     - assets/branding/chatgpt-official.png
     - assets/branding/claude-official.png
 

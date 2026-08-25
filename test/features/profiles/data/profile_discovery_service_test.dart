@@ -3,14 +3,16 @@ import 'dart:io';
 
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/features/profiles/data/profile_discovery_service.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/core/process/nini_agents_read_client.dart';
+import 'package:nini_hub/core/process/process_runner.dart';
+import 'package:nini_hub/features/profiles/data/profile_discovery_service.dart';
 import 'package:path/path.dart' as p;
 
 void main() {
   test('expands a configured root from the desktop user home', () async {
     final temporaryHome = await Directory.systemTemp.createTemp(
-      'multi-cli-ai-profile-home-',
+      'nini-hub-profile-home-',
     );
     addTearDown(() => temporaryHome.delete(recursive: true));
     final database = AppDatabase(NativeDatabase.memory());
@@ -29,27 +31,12 @@ void main() {
   });
 
   test(
-    'preserves profile identity and display data while refreshing filesystem fields',
+    'synchronizes Nini Agents schema v1/v2 while preserving local metadata',
     () async {
-      final temporaryHome = await Directory.systemTemp.createTemp(
-        'multi-cli-ai-profile-identity-',
-      );
-      addTearDown(() => temporaryHome.delete(recursive: true));
-      final profilesRoot = Directory(
-        p.join(temporaryHome.path, 'MultiCliProfiles'),
-      );
-      final profileHome = Directory(p.join(profilesRoot.path, 'codex', 'team'));
-      await profileHome.create(recursive: true);
-      await File(p.join(profileHome.path, '.shared')).writeAsString('');
-      await File(p.join(profileHome.path, '.cli')).writeAsString('');
-      await File(p.join(profileHome.path, 'auth.json')).writeAsString('{}');
-      await Directory(
-        p.join(profilesRoot.path, 'codex', '.hidden'),
-      ).create(recursive: true);
-
       final database = AppDatabase(NativeDatabase.memory());
       addTearDown(database.close);
-      await database.saveSetting('profiles_root_path', profilesRoot.path);
+      const root = '/synthetic/profiles';
+      await database.saveSetting('profiles_root_path', root);
       final createdAt = DateTime.utc(2025, 1, 2);
       final lastDiscoveredAt = DateTime.utc(2025, 2, 3);
       final lastLaunchedAt = DateTime.utc(2025, 3, 4);
@@ -62,10 +49,10 @@ void main() {
               profileName: 'team',
               commandName: 'legacy-command',
               displayName: 'Equipo favorito',
-              profileHome: p.join(temporaryHome.path, 'old', 'team'),
+              profileHome: '/old/codex/team',
               profileSource: 'multicli',
               profileType: 'full',
-              hasAuthFile: false,
+              hasAuthFile: true,
               isAvailable: false,
               isFavorite: true,
               createdAt: createdAt,
@@ -73,16 +60,23 @@ void main() {
               lastLaunchedAt: lastLaunchedAt,
             ),
           );
-
-      final profiles = await _FixedHomeDiscovery(
+      final runner = _FakeNiniAgentsRunner(database)
+        ..profilesByRoot[root] = const [
+          _ProfileSummary('codex', 'legacy', 'full', 1),
+          _ProfileSummary('codex', 'team', 'shared', 2),
+          _ProfileSummary('codex', 'vault', 'isolated', 2),
+        ];
+      final discovery = ProfileDiscoveryService(
         database,
-        temporaryHome.path,
-      ).discoverProfiles();
+        NiniAgentsReadClient(runner),
+      );
+
+      final profiles = await discovery.discoverProfiles();
       final stored = await (database.select(
         database.cliProfiles,
       )..where((row) => row.id.equals('stable-team-id'))).getSingle();
 
-      expect(stored.profileHome, p.normalize(p.absolute(profileHome.path)));
+      expect(stored.profileHome, p.join(root, 'codex', 'team'));
       expect(stored.commandName, 'codex-team');
       expect(stored.displayName, 'Equipo favorito');
       expect(stored.profileType, 'shared');
@@ -100,90 +94,94 @@ void main() {
       );
       expect(profiles.first.id, 'stable-team-id');
       expect(
-        profiles.where((profile) => profile.profileName == '.hidden'),
-        isEmpty,
+        profiles
+            .singleWhere((profile) => profile.profileName == 'vault')
+            .profileType,
+        'isolated',
       );
       expect(
         profiles.where(
           (profile) =>
               profile.toolKey == 'codex' &&
               profile.profileSource == 'default' &&
-              profile.profileType == 'base',
+              profile.profileType == 'base' &&
+              profile.isAvailable,
         ),
         hasLength(1),
       );
-      expect(
-        profiles.where(
-          (profile) =>
-              profile.toolKey == 'claude-cli' &&
-              profile.profileSource == 'default',
-        ),
-        isEmpty,
-      );
+      expect(runner.calls.map((call) => call.arguments[1]), ['list', 'tools']);
+      expect(runner.calls.first.environment, {'MULTICLI_HOME': root});
     },
   );
 
-  test('serializes discovery and leaves the latest root active', () async {
-    final fixture = await _Fixture.create();
-    addTearDown(fixture.dispose);
+  test(
+    'serializes discovery and leaves the latest Nini snapshot active',
+    () async {
+      final database = AppDatabase(NativeDatabase.memory());
+      addTearDown(database.close);
+      const oldRoot = '/synthetic/old-root';
+      const newRoot = '/synthetic/new-root';
+      final runner = _FakeNiniAgentsRunner(database)
+        ..profilesByRoot[oldRoot] = const [
+          _ProfileSummary('codex', 'old-profile', 'full', 2),
+        ]
+        ..profilesByRoot[newRoot] = const [
+          _ProfileSummary('codex', 'new-profile', 'full', 2),
+        ];
+      final firstRoot = Completer<String>();
+      final secondRoot = Completer<String>();
+      final discovery = _ControlledRootDiscovery(
+        database,
+        NiniAgentsReadClient(runner),
+        [firstRoot.future, secondRoot.future],
+      );
+
+      final first = discovery.discoverProfiles();
+      await _pumpEventQueue();
+      expect(discovery.rootReads, 1);
+      final second = discovery.discoverProfiles();
+      await _pumpEventQueue();
+      expect(discovery.rootReads, 1);
+
+      firstRoot.complete(oldRoot);
+      await first;
+      await _pumpEventQueue();
+      expect(discovery.rootReads, 2);
+      secondRoot.complete(newRoot);
+      await second;
+
+      final profiles = await database.select(database.cliProfiles).get();
+      final oldProfile = profiles.singleWhere(
+        (profile) => profile.profileName == 'old-profile',
+      );
+      final newProfile = profiles.singleWhere(
+        (profile) => profile.profileName == 'new-profile',
+      );
+      expect(oldProfile.isAvailable, isFalse);
+      expect(oldProfile.profileType, 'deactivated');
+      expect(newProfile.isAvailable, isTrue);
+    },
+  );
+
+  test('continues the discovery queue after an earlier root failure', () async {
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    const newRoot = '/synthetic/new-root';
+    final runner = _FakeNiniAgentsRunner(database)
+      ..profilesByRoot[newRoot] = const [
+        _ProfileSummary('codex', 'new-profile', 'full', 2),
+      ];
     final firstRoot = Completer<String>();
-    final secondRoot = Completer<String>();
-    final discovery = _ControlledRootDiscovery(fixture.database, [
-      firstRoot.future,
-      secondRoot.future,
-    ]);
-
-    final first = discovery.discoverProfiles();
-    await _pumpEventQueue();
-    expect(discovery.rootReads, 1);
-
-    final second = discovery.discoverProfiles();
-    await _pumpEventQueue();
-    expect(discovery.rootReads, 1);
-
-    firstRoot.complete(fixture.oldRoot.path);
-    await first;
-    await _pumpEventQueue();
-    expect(discovery.rootReads, 2);
-
-    secondRoot.complete(fixture.newRoot.path);
-    await second;
-
-    final profiles = await fixture.database
-        .select(fixture.database.cliProfiles)
-        .get();
-    final oldProfile = profiles.singleWhere(
-      (profile) =>
-          profile.profileSource == 'multicli' &&
-          profile.profileName == 'old-profile',
+    final discovery = _ControlledRootDiscovery(
+      database,
+      NiniAgentsReadClient(runner),
+      [firstRoot.future, Future.value(newRoot)],
     );
-    final newProfile = profiles.singleWhere(
-      (profile) =>
-          profile.profileSource == 'multicli' &&
-          profile.profileName == 'new-profile',
-    );
-    expect(oldProfile.isAvailable, isFalse);
-    expect(oldProfile.profileType, 'deactivated');
-    expect(newProfile.isAvailable, isTrue);
-    expect(newProfile.profileType, 'full');
-  });
-
-  test('continues the discovery queue after an earlier failure', () async {
-    final fixture = await _Fixture.create();
-    addTearDown(fixture.dispose);
-    final firstRoot = Completer<String>();
-    final discovery = _ControlledRootDiscovery(fixture.database, [
-      firstRoot.future,
-      Future<String>.value(fixture.newRoot.path),
-    ]);
     final failure = StateError('root failed');
 
     final first = discovery.discoverProfiles();
     final second = discovery.discoverProfiles();
     final firstExpectation = expectLater(first, throwsA(same(failure)));
-    await _pumpEventQueue();
-    expect(discovery.rootReads, 1);
-
     firstRoot.completeError(failure);
     await firstExpectation;
     final profiles = await second;
@@ -192,9 +190,7 @@ void main() {
     expect(
       profiles.any(
         (profile) =>
-            profile.profileSource == 'multicli' &&
-            profile.profileName == 'new-profile' &&
-            profile.isAvailable,
+            profile.profileName == 'new-profile' && profile.isAvailable,
       ),
       isTrue,
     );
@@ -202,7 +198,7 @@ void main() {
 }
 
 final class _ControlledRootDiscovery extends ProfileDiscoveryService {
-  _ControlledRootDiscovery(super.database, this.roots);
+  _ControlledRootDiscovery(super.database, super.client, this.roots);
 
   final List<Future<String>> roots;
   int rootReads = 0;
@@ -212,7 +208,7 @@ final class _ControlledRootDiscovery extends ProfileDiscoveryService {
 }
 
 final class _FixedHomeDiscovery extends ProfileDiscoveryService {
-  _FixedHomeDiscovery(super.database, this.home);
+  _FixedHomeDiscovery(super.database, this.home) : super.test();
 
   final String home;
 
@@ -220,43 +216,85 @@ final class _FixedHomeDiscovery extends ProfileDiscoveryService {
   String get userHome => home;
 }
 
-final class _Fixture {
-  const _Fixture({
-    required this.database,
-    required this.temporaryRoot,
-    required this.oldRoot,
-    required this.newRoot,
-  });
+final class _ProfileSummary {
+  const _ProfileSummary(this.tool, this.name, this.type, this.schemaVersion);
 
-  static Future<_Fixture> create() async {
-    final temporaryRoot = await Directory.systemTemp.createTemp(
-      'multi-cli-ai-discovery-queue-',
+  final String tool;
+  final String name;
+  final String type;
+  final int schemaVersion;
+}
+
+final class _FakeNiniAgentsRunner extends ProcessRunner {
+  _FakeNiniAgentsRunner(super.database);
+
+  final Map<String, List<_ProfileSummary>> profilesByRoot = {};
+  final List<_RunCall> calls = [];
+
+  @override
+  Future<SafeProcessResult> run({
+    required String executable,
+    required List<String> arguments,
+    required String summary,
+    String? profileId,
+    String? workingDirectory,
+    Map<String, String>? environment,
+    String? stdinText,
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    calls.add(
+      _RunCall(
+        arguments: List.unmodifiable(arguments),
+        environment: environment == null ? null : Map.unmodifiable(environment),
+      ),
     );
-    final oldRoot = Directory(p.join(temporaryRoot.path, 'old-root'));
-    final newRoot = Directory(p.join(temporaryRoot.path, 'new-root'));
-    await Directory(
-      p.join(oldRoot.path, 'codex', 'old-profile'),
-    ).create(recursive: true);
-    await Directory(
-      p.join(newRoot.path, 'codex', 'new-profile'),
-    ).create(recursive: true);
-    return _Fixture(
-      database: AppDatabase(NativeDatabase.memory()),
-      temporaryRoot: temporaryRoot,
-      oldRoot: oldRoot,
-      newRoot: newRoot,
+    final command = arguments[1];
+    final stdout = switch (command) {
+      'list' || 'status' => _profilesEnvelope(
+        command,
+        profilesByRoot[environment?['MULTICLI_HOME']] ?? const [],
+      ),
+      'tools' => _success(
+        'tools',
+        '{"platform":"linux","tools":['
+            '{"id":"claude-cli","kind":"cli","strategy":"accountOverlay","supportLevel":"supported","installed":false},'
+            '{"id":"codex","kind":"cli","strategy":"accountOverlay","supportLevel":"supported","installed":true}'
+            '],"count":2}',
+      ),
+      _ => throw StateError('Unexpected command: $command'),
+    };
+    final now = DateTime.utc(2026, 8, 24);
+    return SafeProcessResult(
+      exitCode: 0,
+      stdout: stdout,
+      stderr: '',
+      startedAt: now,
+      completedAt: now,
     );
-  }
-
-  final AppDatabase database;
-  final Directory temporaryRoot;
-  final Directory oldRoot;
-  final Directory newRoot;
-
-  Future<void> dispose() async {
-    await database.close();
-    await temporaryRoot.delete(recursive: true);
   }
 }
+
+final class _RunCall {
+  const _RunCall({required this.arguments, required this.environment});
+
+  final List<String> arguments;
+  final Map<String, String>? environment;
+}
+
+String _profilesEnvelope(String command, List<_ProfileSummary> profiles) {
+  final items = profiles
+      .map(
+        (profile) =>
+            '{"tool":"${profile.tool}","name":"${profile.name}",'
+            '"type":"${profile.type}","schemaVersion":${profile.schemaVersion},'
+            '"sizeBytes":1}',
+      )
+      .join(',');
+  return _success(command, '{"profiles":[$items],"count":${profiles.length}}');
+}
+
+String _success(String command, String data) =>
+    '{"schemaVersion":1,"command":"$command","ok":true,'
+    '"data":$data,"error":null}';
 
 Future<void> _pumpEventQueue() => Future<void>.delayed(Duration.zero);

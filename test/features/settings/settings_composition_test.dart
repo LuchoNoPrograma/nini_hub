@@ -1,10 +1,10 @@
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/app/providers.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/features/profiles/data/profile_discovery_service.dart';
-import 'package:multi_cli_ai/features/settings/domain/app_preferences.dart';
+import 'package:nini_hub/app/providers.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/features/profiles/data/profile_discovery_service.dart';
+import 'package:nini_hub/features/settings/domain/app_preferences.dart';
 
 void main() {
   test(
@@ -166,7 +166,7 @@ void main() {
 }
 
 final class _RecordingProfileDiscovery extends ProfileDiscoveryService {
-  _RecordingProfileDiscovery(super.database);
+  _RecordingProfileDiscovery(super.database) : super.test();
 
   final List<String?> rootsSeen = [];
   Object? failure;

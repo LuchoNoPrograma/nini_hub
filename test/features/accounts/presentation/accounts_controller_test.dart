@@ -2,16 +2,16 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/features/accounts/application/account_device_auth.dart';
-import 'package:multi_cli_ai/features/accounts/application/account_management.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account_device_auth.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account_failure.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account_repository.dart';
-import 'package:multi_cli_ai/features/accounts/presentation/controllers/accounts_controller.dart';
-import 'package:multi_cli_ai/features/accounts/presentation/state/accounts_state.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile_ports.dart';
+import 'package:nini_hub/features/accounts/application/account_device_auth.dart';
+import 'package:nini_hub/features/accounts/application/account_management.dart';
+import 'package:nini_hub/features/accounts/domain/account.dart';
+import 'package:nini_hub/features/accounts/domain/account_device_auth.dart';
+import 'package:nini_hub/features/accounts/domain/account_failure.dart';
+import 'package:nini_hub/features/accounts/domain/account_repository.dart';
+import 'package:nini_hub/features/accounts/presentation/controllers/accounts_controller.dart';
+import 'package:nini_hub/features/accounts/presentation/state/accounts_state.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
+import 'package:nini_hub/features/profiles/domain/profile_ports.dart';
 
 void main() {
   late _Fixture fixture;
@@ -228,13 +228,13 @@ void main() {
       expect(fixture.state.operation, isNull);
       expect(fixture.state.operationProfileId, isNull);
 
-      final linked = _account(hasAuthFile: true);
-      fixture.accounts.values = [linked];
       expect(
         await fixture.controller.completeDeviceAuth(account, true),
         isTrue,
       );
-      expect(fixture.state.accounts.single, same(linked));
+      expect(fixture.authenticationStore.profileIds, ['account']);
+      expect(fixture.state.accounts.single.profile.hasAuthFile, isTrue);
+      expect(fixture.accounts.loadCalls, 2);
       expect(fixture.refreshedProfileIds, ['account']);
       expect(fixture.projectionSyncs, 1);
       expect(fixture.state.operation, isNull);
@@ -248,6 +248,7 @@ final class _Fixture {
       profiles = _MemoryProfileRepository(),
       deviceAuthSession = _FakeDeviceAuthSession() {
     final activity = _FakeDeviceAuthActivity();
+    authenticationStore = _MemoryAccountAuthenticationStore(accounts);
     provider = NotifierProvider<AccountsController, AccountsState>(
       () => AccountsController(
         loadAccounts: LoadAccounts(repository: accounts),
@@ -261,6 +262,7 @@ final class _Fixture {
         ),
         completeDeviceAuth: CompleteAccountDeviceAuth(
           activity: activity,
+          authenticationStore: authenticationStore,
           discovery: _MemoryProfileDiscovery(() => accounts.values),
           accountRepository: accounts,
           monitorHeartbeatProfiles: (_) {},
@@ -278,6 +280,7 @@ final class _Fixture {
   final _MemoryAccountRepository accounts;
   final _MemoryProfileRepository profiles;
   final _FakeDeviceAuthSession deviceAuthSession;
+  late final _MemoryAccountAuthenticationStore authenticationStore;
   final List<String> refreshedProfileIds = [];
   int projectionSyncs = 0;
   late final NotifierProvider<AccountsController, AccountsState> provider;
@@ -346,9 +349,11 @@ final class _MemoryAccountRepository implements AccountRepository {
   Object? nextSaveFailure;
   AccountDetails? savedDetails;
   int saveCalls = 0;
+  int loadCalls = 0;
 
   @override
   Future<List<Account>> loadAll() async {
+    loadCalls++;
     final failure = nextLoadFailure;
     nextLoadFailure = null;
     if (failure != null) throw failure;
@@ -378,6 +383,24 @@ final class _MemoryAccountRepository implements AccountRepository {
     final replacement = afterSaveValues;
     afterSaveValues = null;
     if (replacement != null) values = replacement;
+  }
+}
+
+final class _MemoryAccountAuthenticationStore
+    implements AccountAuthenticationStore {
+  _MemoryAccountAuthenticationStore(this.accounts);
+
+  final _MemoryAccountRepository accounts;
+  final List<String> profileIds = [];
+
+  @override
+  Future<void> markAuthenticated(String profileId) async {
+    profileIds.add(profileId);
+    final index = accounts.values.indexWhere(
+      (account) => account.profile.id == profileId,
+    );
+    if (index < 0) throw AccountNotFoundFailure(profileId);
+    accounts.values[index] = _withAuthentication(accounts.values[index]);
   }
 }
 
@@ -471,6 +494,29 @@ Account _account({
     resetCredits: null,
   );
 }
+
+Account _withAuthentication(Account account) => Account(
+  profile: Profile(
+    id: account.profile.id,
+    toolKey: account.profile.toolKey,
+    profileName: account.profile.profileName,
+    commandName: account.profile.commandName,
+    displayName: account.profile.displayName,
+    profileHome: account.profile.profileHome,
+    source: account.profile.source,
+    kind: account.profile.kind,
+    hasAuthFile: true,
+    isAvailable: account.profile.isAvailable,
+    isFavorite: account.profile.isFavorite,
+  ),
+  metadata: account.metadata,
+  costShares: account.costShares,
+  currentCheck: account.currentCheck,
+  currentWindows: account.currentWindows,
+  lastSuccessfulCheck: account.lastSuccessfulCheck,
+  lastSuccessfulWindows: account.lastSuccessfulWindows,
+  resetCredits: account.resetCredits,
+);
 
 List<String> _visibleIds(AccountsState state) =>
     state.visibleAccounts.map((account) => account.profile.id).toList();

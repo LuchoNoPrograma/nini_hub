@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-const _packagePrefix = 'package:multi_cli_ai/';
+const _packagePrefix = 'package:nini_hub/';
 
 const _approvedViolations = <String>{
   'lib/features/accounts/presentation/accounts_view.dart -> '

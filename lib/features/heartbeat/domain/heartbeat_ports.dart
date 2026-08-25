@@ -1,6 +1,6 @@
-import 'package:multi_cli_ai/features/heartbeat/domain/heartbeat.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile.dart';
-import 'package:multi_cli_ai/features/usage/domain/usage.dart';
+import 'package:nini_hub/features/heartbeat/domain/heartbeat.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
+import 'package:nini_hub/features/usage/domain/usage.dart';
 
 abstract interface class HeartbeatStateRepository {
   Future<HeartbeatState> load(String profileId);

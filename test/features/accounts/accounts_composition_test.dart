@@ -2,13 +2,13 @@ import 'package:drift/drift.dart' hide isNull;
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/app/providers.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/features/accounts/application/account_management.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account_device_auth.dart';
-import 'package:multi_cli_ai/features/profiles/data/profile_discovery_service.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile.dart';
+import 'package:nini_hub/app/providers.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/features/accounts/application/account_management.dart';
+import 'package:nini_hub/features/accounts/domain/account.dart';
+import 'package:nini_hub/features/accounts/domain/account_device_auth.dart';
+import 'package:nini_hub/features/profiles/data/profile_discovery_service.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
 
 void main() {
   test(
@@ -239,6 +239,66 @@ void main() {
       expect(log.status, 'success');
     },
   );
+
+  test(
+    'confirmed Device Auth persists auth and replaces the Accounts snapshot',
+    () async {
+      final database = AppDatabase(NativeDatabase.memory());
+      final now = DateTime.utc(2026, 8, 24);
+      await database
+          .into(database.cliProfiles)
+          .insert(
+            CliProfile(
+              id: 'account',
+              toolKey: 'codex',
+              profileName: 'account',
+              commandName: 'codex-account',
+              displayName: 'Account',
+              profileHome: '/profiles/account',
+              profileSource: 'multicli',
+              profileType: 'full',
+              hasAuthFile: false,
+              isAvailable: false,
+              isFavorite: false,
+              createdAt: now,
+              lastDiscoveredAt: now,
+            ),
+          );
+      final container = ProviderContainer(
+        overrides: [
+          databaseProvider.overrideWithValue(database),
+          profileDiscoveryProvider.overrideWithValue(
+            _StaticProfileDiscovery(database),
+          ),
+        ],
+      );
+      addTearDown(() async {
+        container.dispose();
+        await database.close();
+      });
+      final controller = container.read(accountsControllerProvider.notifier);
+      expect(await controller.load(), isTrue);
+      final account = container
+          .read(accountsControllerProvider)
+          .accounts
+          .single;
+      expect(account.profile.hasAuthFile, isFalse);
+
+      expect(await controller.completeDeviceAuth(account, true), isTrue);
+
+      final stored = await database.select(database.cliProfiles).getSingle();
+      expect(stored.hasAuthFile, isTrue);
+      expect(
+        container
+            .read(accountsControllerProvider)
+            .accounts
+            .single
+            .profile
+            .hasAuthFile,
+        isTrue,
+      );
+    },
+  );
 }
 
 final class _RecordingDeviceAuthGateway implements AccountDeviceAuthGateway {
@@ -286,7 +346,7 @@ final class _SelectCounter extends QueryInterceptor {
 }
 
 final class _StaticProfileDiscovery extends ProfileDiscoveryService {
-  _StaticProfileDiscovery(super.database);
+  _StaticProfileDiscovery(super.database) : super.test();
 
   @override
   Future<List<CliProfile>> discoverProfiles() =>

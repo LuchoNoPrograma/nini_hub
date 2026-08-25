@@ -1,8 +1,8 @@
-import 'package:multi_cli_ai/features/profiles/domain/profile_failure.dart';
+import 'package:nini_hub/features/profiles/domain/profile_failure.dart';
 
 enum ProfileSource { defaultProfile, multiCli }
 
-enum ProfileKind { base, full, shared, cli, deactivated }
+enum ProfileKind { base, full, shared, cli, isolated, deactivated }
 
 enum ProfileSetupMode { full, shared, cli }
 

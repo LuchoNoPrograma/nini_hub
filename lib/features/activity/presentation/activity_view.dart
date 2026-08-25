@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:multi_cli_ai/app/providers.dart';
-import 'package:multi_cli_ai/core/formatters.dart';
-import 'package:multi_cli_ai/core/widgets/app_primitives.dart';
-import 'package:multi_cli_ai/features/activity/domain/activity_log.dart';
-import 'package:multi_cli_ai/features/activity/presentation/controllers/activity_controller.dart';
-import 'package:multi_cli_ai/features/activity/presentation/state/activity_state.dart';
+import 'package:nini_hub/app/providers.dart';
+import 'package:nini_hub/core/formatters.dart';
+import 'package:nini_hub/core/widgets/app_primitives.dart';
+import 'package:nini_hub/features/activity/domain/activity_log.dart';
+import 'package:nini_hub/features/activity/presentation/controllers/activity_controller.dart';
+import 'package:nini_hub/features/activity/presentation/state/activity_state.dart';
 
 class ActivityView extends ConsumerStatefulWidget {
   const ActivityView({super.key});

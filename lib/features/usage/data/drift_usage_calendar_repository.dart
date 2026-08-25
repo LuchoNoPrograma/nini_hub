@@ -1,6 +1,6 @@
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/features/usage/domain/usage.dart';
-import 'package:multi_cli_ai/features/usage/domain/usage_ports.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/features/usage/domain/usage.dart';
+import 'package:nini_hub/features/usage/domain/usage_ports.dart';
 
 final class DriftUsageCalendarRepository implements UsageCalendarRepository {
   const DriftUsageCalendarRepository(this.database);

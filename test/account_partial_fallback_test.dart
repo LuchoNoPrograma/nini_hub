@@ -1,17 +1,18 @@
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/core/process/process_runner.dart';
-import 'package:multi_cli_ai/features/accounts/data/account_mapper.dart';
-import 'package:multi_cli_ai/features/accounts/data/drift_account_repository.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account.dart';
-import 'package:multi_cli_ai/providers/codex/codex_app_server_models.dart';
-import 'package:multi_cli_ai/features/profiles/data/profile_mapper.dart';
-import 'package:multi_cli_ai/features/usage/application/usage_refresh.dart';
-import 'package:multi_cli_ai/features/usage/data/codex_usage_provider.dart';
-import 'package:multi_cli_ai/features/usage/data/drift_usage_snapshot_repository.dart';
-import 'package:multi_cli_ai/features/usage/data/process_usage_activity_recorder.dart';
-import 'package:multi_cli_ai/providers/codex/codex_app_server_client.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/core/process/process_runner.dart';
+import 'package:nini_hub/features/accounts/data/account_mapper.dart';
+import 'package:nini_hub/features/accounts/data/drift_account_repository.dart';
+import 'package:nini_hub/features/accounts/domain/account.dart';
+import 'package:nini_hub/providers/codex/codex_app_server_models.dart';
+import 'package:nini_hub/features/profiles/data/profile_mapper.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
+import 'package:nini_hub/features/usage/application/usage_refresh.dart';
+import 'package:nini_hub/features/usage/data/codex_usage_provider.dart';
+import 'package:nini_hub/features/usage/data/drift_usage_snapshot_repository.dart';
+import 'package:nini_hub/features/usage/data/process_usage_activity_recorder.dart';
+import 'package:nini_hub/providers/codex/codex_app_server_client.dart';
 
 void main() {
   test('a partial refresh keeps the last successful quota visible', () async {
@@ -136,7 +137,7 @@ class _StaticClient extends CodexAppServerClient {
   final CodexRefreshResult result;
 
   @override
-  Future<CodexRefreshResult> refresh(String profileHome) async => result;
+  Future<CodexRefreshResult> refresh(Profile profile) async => result;
 }
 
 CliProfile _profile() {

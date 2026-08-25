@@ -1,7 +1,7 @@
-import 'package:multi_cli_ai/features/accounts/domain/account_device_auth.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile.dart';
-import 'package:multi_cli_ai/providers/codex/codex_app_server_client.dart';
-import 'package:multi_cli_ai/providers/codex/codex_client_runtime.dart';
+import 'package:nini_hub/features/accounts/domain/account_device_auth.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
+import 'package:nini_hub/providers/codex/codex_app_server_client.dart';
+import 'package:nini_hub/providers/codex/codex_client_runtime.dart';
 
 typedef AccountDeviceAuthStarter =
     Future<AccountDeviceAuthSession> Function(Profile profile);
@@ -9,9 +9,7 @@ typedef AccountDeviceAuthStarter =
 final class CodexAccountDeviceAuthGateway implements AccountDeviceAuthGateway {
   CodexAccountDeviceAuthGateway(CodexClientRuntime runtime)
     : _start = ((profile) async {
-        final session = await runtime.current.startDeviceAuth(
-          profile.profileHome,
-        );
+        final session = await runtime.current.startDeviceAuth(profile);
         return _CodexAccountDeviceAuthSession(session);
       });
 

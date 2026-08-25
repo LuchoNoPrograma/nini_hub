@@ -2,11 +2,11 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/features/settings/application/settings.dart';
-import 'package:multi_cli_ai/features/settings/domain/app_preferences.dart';
-import 'package:multi_cli_ai/features/settings/domain/settings_ports.dart';
-import 'package:multi_cli_ai/features/settings/presentation/controllers/settings_controller.dart';
-import 'package:multi_cli_ai/features/settings/presentation/state/settings_state.dart';
+import 'package:nini_hub/features/settings/application/settings.dart';
+import 'package:nini_hub/features/settings/domain/app_preferences.dart';
+import 'package:nini_hub/features/settings/domain/settings_ports.dart';
+import 'package:nini_hub/features/settings/presentation/controllers/settings_controller.dart';
+import 'package:nini_hub/features/settings/presentation/state/settings_state.dart';
 
 void main() {
   late _Fixture fixture;

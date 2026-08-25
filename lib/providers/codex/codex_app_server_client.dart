@@ -2,23 +2,68 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:multi_cli_ai/core/process/process_runner.dart';
-import 'package:multi_cli_ai/providers/codex/codex_app_server_models.dart';
+import 'package:nini_hub/core/process/process_runner.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
+import 'package:nini_hub/features/profiles/domain/profile_provider.dart';
+import 'package:nini_hub/providers/codex/codex_app_server_models.dart';
+import 'package:path/path.dart' as p;
+
+final class CodexProcessLaunch {
+  const CodexProcessLaunch({
+    required this.executable,
+    required this.arguments,
+    required this.workingDirectory,
+    required this.environment,
+  });
+
+  final String executable;
+  final List<String> arguments;
+  final String workingDirectory;
+  final Map<String, String> environment;
+}
+
+abstract interface class CodexProcessHandle {
+  Stream<List<int>> get stdout;
+
+  Stream<List<int>> get stderr;
+
+  Future<int> get exitCode;
+
+  int get pid;
+
+  void writeLine(String value);
+
+  Future<void> closeStdin();
+
+  bool kill(ProcessSignal signal);
+}
+
+typedef CodexProcessStarter =
+    Future<CodexProcessHandle> Function(CodexProcessLaunch launch);
+typedef CodexProcessTreeTerminator = Future<void> Function(int pid);
 
 class CodexAppServerClient {
   const CodexAppServerClient({
     this.executable = 'codex',
+    this.niniAgentsExecutable = 'nini-agents',
     this.timeout = const Duration(seconds: 15),
+    this.processStarter,
+    this.processTreeTerminator,
+    this.isWindows,
   });
 
   final String executable;
+  final String niniAgentsExecutable;
   final Duration timeout;
+  final CodexProcessStarter? processStarter;
+  final CodexProcessTreeTerminator? processTreeTerminator;
+  final bool? isWindows;
 
-  Future<CodexRefreshResult> refresh(String profileHome) async {
+  Future<CodexRefreshResult> refresh(Profile profile) async {
     final started = DateTime.now().toUtc();
     _CodexRpcProcess? rpc;
     try {
-      if (!Directory(profileHome).existsSync()) {
+      if (!Directory(profile.profileHome).existsSync()) {
         return _failure(
           UsageCheckState.profileMissing,
           started,
@@ -27,9 +72,11 @@ class CodexAppServerClient {
         );
       }
       rpc = await _CodexRpcProcess.start(
-        executable: executable,
-        profileHome: profileHome,
+        launch: _processLaunch(profile),
         requestTimeout: timeout,
+        processStarter: processStarter,
+        processTreeTerminator: processTreeTerminator,
+        isWindows: isWindows ?? Platform.isWindows,
       );
       await rpc.initialize();
       final account = await rpc.request('account/read', const {
@@ -109,22 +156,34 @@ class CodexAppServerClient {
         'TIMEOUT',
         'Codex no respondió dentro de ${timeout.inSeconds} segundos.',
       );
-    } on ProcessException catch (error) {
+    } on ProcessException {
       return _failure(
         UsageCheckState.toolMissing,
         started,
-        'CODEX_NOT_FOUND',
-        _sanitize(error.message),
+        profile.source == ProfileSource.multiCli
+            ? 'NINI_AGENTS_NOT_FOUND'
+            : 'CODEX_NOT_FOUND',
+        profile.source == ProfileSource.multiCli
+            ? 'No se encontró el ejecutable de Nini Agents.'
+            : 'No se encontró el ejecutable de Codex.',
       );
-    } on CodexRpcException catch (error) {
+    } on CodexAppServerFailure catch (error) {
       final auth = RegExp(
         r'not logged|login|required|unauthorized|authentication',
         caseSensitive: false,
       ).hasMatch(error.message);
+      if (error.kind == CodexAppServerFailureKind.timeout) {
+        return _failure(
+          UsageCheckState.timeout,
+          started,
+          error.code,
+          error.message,
+        );
+      }
       return _failure(
         auth ? UsageCheckState.authRequired : UsageCheckState.error,
         started,
-        auth ? 'AUTH_REQUIRED' : 'CODEX_RPC_ERROR',
+        auth ? 'AUTH_REQUIRED' : error.code,
         _sanitize(error.message),
       );
     } catch (error) {
@@ -139,23 +198,37 @@ class CodexAppServerClient {
     }
   }
 
-  Future<CodexDeviceAuthSession> startDeviceAuth(String profileHome) async {
-    final rpc = await _CodexRpcProcess.start(
-      executable: executable,
-      profileHome: profileHome,
-      requestTimeout: timeout,
-    );
+  Future<CodexDeviceAuthSession> startDeviceAuth(Profile profile) async {
+    if (!Directory(profile.profileHome).existsSync()) {
+      throw const CodexAppServerFailure(
+        kind: CodexAppServerFailureKind.profileMissing,
+        code: 'PROFILE_MISSING',
+        message: 'La carpeta del perfil no existe.',
+      );
+    }
+    _CodexRpcProcess? rpc;
     try {
-      await rpc.initialize();
-      final existing = await rpc.request('account/read', const {
+      final startedRpc = await _CodexRpcProcess.start(
+        launch: _processLaunch(profile),
+        requestTimeout: timeout,
+        processStarter: processStarter,
+        processTreeTerminator: processTreeTerminator,
+        isWindows: isWindows ?? Platform.isWindows,
+      );
+      rpc = startedRpc;
+      await startedRpc.initialize();
+      final existing = await startedRpc.request('account/read', const {
         'refreshToken': false,
       });
       if (_hasAccount(existing)) {
-        throw const CodexRpcException(
-          'Este perfil ya tiene una sesión válida. Desvincúlalo en Codex antes de iniciar otro acceso.',
+        throw const CodexAppServerFailure(
+          kind: CodexAppServerFailureKind.rpc,
+          code: 'AUTH_ALREADY_LINKED',
+          message:
+              'Este perfil ya tiene una sesión válida. Desvincúlalo en Codex antes de iniciar otro acceso.',
         );
       }
-      final result = await rpc.request('account/login/start', const {
+      final result = await startedRpc.request('account/login/start', const {
         'type': 'chatgptDeviceCode',
       });
       final loginId = _firstString(
@@ -177,20 +250,67 @@ class CodexAppServerClient {
         const {'userCode', 'user_code', 'code'},
       );
       if (loginId == null || url == null) {
-        throw const CodexRpcException(
-          'Codex inició el acceso, pero no devolvió URL o identificador.',
+        throw const CodexAppServerFailure(
+          kind: CodexAppServerFailureKind.protocolViolation,
+          code: 'CODEX_PROTOCOL_ERROR',
+          message:
+              'Codex inició el acceso, pero no devolvió URL o identificador.',
         );
       }
       return CodexDeviceAuthSession._(
-        rpc: rpc,
+        rpc: startedRpc,
         loginId: loginId,
         verificationUrl: url,
         userCode: code ?? '',
       );
+    } on ProcessException catch (error) {
+      throw CodexAppServerFailure(
+        kind: CodexAppServerFailureKind.executableUnavailable,
+        code: profile.source == ProfileSource.multiCli
+            ? 'NINI_AGENTS_NOT_FOUND'
+            : 'CODEX_NOT_FOUND',
+        message: profile.source == ProfileSource.multiCli
+            ? 'No se encontró el ejecutable de Nini Agents.'
+            : 'No se encontró el ejecutable de Codex.',
+        diagnostic: _sanitize(error.message),
+      );
     } catch (_) {
-      await rpc.close();
+      await rpc?.close();
       rethrow;
     }
+  }
+
+  CodexProcessLaunch _processLaunch(Profile profile) {
+    final profileHome = p.normalize(p.absolute(profile.profileHome));
+    if (profile.source == ProfileSource.defaultProfile) {
+      return CodexProcessLaunch(
+        executable: executable,
+        arguments: const ['app-server', '--stdio'],
+        workingDirectory: profileHome,
+        environment: {'CODEX_HOME': profileHome},
+      );
+    }
+    final provider = profileProvider(profile.toolKey);
+    final toolDirectory = p.dirname(profileHome);
+    if (p.basename(toolDirectory) != provider.multiCliTool) {
+      throw const CodexAppServerFailure(
+        kind: CodexAppServerFailureKind.protocolViolation,
+        code: 'INVALID_PROFILE_HOME',
+        message: 'La ubicación del perfil no coincide con su herramienta.',
+      );
+    }
+    return CodexProcessLaunch(
+      executable: niniAgentsExecutable,
+      arguments: [
+        'exec',
+        provider.profileSpec(profile.profileName),
+        '--',
+        'app-server',
+        '--stdio',
+      ],
+      workingDirectory: profileHome,
+      environment: {'MULTICLI_HOME': p.dirname(toolDirectory)},
+    );
   }
 
   static CodexRefreshResult _failure(
@@ -468,9 +588,8 @@ class CodexAppServerClient {
     return DateTime.tryParse(value.toString())?.toUtc();
   }
 
-  static String _sanitize(String value) => value
-      .replaceAll(RegExp(r'sk-[A-Za-z0-9_-]{8,}'), '[REDACTADO]')
-      .replaceAll(
+  static String _sanitize(String value) =>
+      ProcessRunner.sanitizeOutput(value).replaceAll(
         RegExp(r'bearer\s+[^\s]+', caseSensitive: false),
         'Bearer [REDACTADO]',
       );
@@ -507,8 +626,10 @@ class CodexDeviceAuthSession {
       if (completion.success == true) return true;
       if (completion.success == false) {
         if (completion.error != null) {
-          throw CodexRpcException(
-            CodexAppServerClient._sanitize(completion.error!),
+          throw CodexAppServerFailure(
+            kind: CodexAppServerFailureKind.rpc,
+            code: 'DEVICE_AUTH_FAILED',
+            message: CodexAppServerClient._sanitize(completion.error!),
           );
         }
         return false;
@@ -519,6 +640,12 @@ class CodexDeviceAuthSession {
         'refreshToken': true,
       });
       return CodexAppServerClient._hasAccount(account);
+    } on TimeoutException {
+      throw const CodexAppServerFailure(
+        kind: CodexAppServerFailureKind.timeout,
+        code: 'DEVICE_AUTH_TIMEOUT',
+        message: 'Codex no confirmó el acceso dentro del tiempo disponible.',
+      );
     } finally {
       await close();
     }
@@ -555,24 +682,29 @@ class CodexDeviceAuthSession {
   }
 }
 
-class CodexRpcException implements Exception {
-  const CodexRpcException(this.message);
-  final String message;
-  @override
-  String toString() => message;
-}
-
 class _CodexRpcProcess {
-  _CodexRpcProcess._(this.process, this.requestTimeout) {
+  _CodexRpcProcess._({
+    required this.process,
+    required this.requestTimeout,
+    required this.processTreeTerminator,
+    required this.isWindows,
+  }) {
     _stdoutSubscription = process.stdout
         .transform(utf8.decoder)
         .transform(const LineSplitter())
-        .listen(_handleLine, onDone: _handleDone);
-    _stderrSubscription = process.stderr.transform(utf8.decoder).listen((_) {});
+        .listen(_handleLine, onError: _handleStreamError);
+    _stderrSubscription = process.stderr
+        .transform(utf8.decoder)
+        .listen(_captureStderr, onError: (_) {});
+    unawaited(process.exitCode.then(_handleExit, onError: _handleStreamError));
   }
 
-  final Process process;
+  static const _stderrLimit = 4096;
+
+  final CodexProcessHandle process;
   final Duration requestTimeout;
+  final CodexProcessTreeTerminator processTreeTerminator;
+  final bool isWindows;
   final Map<int, Completer<Map<String, dynamic>>> _pending = {};
   final StreamController<Map<String, dynamic>> _notifications =
       StreamController.broadcast();
@@ -580,30 +712,34 @@ class _CodexRpcProcess {
   late final StreamSubscription<String> _stderrSubscription;
   int _nextId = 1;
   bool _closed = false;
+  bool _closing = false;
+  String _stderr = '';
+  CodexAppServerFailure? _terminalFailure;
 
   Stream<Map<String, dynamic>> get notifications => _notifications.stream;
 
   static Future<_CodexRpcProcess> start({
-    required String executable,
-    required String profileHome,
+    required CodexProcessLaunch launch,
     required Duration requestTimeout,
+    required CodexProcessStarter? processStarter,
+    required CodexProcessTreeTerminator? processTreeTerminator,
+    required bool isWindows,
   }) async {
-    final process = await Process.start(
-      ProcessRunner.resolveExecutable(executable),
-      const ['app-server', '--stdio'],
-      workingDirectory: profileHome,
-      environment: {...Platform.environment, 'CODEX_HOME': profileHome},
-      includeParentEnvironment: true,
-      runInShell: false,
+    final process = await (processStarter ?? _startCodexProcess)(launch);
+    return _CodexRpcProcess._(
+      process: process,
+      requestTimeout: requestTimeout,
+      processTreeTerminator:
+          processTreeTerminator ?? _terminateWindowsProcessTree,
+      isWindows: isWindows,
     );
-    return _CodexRpcProcess._(process, requestTimeout);
   }
 
   Future<void> initialize() async {
     await request('initialize', const {
       'clientInfo': {
-        'name': 'multicli-ai',
-        'title': 'MultiCLI AI',
+        'name': 'nini-hub',
+        'title': 'Nini Hub',
         'version': '1.0.0',
       },
       'capabilities': null,
@@ -614,20 +750,39 @@ class _CodexRpcProcess {
     String method, [
     Map<String, dynamic>? params,
   ]) {
-    if (_closed) {
-      throw const CodexRpcException('El proceso de Codex ya se cerró.');
+    final terminalFailure = _terminalFailure;
+    if (_closed || terminalFailure != null) {
+      throw terminalFailure ??
+          const CodexAppServerFailure(
+            kind: CodexAppServerFailureKind.cancelled,
+            code: 'CODEX_CANCELLED',
+            message: 'El proceso de Codex ya se cerró.',
+          );
     }
     final id = _nextId++;
     final completer = Completer<Map<String, dynamic>>();
     _pending[id] = completer;
     final message = <String, Object?>{'id': id, 'method': method};
     if (params != null) message['params'] = params;
-    process.stdin.writeln(jsonEncode(message));
+    try {
+      process.writeLine(jsonEncode(message));
+    } catch (_) {
+      _pending.remove(id);
+      throw const CodexAppServerFailure(
+        kind: CodexAppServerFailureKind.processExited,
+        code: 'CODEX_PROCESS_EXITED',
+        message: 'Codex app-server no aceptó la solicitud.',
+      );
+    }
     return completer.future.timeout(
       requestTimeout,
       onTimeout: () {
         _pending.remove(id);
-        throw TimeoutException('$method agotó el tiempo de espera.');
+        throw CodexAppServerFailure(
+          kind: CodexAppServerFailureKind.timeout,
+          code: 'TIMEOUT',
+          message: '$method agotó el tiempo de espera.',
+        );
       },
     );
   }
@@ -638,21 +793,45 @@ class _CodexRpcProcess {
     try {
       decoded = jsonDecode(line);
     } on FormatException {
+      _fail(
+        const CodexAppServerFailure(
+          kind: CodexAppServerFailureKind.protocolViolation,
+          code: 'CODEX_PROTOCOL_ERROR',
+          message:
+              'Codex app-server escribió una respuesta que no es JSON-RPC.',
+        ),
+      );
       return;
     }
-    if (decoded is! Map) return;
+    if (decoded is! Map) {
+      _fail(
+        const CodexAppServerFailure(
+          kind: CodexAppServerFailureKind.protocolViolation,
+          code: 'CODEX_PROTOCOL_ERROR',
+          message: 'Codex app-server escribió un mensaje JSON-RPC inválido.',
+        ),
+      );
+      return;
+    }
     final message = decoded.map(
       (key, value) => MapEntry(key.toString(), value),
     );
     final id = message['id'];
-    if (id is num && _pending.containsKey(id.toInt())) {
-      final completer = _pending.remove(id.toInt())!;
+    if (id is num) {
+      final completer = _pending.remove(id.toInt());
+      if (completer == null) return;
       final error = message['error'];
       if (error != null) {
         final text = error is Map
             ? (error['message'] ?? error.toString()).toString()
             : error.toString();
-        completer.completeError(CodexRpcException(text));
+        completer.completeError(
+          CodexAppServerFailure(
+            kind: CodexAppServerFailureKind.rpc,
+            code: 'CODEX_RPC_ERROR',
+            message: CodexAppServerClient._sanitize(text),
+          ),
+        );
       } else {
         final result = message['result'];
         completer.complete(
@@ -663,46 +842,159 @@ class _CodexRpcProcess {
       }
       return;
     }
-    if (message['method'] != null) _notifications.add(message);
+    if (message['method'] is String) {
+      _notifications.add(message);
+      return;
+    }
+    _fail(
+      const CodexAppServerFailure(
+        kind: CodexAppServerFailureKind.protocolViolation,
+        code: 'CODEX_PROTOCOL_ERROR',
+        message: 'Codex app-server escribió un mensaje JSON-RPC inválido.',
+      ),
+    );
   }
 
-  void _handleDone() {
+  void _captureStderr(String chunk) {
+    final remaining = _stderrLimit - _stderr.length;
+    if (remaining <= 0) return;
+    _stderr += chunk.length <= remaining
+        ? chunk
+        : chunk.substring(0, remaining);
+  }
+
+  void _handleStreamError(Object _) {
+    if (_closing) return;
+    _fail(
+      const CodexAppServerFailure(
+        kind: CodexAppServerFailureKind.protocolViolation,
+        code: 'CODEX_PROTOCOL_ERROR',
+        message: 'Codex app-server cerró un canal con datos inválidos.',
+      ),
+    );
+  }
+
+  void _handleExit(int exitCode) {
+    if (_closing) return;
+    final detail = CodexAppServerClient._sanitize(_stderr).trim();
+    _fail(
+      CodexAppServerFailure(
+        kind: CodexAppServerFailureKind.processExited,
+        code: 'CODEX_PROCESS_EXITED',
+        message: 'Codex app-server terminó antes de responder.',
+        exitCode: exitCode,
+        diagnostic: detail.isEmpty ? null : detail,
+      ),
+    );
+  }
+
+  void _fail(CodexAppServerFailure failure) {
+    if (_terminalFailure != null || _closing) return;
+    _terminalFailure = failure;
     for (final completer in _pending.values) {
       if (!completer.isCompleted) {
-        completer.completeError(
-          const CodexRpcException(
-            'Codex app-server terminó antes de responder.',
-          ),
-        );
+        completer.completeError(failure);
       }
     }
     _pending.clear();
+    if (!_notifications.isClosed) _notifications.addError(failure);
   }
 
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
+    _closing = true;
+    const cancelled = CodexAppServerFailure(
+      kind: CodexAppServerFailureKind.cancelled,
+      code: 'CODEX_CANCELLED',
+      message: 'Consulta cancelada al cerrar Codex app-server.',
+    );
     for (final completer in _pending.values) {
       if (!completer.isCompleted) {
-        completer.completeError(
-          const CodexRpcException(
-            'Consulta cancelada al cerrar Codex app-server.',
-          ),
-        );
+        completer.completeError(cancelled);
       }
     }
     _pending.clear();
+    if (!_notifications.isClosed) _notifications.addError(cancelled);
     try {
-      await process.stdin.close();
+      await process.closeStdin();
     } catch (_) {}
-    process.kill(ProcessSignal.sigterm);
-    try {
-      await process.exitCode.timeout(const Duration(seconds: 2));
-    } on TimeoutException {
-      process.kill(ProcessSignal.sigkill);
+    if (!await _waitForExit(const Duration(milliseconds: 200))) {
+      if (isWindows) {
+        try {
+          await processTreeTerminator(process.pid);
+        } catch (_) {
+          process.kill(ProcessSignal.sigkill);
+        }
+      } else {
+        process.kill(ProcessSignal.sigterm);
+      }
+      if (!await _waitForExit(const Duration(seconds: 2))) {
+        process.kill(ProcessSignal.sigkill);
+      }
     }
     await _stdoutSubscription.cancel();
     await _stderrSubscription.cancel();
     await _notifications.close();
   }
+
+  Future<bool> _waitForExit(Duration timeout) async {
+    try {
+      await process.exitCode.timeout(timeout);
+      return true;
+    } on TimeoutException {
+      return false;
+    } catch (_) {
+      return true;
+    }
+  }
+}
+
+Future<CodexProcessHandle> _startCodexProcess(
+  CodexProcessLaunch launch,
+) async => _IoCodexProcessHandle(
+  await Process.start(
+    ProcessRunner.resolveExecutable(launch.executable),
+    launch.arguments,
+    workingDirectory: launch.workingDirectory,
+    environment: launch.environment,
+    includeParentEnvironment: true,
+    runInShell: false,
+  ),
+);
+
+Future<void> _terminateWindowsProcessTree(int pid) async {
+  await Process.run(ProcessRunner.resolveExecutable('taskkill'), [
+    '/PID',
+    '$pid',
+    '/T',
+    '/F',
+  ], runInShell: false);
+}
+
+final class _IoCodexProcessHandle implements CodexProcessHandle {
+  const _IoCodexProcessHandle(this._process);
+
+  final Process _process;
+
+  @override
+  int get pid => _process.pid;
+
+  @override
+  Stream<List<int>> get stderr => _process.stderr;
+
+  @override
+  Stream<List<int>> get stdout => _process.stdout;
+
+  @override
+  Future<int> get exitCode => _process.exitCode;
+
+  @override
+  Future<void> closeStdin() => _process.stdin.close();
+
+  @override
+  bool kill(ProcessSignal signal) => _process.kill(signal);
+
+  @override
+  void writeLine(String value) => _process.stdin.writeln(value);
 }

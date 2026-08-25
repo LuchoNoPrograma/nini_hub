@@ -1,4 +1,0 @@
-interface:
-  display_name: "MultiCLI AI Diagnostico"
-  short_description: "Diagnostica fallos de UI, datos y procesos"
-  default_prompt: "Usa $multi-cli-ai-diagnostico-incidentes para investigar este incidente sin implementar aun el fix."

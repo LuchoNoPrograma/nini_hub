@@ -1,5 +1,5 @@
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/features/workspaces/domain/workspace_repository.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/features/workspaces/domain/workspace_repository.dart';
 
 final class DriftWorkspaceSelectionStore implements WorkspaceSelectionStore {
   const DriftWorkspaceSelectionStore(this._database);

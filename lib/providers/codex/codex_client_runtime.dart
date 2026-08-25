@@ -1,4 +1,4 @@
-import 'package:multi_cli_ai/providers/codex/codex_app_server_client.dart';
+import 'package:nini_hub/providers/codex/codex_app_server_client.dart';
 
 typedef CodexClientFactory =
     CodexAppServerClient Function(Duration requestTimeout);

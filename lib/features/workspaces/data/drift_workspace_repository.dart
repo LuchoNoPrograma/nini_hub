@@ -1,10 +1,10 @@
 import 'dart:io';
 
 import 'package:drift/drift.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart' as db;
-import 'package:multi_cli_ai/features/workspaces/domain/workspace.dart';
-import 'package:multi_cli_ai/features/workspaces/domain/workspace_failure.dart';
-import 'package:multi_cli_ai/features/workspaces/domain/workspace_repository.dart';
+import 'package:nini_hub/core/database/app_database.dart' as db;
+import 'package:nini_hub/features/workspaces/domain/workspace.dart';
+import 'package:nini_hub/features/workspaces/domain/workspace_failure.dart';
+import 'package:nini_hub/features/workspaces/domain/workspace_repository.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 

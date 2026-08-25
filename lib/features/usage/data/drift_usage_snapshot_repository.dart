@@ -1,8 +1,8 @@
 import 'package:drift/drift.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/features/usage/data/usage_mapper.dart';
-import 'package:multi_cli_ai/features/usage/domain/usage.dart';
-import 'package:multi_cli_ai/features/usage/domain/usage_ports.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/features/usage/data/usage_mapper.dart';
+import 'package:nini_hub/features/usage/domain/usage.dart';
+import 'package:nini_hub/features/usage/domain/usage_ports.dart';
 import 'package:uuid/uuid.dart';
 
 final class DriftUsageSnapshotRepository implements UsageSnapshotRepository {

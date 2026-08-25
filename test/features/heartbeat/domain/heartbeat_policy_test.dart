@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/features/heartbeat/domain/heartbeat.dart';
-import 'package:multi_cli_ai/features/heartbeat/domain/heartbeat_policy.dart';
-import 'package:multi_cli_ai/features/usage/domain/usage.dart';
+import 'package:nini_hub/features/heartbeat/domain/heartbeat.dart';
+import 'package:nini_hub/features/heartbeat/domain/heartbeat_policy.dart';
+import 'package:nini_hub/features/usage/domain/usage.dart';
 
 void main() {
   const policy = HeartbeatPolicy();

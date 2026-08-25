@@ -3,8 +3,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:drift/drift.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
+import 'package:nini_hub/core/database/app_database.dart';
 import 'package:uuid/uuid.dart';
+
+typedef ProcessTreeTerminator = Future<void> Function(int pid);
 
 class SafeProcessResult {
   const SafeProcessResult({
@@ -31,31 +33,72 @@ class SafeProcessResult {
 }
 
 class ProcessRunner {
-  ProcessRunner(this.database);
+  ProcessRunner(
+    this.database, {
+    bool? isWindows,
+    ProcessTreeTerminator? processTreeTerminator,
+  }) : _isWindows = isWindows ?? Platform.isWindows,
+       _processTreeTerminator =
+           processTreeTerminator ?? _terminateWindowsProcessTree;
 
   final AppDatabase database;
+  final bool _isWindows;
+  final ProcessTreeTerminator _processTreeTerminator;
   final Uuid _uuid = const Uuid();
   static Future<String>? _hyperShellLauncher;
 
   static String? findExecutable(String name) {
-    final executableName = Platform.isWindows && !name.endsWith('.exe')
-        ? '$name.exe'
-        : name;
-    final direct = File(executableName);
-    if (direct.isAbsolute && direct.existsSync()) return direct.path;
+    final executableNames = executableFileNames(
+      name,
+      isWindows: Platform.isWindows,
+      pathExtensions: Platform.environment['PATHEXT'],
+    );
+    for (final executableName in executableNames) {
+      final direct = File(executableName);
+      if (direct.isAbsolute && direct.existsSync()) return direct.path;
+    }
     final home =
         Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
-    final candidates = <String>[
-      if (home != null) '$home/.local/bin/$executableName',
+    final searchDirectories = <String>[
+      if (home != null) '$home/.local/bin',
       ...?Platform.environment['PATH']
           ?.split(Platform.isWindows ? ';' : ':')
-          .where((item) => item.trim().isNotEmpty)
-          .map((item) => '$item${Platform.pathSeparator}$executableName'),
+          .where((item) => item.trim().isNotEmpty),
     ];
-    for (final candidate in candidates) {
-      if (File(candidate).existsSync()) return candidate;
+    for (final directory in searchDirectories) {
+      for (final executableName in executableNames) {
+        final candidate = '$directory${Platform.pathSeparator}$executableName';
+        if (File(candidate).existsSync()) return candidate;
+      }
     }
     return null;
+  }
+
+  static List<String> executableFileNames(
+    String name, {
+    required bool isWindows,
+    String? pathExtensions,
+  }) {
+    if (!isWindows) return [name];
+    final normalizedName = name.toLowerCase();
+    final extensions = <String>[
+      '.exe',
+      ...?pathExtensions
+          ?.split(';')
+          .map((value) => value.trim().toLowerCase())
+          .where((value) => value.startsWith('.') && value.length > 1),
+      '.com',
+      '.bat',
+      '.cmd',
+    ];
+    final uniqueExtensions = <String>[];
+    for (final extension in extensions) {
+      if (!uniqueExtensions.contains(extension)) {
+        uniqueExtensions.add(extension);
+      }
+    }
+    if (uniqueExtensions.any(normalizedName.endsWith)) return [name];
+    return uniqueExtensions.map((extension) => '$name$extension').toList();
   }
 
   static String resolveExecutable(String name) => findExecutable(name) ?? name;
@@ -110,12 +153,9 @@ class ProcessRunner {
       var timedOut = false;
       final exitCode = await process.exitCode.timeout(
         timeout,
-        onTimeout: () {
+        onTimeout: () async {
           timedOut = true;
-          process?.kill(ProcessSignal.sigterm);
-          Timer(const Duration(milliseconds: 500), () {
-            process?.kill(ProcessSignal.sigkill);
-          });
+          await _terminateTimedOutProcess(process!);
           return 124;
         },
       );
@@ -163,6 +203,22 @@ class ProcessRunner {
         process.kill(ProcessSignal.sigkill);
       }
     }
+  }
+
+  Future<void> _terminateTimedOutProcess(Process process) async {
+    if (_isWindows) {
+      try {
+        await _processTreeTerminator(process.pid);
+        return;
+      } catch (_) {
+        process.kill(ProcessSignal.sigkill);
+        return;
+      }
+    }
+    process.kill(ProcessSignal.sigterm);
+    Timer(const Duration(milliseconds: 500), () {
+      process.kill(ProcessSignal.sigkill);
+    });
   }
 
   Future<void> startDetached({
@@ -233,12 +289,15 @@ class ProcessRunner {
     String? profileId,
     String? workingDirectory,
     String? title,
+    Map<String, String>? environment,
   }) async {
     final target = resolveExecutable(executable);
     final launchDirectory = workingDirectory == null
         ? null
         : Directory(workingDirectory).absolute.path;
-    final terminalEnvironment = buildTerminalEnvironment(Platform.environment);
+    final inheritedEnvironment = Map<String, String>.of(Platform.environment);
+    if (environment != null) inheritedEnvironment.addAll(environment);
+    final terminalEnvironment = buildTerminalEnvironment(inheritedEnvironment);
     if (Platform.isLinux) {
       final candidates = await _linuxTerminalCandidates();
       for (final candidate in candidates) {
@@ -534,6 +593,7 @@ for ($attempt = 0; $attempt -lt 5; $attempt++) {
   }
   Start-Sleep -Milliseconds 250
 }
+
 ''';
     try {
       await Process.start(
@@ -625,5 +685,21 @@ for ($attempt = 0; $attempt -lt 5; $attempt++) {
         ? value
         : '"${value.replaceAll('"', '\\"')}"';
     return [executable, ...arguments].map(quote).join(' ');
+  }
+}
+
+Future<void> _terminateWindowsProcessTree(int pid) async {
+  final result = await Process.run(
+    ProcessRunner.resolveExecutable('taskkill'),
+    ['/PID', '$pid', '/T', '/F'],
+    runInShell: false,
+  ).timeout(const Duration(seconds: 5));
+  if (result.exitCode != 0) {
+    throw ProcessException(
+      'taskkill',
+      ['/PID', '$pid', '/T', '/F'],
+      'taskkill terminó con código ${result.exitCode}.',
+      result.exitCode,
+    );
   }
 }

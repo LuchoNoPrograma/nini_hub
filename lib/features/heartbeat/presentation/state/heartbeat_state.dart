@@ -1,4 +1,4 @@
-import 'package:multi_cli_ai/features/heartbeat/domain/heartbeat.dart';
+import 'package:nini_hub/features/heartbeat/domain/heartbeat.dart';
 
 final class HeartbeatOperationFailure {
   const HeartbeatOperationFailure({required this.cause, required this.message});

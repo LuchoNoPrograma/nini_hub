@@ -3,10 +3,10 @@ import 'dart:convert';
 import 'package:drift/drift.dart' hide isNotNull, isNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/features/heartbeat/data/drift_heartbeat_repository.dart';
-import 'package:multi_cli_ai/features/heartbeat/domain/heartbeat.dart';
-import 'package:multi_cli_ai/features/heartbeat/domain/heartbeat_policy.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/features/heartbeat/data/drift_heartbeat_repository.dart';
+import 'package:nini_hub/features/heartbeat/domain/heartbeat.dart';
+import 'package:nini_hub/features/heartbeat/domain/heartbeat_policy.dart';
 
 void main() {
   group('DriftHeartbeatRepository', () {

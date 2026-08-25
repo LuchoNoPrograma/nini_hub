@@ -4,15 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
-import 'package:multi_cli_ai/app/providers.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/core/theme/app_theme.dart';
-import 'package:multi_cli_ai/features/activity/application/activity_history.dart';
-import 'package:multi_cli_ai/features/activity/domain/activity_log.dart';
-import 'package:multi_cli_ai/features/activity/domain/activity_repository.dart';
-import 'package:multi_cli_ai/features/activity/presentation/activity_view.dart';
-import 'package:multi_cli_ai/features/activity/presentation/controllers/activity_controller.dart';
-import 'package:multi_cli_ai/features/activity/presentation/state/activity_state.dart';
+import 'package:nini_hub/app/providers.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/core/theme/app_theme.dart';
+import 'package:nini_hub/features/activity/application/activity_history.dart';
+import 'package:nini_hub/features/activity/domain/activity_log.dart';
+import 'package:nini_hub/features/activity/domain/activity_repository.dart';
+import 'package:nini_hub/features/activity/presentation/activity_view.dart';
+import 'package:nini_hub/features/activity/presentation/controllers/activity_controller.dart';
+import 'package:nini_hub/features/activity/presentation/state/activity_state.dart';
 
 void main() {
   setUpAll(() => initializeDateFormatting('es'));
@@ -27,7 +27,7 @@ void main() {
     final now = DateTime(2026, 8, 13, 10, 30);
     const longCommand =
         '/usr/bin/gnome-terminal --title=codex-ari '
-        '--working-directory=/home/nini/StudioProjects/multi_cli_ai -- '
+        '--working-directory=/home/nini/StudioProjects/nini_hub -- '
         '/home/nini/.local/bin/multi-cli launch codex/ari';
     await database.batch((batch) {
       batch.insertAll(database.commandLogs, [

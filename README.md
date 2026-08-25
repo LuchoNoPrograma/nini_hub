@@ -1,34 +1,34 @@
 <p align="center">
-  <img src="assets/branding/multicli-ai-icon.png" width="96" alt="Icono de MultiCLI AI">
+  <img src="assets/branding/nini-hub-icon.png" width="96" alt="Icono de Nini Hub">
 </p>
 
-# MultiCLI AI
+# Nini Hub
 
 Aplicación de escritorio local para organizar perfiles de CLI de IA, consultar
 su disponibilidad, administrar suscripciones y lanzar agentes en diferentes
 carpetas de trabajo desde un solo lugar.
 
-MultiCLI AI está pensado para quienes trabajan con varias cuentas de **Codex**
+Nini Hub está pensado para quienes trabajan con varias cuentas de **Codex**
 y **Claude Code**. Reúne los perfiles creados con Multi CLI, sus cuotas, sus
 renovaciones y los proyectos donde se utilizan, evitando saltar entre comandos,
 carpetas y anotaciones separadas.
 
 ## Basado en Multi CLI
 
-MultiCLI AI se construye sobre
+Nini Hub se construye sobre
 [multi-cli de Spielewoy](https://github.com/Spielewoy/multi-cli), el proyecto
 open source que proporciona la creación, separación y lanzamiento de perfiles
 para herramientas de programación con IA.
 
 Multi CLI administra los perfiles y su aislamiento a nivel de sistema;
-MultiCLI AI añade la experiencia visual para descubrirlos, organizarlos,
+Nini Hub añade la experiencia visual para descubrirlos, organizarlos,
 consultar cuotas compatibles, registrar suscripciones y abrir cada agente en el
 workspace adecuado. Ambos proyectos mantienen responsabilidades distintas y
 Multi CLI continúa siendo el motor de perfiles utilizado por esta aplicación.
 
 ## Vista previa
 
-![Panel principal de perfiles y cuotas de MultiCLI AI](assets/readme/home.webp)
+![Panel principal de perfiles y cuotas de Nini Hub](assets/readme/home.webp)
 
 ![Estadísticas de uso, calendario y consumo por cuenta](assets/readme/statistics.webp)
 
@@ -118,7 +118,7 @@ interfaz muestra por separado el resultado actual y la fecha del último éxito.
 
 ## Almacenamiento local
 
-MultiCLI AI utiliza **Drift + SQLite** para guardar:
+Nini Hub utiliza **Drift + SQLite** para guardar:
 
 - El índice de perfiles descubiertos.
 - Alias, favoritos y preferencias visuales.

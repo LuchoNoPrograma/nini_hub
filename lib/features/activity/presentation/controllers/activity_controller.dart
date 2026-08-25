@@ -1,6 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:multi_cli_ai/features/activity/application/activity_history.dart';
-import 'package:multi_cli_ai/features/activity/presentation/state/activity_state.dart';
+import 'package:nini_hub/features/activity/application/activity_history.dart';
+import 'package:nini_hub/features/activity/presentation/state/activity_state.dart';
 
 typedef ActivityControllerDependenciesBuilder =
     ActivityControllerDependencies Function(Ref<ActivityState> ref);

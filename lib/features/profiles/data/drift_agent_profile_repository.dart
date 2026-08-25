@@ -1,6 +1,6 @@
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/features/profiles/domain/agent_profile.dart';
-import 'package:multi_cli_ai/features/profiles/domain/agent_profile_repository.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/features/profiles/domain/agent_profile.dart';
+import 'package:nini_hub/features/profiles/domain/agent_profile_repository.dart';
 
 final class DriftAgentProfileRepository implements AgentProfileRepository {
   const DriftAgentProfileRepository(this._database);

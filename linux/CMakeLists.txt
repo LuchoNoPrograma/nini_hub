@@ -4,10 +4,10 @@ project(runner LANGUAGES CXX)
 
 # The name of the executable created for the application. Change this to change
 # the on-disk name of your application.
-set(BINARY_NAME "multi_cli_ai")
+set(BINARY_NAME "nini_hub")
 # The unique GTK application identifier for this application. See:
 # https://wiki.gnome.org/HowDoI/ChooseApplicationID
-set(APPLICATION_ID "com.nini.multi_cli_ai")
+set(APPLICATION_ID "com.nini.hub")
 
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.
@@ -100,10 +100,10 @@ install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}
 install(FILES "${FLUTTER_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
   COMPONENT Runtime)
 
-install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/runner/resources/multicli_ai.png"
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/runner/resources/nini_hub.png"
   DESTINATION "${INSTALL_BUNDLE_DATA_DIR}" COMPONENT Runtime)
 
-install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/packaging/com.nini.multi_cli_ai.desktop"
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/packaging/com.nini.hub.desktop"
   DESTINATION "${CMAKE_INSTALL_PREFIX}/share/applications" COMPONENT Runtime)
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/packaging/icons/"
   DESTINATION "${CMAKE_INSTALL_PREFIX}/share/icons" COMPONENT Runtime)

@@ -3,6 +3,7 @@ enum AccountUpdateProgress { displaySaved, detailsSaved }
 enum AccountDeviceAuthProgress {
   startRecorded,
   completionRecorded,
+  authenticationPersisted,
   profilesSynchronized,
   usageRefreshed,
 }

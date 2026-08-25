@@ -1,6 +1,6 @@
-import 'package:multi_cli_ai/core/process/process_runner.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account_device_auth.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile.dart';
+import 'package:nini_hub/core/process/process_runner.dart';
+import 'package:nini_hub/features/accounts/domain/account_device_auth.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
 
 final class ProcessAccountDeviceAuthActivityRecorder
     implements AccountDeviceAuthActivityRecorder {

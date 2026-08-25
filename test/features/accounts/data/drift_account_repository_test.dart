@@ -1,9 +1,9 @@
 import 'package:drift/drift.dart' hide isNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/features/accounts/data/drift_account_repository.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/features/accounts/data/drift_account_repository.dart';
+import 'package:nini_hub/features/accounts/domain/account.dart';
 
 void main() {
   late AppDatabase database;

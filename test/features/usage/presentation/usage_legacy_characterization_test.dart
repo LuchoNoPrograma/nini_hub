@@ -3,28 +3,28 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
-import 'package:multi_cli_ai/app/providers.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/core/theme/app_theme.dart';
-import 'package:multi_cli_ai/features/accounts/application/account_device_auth.dart';
-import 'package:multi_cli_ai/features/accounts/application/account_management.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account_device_auth.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account_repository.dart';
-import 'package:multi_cli_ai/features/accounts/presentation/controllers/accounts_controller.dart';
-import 'package:multi_cli_ai/features/activity/application/activity_history.dart';
-import 'package:multi_cli_ai/features/activity/domain/activity_log.dart';
-import 'package:multi_cli_ai/features/activity/domain/activity_repository.dart';
-import 'package:multi_cli_ai/features/activity/presentation/controllers/activity_controller.dart';
-import 'package:multi_cli_ai/features/dashboard/presentation/dashboard_shell.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile_ports.dart';
-import 'package:multi_cli_ai/features/usage/application/usage_calendar.dart';
-import 'package:multi_cli_ai/features/usage/application/usage_refresh.dart';
-import 'package:multi_cli_ai/features/usage/domain/usage.dart';
-import 'package:multi_cli_ai/features/usage/domain/usage_ports.dart';
-import 'package:multi_cli_ai/features/usage/presentation/calendar_view.dart';
-import 'package:multi_cli_ai/features/usage/presentation/controllers/usage_controller.dart';
+import 'package:nini_hub/app/providers.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/core/theme/app_theme.dart';
+import 'package:nini_hub/features/accounts/application/account_device_auth.dart';
+import 'package:nini_hub/features/accounts/application/account_management.dart';
+import 'package:nini_hub/features/accounts/domain/account.dart';
+import 'package:nini_hub/features/accounts/domain/account_device_auth.dart';
+import 'package:nini_hub/features/accounts/domain/account_repository.dart';
+import 'package:nini_hub/features/accounts/presentation/controllers/accounts_controller.dart';
+import 'package:nini_hub/features/activity/application/activity_history.dart';
+import 'package:nini_hub/features/activity/domain/activity_log.dart';
+import 'package:nini_hub/features/activity/domain/activity_repository.dart';
+import 'package:nini_hub/features/activity/presentation/controllers/activity_controller.dart';
+import 'package:nini_hub/features/dashboard/presentation/dashboard_shell.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
+import 'package:nini_hub/features/profiles/domain/profile_ports.dart';
+import 'package:nini_hub/features/usage/application/usage_calendar.dart';
+import 'package:nini_hub/features/usage/application/usage_refresh.dart';
+import 'package:nini_hub/features/usage/domain/usage.dart';
+import 'package:nini_hub/features/usage/domain/usage_ports.dart';
+import 'package:nini_hub/features/usage/presentation/calendar_view.dart';
+import 'package:nini_hub/features/usage/presentation/controllers/usage_controller.dart';
 
 void main() {
   setUpAll(() => initializeDateFormatting('es'));
@@ -231,6 +231,7 @@ final class _PresentationFixture {
       ),
       completeDeviceAuth: CompleteAccountDeviceAuth(
         activity: authActivity,
+        authenticationStore: const _UnusedAccountAuthenticationStore(),
         discovery: discovery,
         accountRepository: accountRepository,
         monitorHeartbeatProfiles: (_) {},
@@ -448,6 +449,14 @@ final class _UnusedDeviceAuthActivity
     Profile profile, {
     required bool success,
   }) async {}
+}
+
+final class _UnusedAccountAuthenticationStore
+    implements AccountAuthenticationStore {
+  const _UnusedAccountAuthenticationStore();
+
+  @override
+  Future<void> markAuthenticated(String profileId) async {}
 }
 
 Profile _profile(String id) => Profile(

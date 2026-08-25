@@ -1,18 +1,13 @@
-# Arquitectura de MultiCLI AI
+# Arquitectura de Nini Hub
 
-## Contenido
+## Estado y objetivo
 
-- Objetivo y dependencias
-- Estructura y responsabilidades
-- Flujo entre capas
-- Estado reactivo
-- Persistencia e integraciones
-- Contratos y errores
-- Rendimiento y migracion
-
-## Objetivo y dependencias
-
-MultiCLI AI adopta una Clean Architecture ligera por feature para Flutter Desktop. Debe aislar Drift, filesystem, procesos, terminales y proveedores externos sin crear artefactos ceremoniales.
+Nini Hub adopta una Clean Architecture ligera por feature para Flutter Desktop.
+El source heredado ya separa la mayor parte de Domain, Application, Data,
+Presentation y App. La identidad de producto, paquete y ejecutables ya es Nini
+Hub; las integraciones `MultiCli*` y el nombre logico SQLite `multicli_ai`
+permanecen como contratos legacy preservados hasta su reemplazo verificado por
+`nini-agents` y la migracion unica de datos.
 
 ```text
 Flutter view/widget/dialog
@@ -30,171 +25,184 @@ domain entity/policy/port/failure
 data repository/gateway/mapper
           |
           v
-Drift | filesystem | Process | terminal | Multi CLI | Codex JSON-RPC
+Drift | filesystem | Process | terminal | nini-agents | Codex JSON-RPC
 ```
 
 | Capa | Puede depender de | No puede depender de |
 |---|---|---|
 | `domain` | Dart puro | Flutter, Riverpod, Drift, `dart:io`, plugins |
-| `application` | `domain` | Presentation, Drift, gateways concretos |
-| `data` | `domain`, infraestructura | Presentation, controllers |
-| `presentation` | `application`, modelos visibles de dominio | Drift, `data`, filesystem, procesos |
-| `app` | Todas, solo para composicion | Reglas y consultas directas |
+| `application` | Domain | Presentation, Drift, gateways concretos |
+| `data` | Domain e infraestructura | Presentation, controllers |
+| `presentation` | Application y modelos visibles de Domain | Data, Drift, filesystem, procesos |
+| `app` | Todas, solo para composicion | Reglas, queries o parsing de proveedores |
 
-`core` contiene solo capacidades realmente compartidas, no codigo sin propietario.
+`core` contiene solo capacidades compartidas con ownership real. Durante la
+transicion, `core/database` es infraestructura Data compartida y solo puede ser
+importada por Data y App.
 
-Durante la transicion, `core/database` se considera infraestructura Data compartida. Puede ser importada por implementaciones Data y por el composition root, pero nunca por Domain o Presentation. Esta excepcion evita mover toda la base legacy como efecto lateral de una feature.
-
-## Estructura y responsabilidades
+## Estructura
 
 ```text
 lib/
   app/
     providers.dart
-    multi_cli_ai_app.dart
     shell/
   core/
     database/
+    process/
     platform/
     errors/
-    utils/
   features/{feature}/
     domain/
-      entities/
-      repositories/
-      services/
-      failures/
     application/
-      use_cases/
-      commands/
     data/
-      datasources/
-      repositories/
-      gateways/
-      mappers/
     presentation/
-      controllers/
-      state/
-      views/
-      widgets/
-      dialogs/
 ```
 
-Crear solo los folders y archivos requeridos. Una feature simple no necesita reproducir todo el arbol.
+Crear solo carpetas y artefactos requeridos por una responsabilidad real.
+
+## Responsabilidades
 
 ### Domain
 
-- Modelar perfil, cuenta, workspace, suscripcion, cuota y actividad.
-- Mantener invariantes y decisiones independientes de tecnologia.
-- Definir puertos y fallos esperables.
-- No contener rows, companions, `BuildContext`, `AsyncValue` o `Platform`.
+- Modela perfiles, cuentas, workspaces, suscripciones, cuotas, actividad y
+  heartbeat sin tecnologia.
+- Mantiene invariantes, policies, IDs y fallos esperables.
+- Define puertos para persistencia e integraciones reales.
+- No contiene rows, companions, `BuildContext`, `AsyncValue`, JSON-RPC o
+  `Platform`.
 
 ### Application
 
-- Exponer acciones: crear perfil, refrescar uso, lanzar agente o guardar suscripcion.
-- Coordinar entidades, puertos, transacciones logicas y orden de efectos.
-- Recibir commands pequenos o tipos del dominio y devolver resultados tipados.
-- No crear un caso de uso para un getter o calculo trivial.
+- Expone acciones y coordina orden de efectos mediante puertos.
+- Recibe commands pequenos y devuelve resultados o fallos tipados.
+- Modela aplicacion parcial cuando un efecto externo ya ocurrio y no puede
+  revertirse.
+- No crea casos de uso para getters o calculos triviales.
 
 ### Data
 
-- Implementar puertos, queries Drift, mapeos y migraciones.
-- Adaptar filesystem, Multi CLI, Codex app-server, procesos y terminales.
-- Traducir errores tecnicos a fallos del contrato.
-- Mantener secretos y salidas sensibles fuera de contratos visibles.
+- Implementa repositories, queries Drift, mappers y migraciones.
+- Encapsula filesystem, procesos, terminales, `nini-agents` y Codex app-server.
+- Traduce errores tecnicos a fallos del contrato.
+- Mantiene secretos y salida sensible fuera de contratos visibles.
 
 ### Presentation
 
-- Renderizar UI y recoger acciones.
-- Mantener view state inmutable por feature.
-- Invocar casos de uso mediante Riverpod.
-- Correlacionar loading, progreso, error y cancelacion.
-- Traducir fallos tipados a mensajes y acciones.
+- Renderiza UI y recoge acciones desktop.
+- Mantiene estado inmutable y operaciones focalizadas por feature.
+- Invoca Application mediante Riverpod.
+- Correlaciona loading, progreso, error, retry y dispose.
 
 ### App
 
-- Conectar puertos con implementaciones en providers.
-- Configurar `ProviderScope`, tema, navegacion, shell y ciclo de vida.
-- No acumular todos los dominios en un controller global.
+- Conecta puertos, adaptadores, casos de uso y controllers.
+- Configura `ProviderScope`, ciclo de vida, tema, navegacion y shell.
+- No acumula reglas ni vuelve a crear un controller global.
 
-## Flujo entre capas
+## Flujos ancla
+
+### Lanzar agente
 
 ```text
 LaunchAgentDialog
-  -> LaunchAgentController.launch(profileId, workspaceId)
-  -> LaunchAgent.execute(...)
-  -> ProfileRepository.findById(...)
-  -> WorkspaceRepository.findById(...)
-  -> AgentLauncher.launch(...)
-  -> MultiCliAgentLauncher
-  -> ProcessRunner
+  -> WorkspaceController
+  -> LaunchAgent
+  -> AgentProfileRepository + WorkspaceRepository
+  -> AgentLauncher
+  -> adapter Data de nini-agents
+  -> terminal/proceso desktop
 ```
 
-El caso de uso valida disponibilidad, perfil y workspace. El adaptador decide ejecutable, argumentos y terminal. Presentation solo muestra progreso o fallo.
+Application valida perfil y workspace. El launcher ocurre antes de registrar la
+apertura y guardar la seleccion. Data decide ejecutable, argumentos, environment
+y terminal; Presentation solo muestra estado o fallo.
 
-## Estado reactivo
+### Actualizar uso
 
 ```text
-AccountsController   -> AccountsState
-UsageController      -> UsageState
-WorkspacesController -> WorkspacesState
-ActivityController   -> ActivityState
-SettingsController   -> SettingsState
+UsageController
+  -> RefreshProfileUsage / RefreshAllUsage
+  -> UsageProvider
+  -> transaccion SQLite
+  -> Activity
+  -> Heartbeat
+  -> sincronizacion visual acotada
 ```
 
-- Observar providers focalizados y usar estado inmutable.
-- Usar streams Drift para lecturas reactivas.
-- Asociar cada respuesta asincrona con la solicitud vigente.
-- No usar `reload()` global como sincronizacion ordinaria.
-- No reintroducir una fachada o controller global para coordinar dominios migrados.
+Conservar el orden observable y evitar reload global. Una coordinacion
+transversal vive en la feature propietaria de la accion visible.
 
-## Persistencia e integraciones
+### Startup
+
+```text
+Settings gate
+  -> discovery
+  -> Activity
+  -> calendario
+  -> monitor Heartbeat
+  -> Accounts
+```
+
+El composition root conserva este orden hasta que una fraccion aprobada lo
+caracterice y sustituya.
+
+## Persistencia
 
 - Rows y companions permanecen en Data y se mapean a entidades.
-- Agrupar consultas, seleccionar solo datos necesarios y usar transacciones.
-- Incrementar `schemaVersion` y definir `onUpgrade` compatible.
-- Separar ejecutable y argumentos; validar rutas y working directory.
-- Controlar timeout, cancelacion, exit code, stdout/stderr y redaccion.
-- Encapsular Linux y Windows tras puertos comunes.
-- Modelar capacidades de proveedor y mantener JSON-RPC dentro del adaptador.
+- SQLite filtra, ordena, agrega y limita; evitar queries por fila y tablas
+  completas para contar.
+- Mantener schema, IDs, nulabilidad, dinero y UTC durante el cambio de identidad.
+- Un cambio de ubicacion no implica cambio de schema.
+- La migracion legacy a Nini Hub debe ser unica, idempotente, consistente con
+  WAL y reversible mediante copia conservada.
+- No abrir simultaneamente el mismo archivo fisico desde la aplicacion vieja y
+  la nueva.
 
-## Contratos y errores
+## Integracion con Nini Agents
 
-- Preferir IDs y value objects estables.
-- Mantener dinero en unidades menores y fechas UTC.
-- Distinguir ausente, `null`, vacio y default.
-- Usar fallos tipados para condiciones esperables.
-- No exponer excepciones tecnicas como contrato UI.
-- Comunicar features mediante casos de uso y puertos, no controllers ajenos ni event bus global.
-- Ubicar un flujo transversal en Application de la feature propietaria de la accion visible. Esa feature consume puertos de los otros dominios.
-- Mantener archivos, clases, metodos y estados tecnicos en ingles; reservar espanol para textos visibles.
+`nini-agents` es un proceso externo y debe permanecer tras puertos de Domain y
+adaptadores Data.
 
-## Rendimiento y migracion
+- Usar ejecutable y argumentos separados, sin shell intermedio por defecto.
+- Propagar `MULTICLI_HOME` cuando el setting de perfiles lo requiera.
+- Consumir JSON versionado para consultas y mutaciones machine-safe.
+- Exigir stdout limpio para transportes como `codex app-server --stdio`.
+- Controlar exit code, stderr, timeout, cancelacion, working directory y
+  redaccion.
+- No parsear mensajes humanos como contrato estable.
+- No asumir que una capacidad planeada existe; comprobar docs, implementacion y
+  pruebas del HEAD observado.
 
-- Evitar queries por perfil dentro de loops y cargas completas para ultimo registro o conteo.
-- Filtrar, ordenar, agregar y limitar en SQLite.
-- No reconstruir calendario, cuentas, logs y workspaces tras una operacion local.
-- Paginar o limitar historiales crecientes.
+## Estado reactivo y concurrencia
 
-Migrar incrementalmente, una fraccion aprobada a la vez. Los owners de feature
-reemplazan fachadas compartidas sólo después de caracterizar sus consumidores y
-el composition root conecta las implementaciones concretas. Las excepciones de
-imports existentes se retiran o se congelan en una baseline explícita antes de
-activar un guard automático.
+- Un controller/notifier y un estado inmutable por feature.
+- Streams Drift para lecturas reactivas cuando aporten estado focalizado.
+- Cada respuesta asincrona debe corresponder a la solicitud vigente.
+- Serializar operaciones externas cuando el contrato no admita concurrencia.
+- Disable/dispose cancela timers y pendientes segun contrato, sin writes tardios
+  no autorizados.
+- No reintroducir `reload()` global como sincronizacion ordinaria.
 
-Cada corte debe conservar comportamiento y datos.
+## Compatibilidad desktop
+
+- Linux y Windows son plataformas de primera clase.
+- La UI debe soportar teclado, mouse, resize, constraints y scroll desde 900x600.
+- Las rutas se normalizan segun plataforma tras un adapter, no en Domain o UI.
+- Instaladores, terminales, application IDs y directorios de soporte se validan
+  por plataforma.
+- Evidencia Linux no demuestra Windows y viceversa.
 
 ## Criterios de revision
 
-- Domain puede probarse sin Flutter, Drift ni filesystem.
-- Presentation no importa Data, database o clientes concretos.
+- Domain prueba sin Flutter, Drift, filesystem ni procesos.
+- Presentation no importa Data, database o gateways concretos.
 - Data no conoce controllers o widgets.
+- App solo compone.
 - El caso de uso expresa accion y orden de efectos.
-- Rows Drift no cruzan el limite de Data.
-- El estado se actualiza sin recargas globales innecesarias.
-- Procesos, rutas, secretos, timeouts y plataforma estan controlados.
-- Formato, analisis y pruebas focalizadas cubren el alcance modificado.
-- `test/architecture/import_boundaries_test.dart` verifica automáticamente los
-  límites de imports/exports en `lib/features`; su baseline estricta contiene
-  únicamente las excepciones Presentation -> App existentes y debe reducirse
-  cuando una de ellas se retire.
+- Rows Drift no cruzan Data.
+- No aparecen N+1, cargas completas, reload global ni respuestas obsoletas.
+- Procesos, rutas, secretos, timeout y plataforma quedan controlados.
+- Formato, analisis y pruebas focalizadas cubren el delta.
+- `test/architecture/import_boundaries_test.dart` mantiene los limites y su
+  baseline explicita durante la transicion.

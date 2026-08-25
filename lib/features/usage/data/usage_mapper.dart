@@ -1,5 +1,5 @@
-import 'package:multi_cli_ai/features/usage/domain/usage.dart';
-import 'package:multi_cli_ai/providers/codex/codex_app_server_models.dart';
+import 'package:nini_hub/features/usage/domain/usage.dart';
+import 'package:nini_hub/providers/codex/codex_app_server_models.dart';
 
 abstract final class UsageMapper {
   static UsageSnapshot fromCodex(CodexRefreshResult result) => UsageSnapshot(

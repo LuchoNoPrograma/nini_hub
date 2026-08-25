@@ -1,4 +1,4 @@
-import 'package:multi_cli_ai/features/heartbeat/domain/heartbeat_ports.dart';
+import 'package:nini_hub/features/heartbeat/domain/heartbeat_ports.dart';
 
 final class SystemHeartbeatClock implements HeartbeatClock {
   const SystemHeartbeatClock();

@@ -1,6 +1,6 @@
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/features/profiles/data/profile_discovery_service.dart';
-import 'package:multi_cli_ai/features/settings/domain/settings_ports.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/features/profiles/data/profile_discovery_service.dart';
+import 'package:nini_hub/features/settings/domain/settings_ports.dart';
 
 typedef RequestTimeoutSetter = void Function(int seconds);
 typedef WeeklyKeepAliveEnabledSetter = void Function(bool enabled);

@@ -1,4 +1,4 @@
-import 'package:multi_cli_ai/features/workspaces/domain/workspace.dart';
+import 'package:nini_hub/features/workspaces/domain/workspace.dart';
 
 abstract interface class WorkspaceRepository {
   Future<List<Workspace>> loadAll();

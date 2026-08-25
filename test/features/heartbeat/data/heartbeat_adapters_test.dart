@@ -1,19 +1,99 @@
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/core/process/process_runner.dart';
-import 'package:multi_cli_ai/providers/codex/codex_app_server_models.dart';
-import 'package:multi_cli_ai/features/heartbeat/data/codex_heartbeat_quota_probe.dart';
-import 'package:multi_cli_ai/features/heartbeat/data/dart_heartbeat_runtime.dart';
-import 'package:multi_cli_ai/features/heartbeat/data/process_heartbeat_activity_recorder.dart';
-import 'package:multi_cli_ai/features/heartbeat/data/process_heartbeat_command_gateway.dart';
-import 'package:multi_cli_ai/features/heartbeat/domain/heartbeat.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile.dart';
-import 'package:multi_cli_ai/features/usage/domain/usage.dart';
-import 'package:multi_cli_ai/providers/codex/codex_app_server_client.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/core/process/process_runner.dart';
+import 'package:nini_hub/providers/codex/codex_app_server_models.dart';
+import 'package:nini_hub/features/heartbeat/data/codex_heartbeat_quota_probe.dart';
+import 'package:nini_hub/features/heartbeat/data/dart_heartbeat_runtime.dart';
+import 'package:nini_hub/features/heartbeat/data/process_heartbeat_activity_recorder.dart';
+import 'package:nini_hub/features/heartbeat/data/process_heartbeat_command_gateway.dart';
+import 'package:nini_hub/features/heartbeat/domain/heartbeat.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
+import 'package:nini_hub/features/usage/domain/usage.dart';
+import 'package:nini_hub/providers/codex/codex_app_server_client.dart';
+import 'package:path/path.dart' as p;
 
 void main() {
-  test('command gateway preserves the safe legacy process contract', () async {
+  test(
+    'managed command uses Nini Agents with the safe process contract',
+    () async {
+      final database = AppDatabase(NativeDatabase.memory());
+      addTearDown(database.close);
+      final runner = _RecordingProcessRunner(database);
+      final gateway = ProcessHeartbeatCommandGateway(
+        runner,
+        temporaryDirectory: () => '/safe/temp',
+      );
+
+      final profile = _profile();
+      final result = await gateway.execute(
+        profile: profile,
+        prompt: 'heartbeat prompt',
+      );
+
+      expect(result.succeeded, isTrue);
+      expect(runner.calls, hasLength(1));
+      final call = runner.calls.single;
+      expect(call.executable, 'nini-agents');
+      expect(call.arguments, [
+        'exec',
+        'codex/primary',
+        '--',
+        'exec',
+        '--ephemeral',
+        '--ignore-user-config',
+        '--ignore-rules',
+        '--skip-git-repo-check',
+        '--sandbox',
+        'read-only',
+        '--color',
+        'never',
+        '-C',
+        '/safe/temp',
+        '-c',
+        'model_reasoning_effort="low"',
+        'heartbeat prompt',
+      ]);
+      expect(call.summary, 'Iniciar ventana de Primary');
+      expect(call.profileId, 'primary');
+      expect(call.workingDirectory, '/safe/temp');
+      expect(call.environment, {
+        'MULTICLI_HOME': p.dirname(
+          p.dirname(p.normalize(p.absolute(profile.profileHome))),
+        ),
+        'NO_COLOR': '1',
+      });
+      expect(call.timeout, const Duration(seconds: 90));
+      expect(call.stdinText, isNull);
+    },
+  );
+
+  test('principal command stays on native Codex with CODEX_HOME', () async {
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final runner = _RecordingProcessRunner(database);
+    final gateway = ProcessHeartbeatCommandGateway(
+      runner,
+      temporaryDirectory: () => '/safe/temp',
+    );
+    final profile = _profile(
+      source: ProfileSource.defaultProfile,
+      profileHome: '/profiles/.codex',
+    );
+
+    final result = await gateway.execute(profile: profile, prompt: 'prompt');
+
+    expect(result.succeeded, isTrue);
+    final call = runner.calls.single;
+    expect(call.executable, 'codex');
+    expect(call.arguments.first, 'exec');
+    expect(call.environment, {
+      'CODEX_HOME': p.normalize(p.absolute(profile.profileHome)),
+      'NO_COLOR': '1',
+    });
+  });
+
+  test('managed command rejects a profile home for another tool', () async {
     final database = AppDatabase(NativeDatabase.memory());
     addTearDown(database.close);
     final runner = _RecordingProcessRunner(database);
@@ -23,39 +103,13 @@ void main() {
     );
 
     final result = await gateway.execute(
-      profile: _profile(),
-      prompt: 'heartbeat prompt',
+      profile: _profile(profileHome: '/profiles/not-codex/primary'),
+      prompt: 'prompt',
     );
 
-    expect(result.succeeded, isTrue);
-    expect(runner.calls, hasLength(1));
-    final call = runner.calls.single;
-    expect(call.executable, 'codex');
-    expect(call.arguments, [
-      'exec',
-      '--ephemeral',
-      '--ignore-user-config',
-      '--ignore-rules',
-      '--skip-git-repo-check',
-      '--sandbox',
-      'read-only',
-      '--color',
-      'never',
-      '-C',
-      '/safe/temp',
-      '-c',
-      'model_reasoning_effort="low"',
-      'heartbeat prompt',
-    ]);
-    expect(call.summary, 'Iniciar ventana de Primary');
-    expect(call.profileId, 'primary');
-    expect(call.workingDirectory, '/safe/temp');
-    expect(call.environment, {
-      'CODEX_HOME': '/profiles/primary',
-      'NO_COLOR': '1',
-    });
-    expect(call.timeout, const Duration(seconds: 90));
-    expect(call.stdinText, isNull);
+    expect(result.succeeded, isFalse);
+    expect(result.failureMessage, contains('no coincide con su herramienta'));
+    expect(runner.calls, isEmpty);
   });
 
   test('command gateway translates and redacts process failures', () async {
@@ -101,7 +155,7 @@ void main() {
     final snapshot = await probe.probe(_profile());
 
     expect(requestedTimeout, const Duration(seconds: 30));
-    expect(client.profileHomes, ['/profiles/primary']);
+    expect(client.profileHomes, ['/profiles/codex/primary']);
     expect(snapshot.status, UsageRefreshStatus.partial);
     expect(snapshot.accountEmail, 'owner@example.com');
   });
@@ -215,8 +269,8 @@ final class _RecordingCodexClient extends CodexAppServerClient {
   final List<String> profileHomes = [];
 
   @override
-  Future<CodexRefreshResult> refresh(String profileHome) async {
-    profileHomes.add(profileHome);
+  Future<CodexRefreshResult> refresh(Profile profile) async {
+    profileHomes.add(profile.profileHome);
     return result;
   }
 }
@@ -233,14 +287,19 @@ SafeProcessResult _processResult({
   completedAt: DateTime.utc(2026, 8, 23, 10, 0, 1),
 );
 
-Profile _profile() => const Profile(
+Profile _profile({
+  ProfileSource source = ProfileSource.multiCli,
+  String profileHome = '/profiles/codex/primary',
+}) => Profile(
   id: 'primary',
   toolKey: 'codex',
   profileName: 'primary',
   displayName: 'Primary',
-  profileHome: '/profiles/primary',
-  source: ProfileSource.multiCli,
-  kind: ProfileKind.shared,
+  profileHome: profileHome,
+  source: source,
+  kind: source == ProfileSource.defaultProfile
+      ? ProfileKind.base
+      : ProfileKind.shared,
   hasAuthFile: true,
   isAvailable: true,
   isFavorite: false,

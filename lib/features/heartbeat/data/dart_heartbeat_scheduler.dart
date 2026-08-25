@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:collection';
 
-import 'package:multi_cli_ai/features/heartbeat/data/dart_heartbeat_runtime.dart';
-import 'package:multi_cli_ai/features/heartbeat/domain/heartbeat_ports.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile.dart';
+import 'package:nini_hub/features/heartbeat/data/dart_heartbeat_runtime.dart';
+import 'package:nini_hub/features/heartbeat/domain/heartbeat_ports.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
 
 typedef HeartbeatScheduledProbe = Future<void> Function(String profileId);
 typedef HeartbeatBackgroundFailureHandler =

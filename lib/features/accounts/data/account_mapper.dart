@@ -1,6 +1,6 @@
-import 'package:multi_cli_ai/core/database/app_database.dart' as db;
-import 'package:multi_cli_ai/features/accounts/domain/account.dart';
-import 'package:multi_cli_ai/features/profiles/data/profile_mapper.dart';
+import 'package:nini_hub/core/database/app_database.dart' as db;
+import 'package:nini_hub/features/accounts/domain/account.dart';
+import 'package:nini_hub/features/profiles/data/profile_mapper.dart';
 
 abstract final class AccountMapper {
   static Account fromRows({

@@ -1,12 +1,12 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/features/profiles/domain/agent_profile.dart';
-import 'package:multi_cli_ai/features/profiles/domain/agent_profile_repository.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile_failure.dart';
-import 'package:multi_cli_ai/features/workspaces/application/launch_agent.dart';
-import 'package:multi_cli_ai/features/workspaces/domain/agent_launcher.dart';
-import 'package:multi_cli_ai/features/workspaces/domain/workspace.dart';
-import 'package:multi_cli_ai/features/workspaces/domain/workspace_failure.dart';
-import 'package:multi_cli_ai/features/workspaces/domain/workspace_repository.dart';
+import 'package:nini_hub/features/profiles/domain/agent_profile.dart';
+import 'package:nini_hub/features/profiles/domain/agent_profile_repository.dart';
+import 'package:nini_hub/features/profiles/domain/profile_failure.dart';
+import 'package:nini_hub/features/workspaces/application/launch_agent.dart';
+import 'package:nini_hub/features/workspaces/domain/agent_launcher.dart';
+import 'package:nini_hub/features/workspaces/domain/workspace.dart';
+import 'package:nini_hub/features/workspaces/domain/workspace_failure.dart';
+import 'package:nini_hub/features/workspaces/domain/workspace_repository.dart';
 
 void main() {
   test('launches before recording usage and persisting selection', () async {

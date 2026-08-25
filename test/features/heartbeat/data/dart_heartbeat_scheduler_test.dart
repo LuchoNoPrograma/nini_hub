@@ -1,9 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/features/heartbeat/data/dart_heartbeat_scheduler.dart';
-import 'package:multi_cli_ai/features/heartbeat/domain/heartbeat_ports.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile.dart';
+import 'package:nini_hub/features/heartbeat/data/dart_heartbeat_scheduler.dart';
+import 'package:nini_hub/features/heartbeat/domain/heartbeat_ports.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
 
 void main() {
   test('schedules one replaceable UTC timer per profile', () async {

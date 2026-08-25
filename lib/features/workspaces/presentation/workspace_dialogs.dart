@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:multi_cli_ai/features/workspaces/domain/workspace.dart';
-import 'package:multi_cli_ai/features/workspaces/presentation/controllers/workspace_controller.dart';
+import 'package:nini_hub/features/workspaces/domain/workspace.dart';
+import 'package:nini_hub/features/workspaces/presentation/controllers/workspace_controller.dart';
 
 Future<void> renameWorkspace(
   BuildContext context,

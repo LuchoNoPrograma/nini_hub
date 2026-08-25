@@ -2,10 +2,10 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/features/heartbeat/domain/heartbeat.dart';
-import 'package:multi_cli_ai/features/heartbeat/domain/heartbeat_failure.dart';
-import 'package:multi_cli_ai/features/heartbeat/presentation/controllers/heartbeat_controller.dart';
-import 'package:multi_cli_ai/features/heartbeat/presentation/state/heartbeat_state.dart';
+import 'package:nini_hub/features/heartbeat/domain/heartbeat.dart';
+import 'package:nini_hub/features/heartbeat/domain/heartbeat_failure.dart';
+import 'package:nini_hub/features/heartbeat/presentation/controllers/heartbeat_controller.dart';
+import 'package:nini_hub/features/heartbeat/presentation/state/heartbeat_state.dart';
 
 void main() {
   late _Fixture fixture;

@@ -3,10 +3,10 @@ import 'dart:io';
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/features/workspaces/data/drift_workspace_repository.dart';
-import 'package:multi_cli_ai/features/workspaces/data/drift_workspace_selection_store.dart';
-import 'package:multi_cli_ai/features/workspaces/domain/workspace_failure.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/features/workspaces/data/drift_workspace_repository.dart';
+import 'package:nini_hub/features/workspaces/data/drift_workspace_selection_store.dart';
+import 'package:nini_hub/features/workspaces/domain/workspace_failure.dart';
 
 void main() {
   late AppDatabase database;

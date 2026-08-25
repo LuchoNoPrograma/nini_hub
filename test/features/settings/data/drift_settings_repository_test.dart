@@ -1,8 +1,8 @@
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/features/settings/data/drift_settings_repository.dart';
-import 'package:multi_cli_ai/features/settings/domain/app_preferences.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/features/settings/data/drift_settings_repository.dart';
+import 'package:nini_hub/features/settings/domain/app_preferences.dart';
 
 void main() {
   late AppDatabase database;

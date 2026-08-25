@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:multi_cli_ai/features/profiles/application/profile_management.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile_failure.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile_provider.dart';
-import 'package:multi_cli_ai/features/profiles/presentation/controllers/profiles_controller.dart';
-import 'package:multi_cli_ai/features/profiles/presentation/profile_provider_icon.dart';
-import 'package:multi_cli_ai/features/profiles/presentation/state/profiles_state.dart';
+import 'package:nini_hub/features/profiles/application/profile_management.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
+import 'package:nini_hub/features/profiles/domain/profile_failure.dart';
+import 'package:nini_hub/features/profiles/domain/profile_provider.dart';
+import 'package:nini_hub/features/profiles/presentation/controllers/profiles_controller.dart';
+import 'package:nini_hub/features/profiles/presentation/profile_provider_icon.dart';
+import 'package:nini_hub/features/profiles/presentation/state/profiles_state.dart';
 
 typedef ProfilesStateReader = ProfilesState Function();
 

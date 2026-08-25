@@ -1,9 +1,9 @@
 import 'package:drift/drift.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/features/accounts/data/account_mapper.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account.dart';
-import 'package:multi_cli_ai/features/accounts/domain/account_repository.dart';
-import 'package:multi_cli_ai/features/profiles/domain/profile_provider.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/features/accounts/data/account_mapper.dart';
+import 'package:nini_hub/features/accounts/domain/account.dart';
+import 'package:nini_hub/features/accounts/domain/account_repository.dart';
+import 'package:nini_hub/features/profiles/domain/profile_provider.dart';
 
 final class DriftAccountRepository implements AccountRepository {
   DriftAccountRepository(this.database);

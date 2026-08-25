@@ -1,8 +1,8 @@
 import 'package:drift/drift.dart' hide isNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:multi_cli_ai/core/database/app_database.dart';
-import 'package:multi_cli_ai/features/usage/data/drift_usage_calendar_repository.dart';
+import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/features/usage/data/drift_usage_calendar_repository.dart';
 
 void main() {
   late _SelectCounter selects;
