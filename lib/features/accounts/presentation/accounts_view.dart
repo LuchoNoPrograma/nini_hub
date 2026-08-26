@@ -982,7 +982,9 @@ class _AccountCardState extends State<AccountCard> {
                     menuPadding: const EdgeInsets.symmetric(vertical: 4),
                     constraints: const BoxConstraints.tightFor(width: 196),
                     onSelected: (value) {
-                      if (value == 'rename') {
+                      if (value == 'device-auth') {
+                        unawaited(widget.onDeviceAuth(account));
+                      } else if (value == 'rename') {
                         unawaited(widget.onRenameProfile(account));
                       } else if (value == 'delete') {
                         unawaited(widget.onDeleteProfile(account));
@@ -991,6 +993,30 @@ class _AccountCardState extends State<AccountCard> {
                       }
                     },
                     itemBuilder: (context) => [
+                      if (!account.isDeactivated &&
+                          account.profile.hasAuthFile &&
+                          provider.supportsDeviceAuth)
+                        PopupMenuItem(
+                          value: 'device-auth',
+                          enabled:
+                              account.profile.isAvailable &&
+                              !widget.accountBusy,
+                          height: 38,
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: const Row(
+                            children: [
+                              Icon(Icons.link, size: 15),
+                              SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Revincular cuenta',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       if (account.profile.toolKey == 'codex')
                         PopupMenuItem(
                           value: 'heartbeat',

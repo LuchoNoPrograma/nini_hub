@@ -217,17 +217,6 @@ class CodexAppServerClient {
       );
       rpc = startedRpc;
       await startedRpc.initialize();
-      final existing = await startedRpc.request('account/read', const {
-        'refreshToken': false,
-      });
-      if (_hasAccount(existing)) {
-        throw const CodexAppServerFailure(
-          kind: CodexAppServerFailureKind.rpc,
-          code: 'AUTH_ALREADY_LINKED',
-          message:
-              'Este perfil ya tiene una sesión válida. Desvincúlalo en Codex antes de iniciar otro acceso.',
-        );
-      }
       final result = await startedRpc.request('account/login/start', const {
         'type': 'chatgptDeviceCode',
       });

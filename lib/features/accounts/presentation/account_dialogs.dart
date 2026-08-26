@@ -1039,9 +1039,12 @@ class _DeviceAuthDialogState extends State<_DeviceAuthDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final action = widget.account.profile.hasAuthFile
+        ? 'Revincular'
+        : 'Vincular';
     return AlertDialog(
       scrollable: true,
-      title: Text('Vincular ${widget.account.profile.displayName}'),
+      title: Text('$action ${widget.account.profile.displayName}'),
       content: SizedBox(
         width: 500,
         child: Column(

@@ -954,6 +954,7 @@ void main() {
       lastSuccessfulWindows: const [],
       resetCredits: null,
     );
+    var relinkCalls = 0;
 
     await tester.pumpWidget(
       MaterialApp(
@@ -972,7 +973,7 @@ void main() {
                 onEditAccount: () async {},
                 onHeartbeat: (_) async {},
                 onRefresh: (_) async {},
-                onDeviceAuth: (_) async {},
+                onDeviceAuth: (_) async => relinkCalls++,
                 onRenameProfile: (_) async {},
                 onDeleteProfile: (_) async {},
                 onLaunchAgent: (_) {},
@@ -989,6 +990,14 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('REQUIERE ACCESO'), findsNothing);
+    expect(find.byTooltip('Vincular cuenta'), findsNothing);
+
+    await tester.tap(find.byTooltip('Más acciones'));
+    await tester.pumpAndSettle();
+    expect(find.text('Revincular cuenta'), findsOneWidget);
+    await tester.tap(find.text('Revincular cuenta'));
+    await tester.pump();
+    expect(relinkCalls, 1);
     expect(tester.takeException(), isNull);
   });
 

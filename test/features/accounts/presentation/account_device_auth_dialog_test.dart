@@ -84,6 +84,43 @@ void main() {
     expect(session.cancelCalls, 1);
     expect(find.text('Vincular Account'), findsNothing);
   });
+
+  testWidgets('names a new Device Auth flow as relinking when auth exists', (
+    tester,
+  ) async {
+    final session = _ControlledSession();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.dark('cyan'),
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: FilledButton(
+              onPressed: () => unawaited(
+                showDeviceAuthDialog(
+                  context,
+                  _account(hasAuthFile: true),
+                  start: (_) async => session,
+                  complete: (_, _) async {},
+                ),
+              ),
+              child: const Text('Revincular'),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Revincular'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('Revincular Account'), findsOneWidget);
+    expect(find.text('Vincular Account'), findsNothing);
+
+    await tester.tap(find.widgetWithText(TextButton, 'Cancelar'));
+    await tester.pumpAndSettle();
+    expect(session.cancelCalls, 1);
+  });
 }
 
 final class _ControlledSession implements AccountDeviceAuthSession {
@@ -111,8 +148,8 @@ final class _ControlledSession implements AccountDeviceAuthSession {
   Future<bool> waitForCompletion() => completion.future;
 }
 
-Account _account() => Account(
-  profile: const Profile(
+Account _account({bool hasAuthFile = false}) => Account(
+  profile: Profile(
     id: 'account',
     toolKey: 'codex',
     profileName: 'account',
@@ -121,7 +158,7 @@ Account _account() => Account(
     profileHome: '/profiles/account',
     source: ProfileSource.multiCli,
     kind: ProfileKind.full,
-    hasAuthFile: false,
+    hasAuthFile: hasAuthFile,
     isAvailable: true,
     isFavorite: false,
   ),

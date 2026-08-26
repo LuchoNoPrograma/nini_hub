@@ -152,16 +152,16 @@ void main() {
   );
 
   test(
-    'Device Auth cancellation uses the owned RPC session and closes once',
+    'Device Auth relinks an existing profile without logout and cancels safely',
     () async {
       final profile = await _managedProfile(scratch);
+      expect(profile.hasAuthFile, isTrue);
       final methods = <String>[];
       final process = _FakeCodexProcess((process, request) {
         final method = request['method'] as String;
         methods.add(method);
         final result = switch (method) {
           'initialize' => <String, Object?>{},
-          'account/read' => <String, Object?>{'account': null},
           'account/login/start' => <String, Object?>{
             'loginId': 'login-1',
             'verificationUrl': 'https://example.test/device',
@@ -183,10 +183,10 @@ void main() {
 
       expect(methods, [
         'initialize',
-        'account/read',
         'account/login/start',
         'account/login/cancel',
       ]);
+      expect(methods, isNot(contains('account/logout')));
       expect(process.closeStdinCalls, 1);
       await process.dispose();
     },
