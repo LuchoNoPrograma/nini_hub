@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -53,6 +54,9 @@ void main() {
       overrides: [
         databaseProvider.overrideWithValue(database),
         processRunnerProvider.overrideWithValue(runner),
+        profileDiscoveryProvider.overrideWithValue(
+          _UnavailableProfileDiscovery(database),
+        ),
         codexClientRuntimeProvider.overrideWithValue(codexRuntime),
       ],
     );
@@ -176,6 +180,18 @@ final class _StaticProfileDiscovery extends ProfileDiscoveryService {
   @override
   Future<List<CliProfile>> discoverProfiles() =>
       database.select(database.cliProfiles).get();
+}
+
+final class _UnavailableProfileDiscovery extends ProfileDiscoveryService {
+  _UnavailableProfileDiscovery(super.database) : super.test();
+
+  @override
+  Future<List<CliProfile>> discoverProfiles() async {
+    await (database.update(database.cliProfiles)
+          ..where((row) => row.id.equals('willy')))
+        .write(const CliProfilesCompanion(isAvailable: Value(false)));
+    return database.select(database.cliProfiles).get();
+  }
 }
 
 CodexRefreshResult _result() {
