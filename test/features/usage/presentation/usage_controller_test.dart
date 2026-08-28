@@ -320,6 +320,25 @@ void main() {
       expect(fixture.state.isRefreshing, isFalse);
     });
 
+    test('persisted heartbeat projection cannot replace a newer snapshot', () {
+      fixture = _Fixture(profiles: const []);
+      final newer = UsageSnapshot(
+        status: UsageRefreshStatus.success,
+        startedAt: DateTime.utc(2026, 8, 22, 12, 5),
+        completedAt: DateTime.utc(2026, 8, 22, 12, 5),
+      );
+      final older = UsageSnapshot(
+        status: UsageRefreshStatus.success,
+        startedAt: DateTime.utc(2026, 8, 22, 12),
+        completedAt: DateTime.utc(2026, 8, 22, 12),
+      );
+
+      fixture.controller.projectPersistedSnapshot('profile', newer);
+      fixture.controller.projectPersistedSnapshot('profile', older);
+
+      expect(fixture.state.latestSnapshotByProfile['profile'], same(newer));
+    });
+
     test(
       'late calendar and refresh results are ignored after disposal',
       () async {

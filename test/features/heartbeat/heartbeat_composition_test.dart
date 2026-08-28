@@ -60,4 +60,71 @@ void main() {
     expect(state.observation?.usedPercent, 12);
     expect(await database.select(database.commandLogs).get(), isEmpty);
   });
+
+  test('real publisher persists and projects heartbeat Usage', () async {
+    final database = AppDatabase(NativeDatabase.memory());
+    final container = ProviderContainer(
+      overrides: [databaseProvider.overrideWithValue(database)],
+    );
+    addTearDown(() async {
+      container.dispose();
+      await database.close();
+    });
+    final observedAt = DateTime.utc(2026, 8, 25, 20, 15);
+    await database
+        .into(database.cliProfiles)
+        .insert(
+          CliProfile(
+            id: 'stable-account-id',
+            toolKey: 'codex',
+            profileName: 'stable-account-id',
+            commandName: 'codex-stable-account-id',
+            displayName: 'Stable account',
+            profileHome: '/profiles/stable-account-id',
+            profileSource: 'multicli',
+            profileType: 'full',
+            hasAuthFile: true,
+            isAvailable: true,
+            isFavorite: false,
+            createdAt: observedAt,
+            lastDiscoveredAt: observedAt,
+          ),
+        );
+    final snapshot = UsageSnapshot(
+      status: UsageRefreshStatus.success,
+      startedAt: observedAt,
+      completedAt: observedAt,
+      rateLimitsReadSucceeded: true,
+      windows: [
+        UsageQuotaWindow(
+          limitId: 'codex',
+          windowType: 'primary',
+          usedPercent: 0,
+          windowDurationMinutes: 5 * Duration.minutesPerHour,
+          resetsAt: observedAt.add(const Duration(hours: 5)),
+        ),
+      ],
+    );
+
+    await container.read(heartbeatUsageSnapshotPublisherProvider)(
+      profileId: 'stable-account-id',
+      snapshot: snapshot,
+    );
+
+    final checks = await database.select(database.usageChecks).get();
+    final windows = await database.select(database.quotaWindows).get();
+    expect(checks, hasLength(1));
+    expect(checks.single.profileId, 'stable-account-id');
+    expect(windows, hasLength(1));
+    expect(
+      windows.single.resetsAt?.toUtc(),
+      observedAt.add(const Duration(hours: 5)),
+    );
+    expect(
+      container
+          .read(usageControllerProvider)
+          .latestSnapshotByProfile['stable-account-id'],
+      same(snapshot),
+    );
+  });
 }

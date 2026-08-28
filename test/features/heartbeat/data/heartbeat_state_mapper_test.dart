@@ -34,6 +34,7 @@ void main() {
       expect(state.retryCount, 2);
       expect(state.observation?.observedAt.isUtc, isTrue);
       expect(state.observation?.resetsAt?.isUtc, isTrue);
+      expect(state.observation?.windowType, isEmpty);
       expect(state.lastAttemptAt?.isUtc, isTrue);
       expect(state.lastSuccessAt?.isUtc, isTrue);
       expect(state.verifiedResetAt?.isUtc, isTrue);
@@ -49,6 +50,7 @@ void main() {
       final now = DateTime.utc(2026, 8, 22, 12);
       final observation = HeartbeatObservation(
         limitId: 'codex',
+        windowType: 'primary',
         usedPercent: 0,
         windowDurationMinutes: 10080,
         resetsAt: now.add(const Duration(days: 7)),
@@ -83,6 +85,10 @@ void main() {
       expect(
         (value['observation'] as Map<String, dynamic>)['observedAt'],
         now.toIso8601String(),
+      );
+      expect(
+        (value['observation'] as Map<String, dynamic>)['windowType'],
+        'primary',
       );
     });
 

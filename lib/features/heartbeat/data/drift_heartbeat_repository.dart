@@ -30,6 +30,8 @@ final class DriftHeartbeatRepository
     required String profileId,
     required DateTime before,
     required int expectedWindowMinutes,
+    required String expectedLimitId,
+    required String expectedWindowType,
   }) async {
     final row = await database
         .customSelect(
@@ -39,6 +41,8 @@ final class DriftHeartbeatRepository
             Variable<DateTime>(before.toUtc()),
             Variable<int>(expectedWindowMinutes - 60),
             Variable<int>(expectedWindowMinutes + 60),
+            Variable<String>(expectedLimitId.trim().toLowerCase()),
+            Variable<String>(expectedWindowType.trim().toLowerCase()),
           ],
           readsFrom: {database.usageChecks, database.quotaWindows},
         )
@@ -47,6 +51,7 @@ final class DriftHeartbeatRepository
     final data = row.data;
     return HeartbeatObservation(
       limitId: data['limit_id']! as String,
+      windowType: data['window_type']! as String,
       usedPercent: (data['used_percent'] as num?)?.toDouble(),
       windowDurationMinutes:
           (data['window_duration_minutes'] as num?)?.toInt() ??
@@ -84,6 +89,7 @@ WITH recent_checks AS (
   LIMIT 20
 )
 SELECT windows.limit_id,
+       windows.window_type,
        windows.used_percent,
        windows.window_duration_minutes,
        windows.resets_at,
@@ -94,8 +100,9 @@ FROM recent_checks AS checks
 INNER JOIN quota_windows AS windows ON windows.check_id = checks.id
 WHERE windows.window_duration_minutes >= ?
   AND windows.window_duration_minutes <= ?
+  AND LOWER(windows.limit_id) = ?
+  AND LOWER(windows.window_type) = ?
 ORDER BY checks.started_at DESC,
-         CASE WHEN LOWER(windows.limit_id) = 'codex' THEN 0 ELSE 1 END,
          windows.rowid
 LIMIT 1
 ''';

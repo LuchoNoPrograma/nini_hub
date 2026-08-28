@@ -512,16 +512,31 @@ double _accountCardExtent({
 }
 
 int? _heartbeatWindowMinutes(Account account) {
-  int? fallback;
-  for (final window in account.visibleWindows) {
-    final duration = window.windowDurationMinutes;
-    if (duration != null &&
-        (duration - HeartbeatPolicy.weeklyMinutes).abs() <= 60) {
-      return duration;
+  final windows = account.visibleWindows
+      .where(
+        (window) =>
+            window.windowDurationMinutes != null &&
+            window.windowDurationMinutes! > 0,
+      )
+      .toList();
+  for (final preferred in const [
+    HeartbeatPolicy.primaryMinutes,
+    HeartbeatPolicy.weeklyMinutes,
+  ]) {
+    for (final window in windows) {
+      final duration = window.windowDurationMinutes!;
+      if ((duration - preferred).abs() <= 60) return duration;
     }
-    if (window.limitId.toLowerCase() == 'codex') fallback ??= duration;
   }
-  return fallback;
+  final codexWindows = windows
+      .where((window) => window.limitId.toLowerCase() == 'codex')
+      .toList();
+  final fallback = codexWindows.isEmpty ? windows : codexWindows;
+  fallback.sort(
+    (left, right) =>
+        left.windowDurationMinutes!.compareTo(right.windowDurationMinutes!),
+  );
+  return fallback.isEmpty ? null : fallback.first.windowDurationMinutes;
 }
 
 class _SummaryBand extends StatelessWidget {

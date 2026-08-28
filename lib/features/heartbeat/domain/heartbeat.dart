@@ -1,3 +1,5 @@
+import 'package:nini_hub/features/usage/domain/usage.dart';
+
 enum HeartbeatStatus {
   unknown,
   observing,
@@ -50,6 +52,7 @@ final class HeartbeatIdentity {
 final class HeartbeatObservation {
   HeartbeatObservation({
     required this.limitId,
+    this.windowType = '',
     required this.usedPercent,
     required this.windowDurationMinutes,
     required DateTime? resetsAt,
@@ -60,6 +63,7 @@ final class HeartbeatObservation {
        observedAt = observedAt.toUtc();
 
   final String limitId;
+  final String windowType;
   final double? usedPercent;
   final int windowDurationMinutes;
   final DateTime? resetsAt;
@@ -69,6 +73,12 @@ final class HeartbeatObservation {
 
   HeartbeatIdentity get identity =>
       HeartbeatIdentity(accountEmail: accountEmail, planType: planType);
+
+  bool isSameWindowAs(HeartbeatObservation other) =>
+      limitId.trim().toLowerCase() == other.limitId.trim().toLowerCase() &&
+      windowType.trim().toLowerCase() ==
+          other.windowType.trim().toLowerCase() &&
+      (windowDurationMinutes - other.windowDurationMinutes).abs() <= 60;
 }
 
 final class HeartbeatState {
@@ -107,15 +117,25 @@ final class HeartbeatRunResult {
     required this.outcome,
     required this.message,
     this.verifiedResetAt,
+    this.latestUsageSnapshot,
   });
 
   final HeartbeatOutcome outcome;
   final String message;
   final DateTime? verifiedResetAt;
+  final UsageSnapshot? latestUsageSnapshot;
 
   bool get commandSucceeded =>
       outcome == HeartbeatOutcome.verified ||
       outcome == HeartbeatOutcome.unverified;
+
+  HeartbeatRunResult withLatestUsageSnapshot(UsageSnapshot snapshot) =>
+      HeartbeatRunResult(
+        outcome: outcome,
+        message: message,
+        verifiedResetAt: verifiedResetAt,
+        latestUsageSnapshot: snapshot,
+      );
 }
 
 final class HeartbeatCommandResult {

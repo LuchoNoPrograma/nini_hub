@@ -105,10 +105,13 @@ void main() {
           profileId: 'target',
           before: before,
           expectedWindowMinutes: HeartbeatPolicy.weeklyMinutes,
+          expectedLimitId: 'codex',
+          expectedWindowType: 'rolling',
         );
 
         expect(recorder.statements, hasLength(1));
         expect(observation?.limitId, 'codex');
+        expect(observation?.windowType, 'rolling');
         expect(observation?.usedPercent, 4);
         expect(observation?.accountEmail, 'target@example.com');
         expect(
@@ -161,6 +164,8 @@ void main() {
         profileId: 'bounded',
         before: before,
         expectedWindowMinutes: HeartbeatPolicy.weeklyMinutes,
+        expectedLimitId: 'codex',
+        expectedWindowType: 'rolling',
       );
 
       expect(observation, isNull);

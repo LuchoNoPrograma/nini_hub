@@ -37,9 +37,19 @@ final class HeartbeatVerification {
   final HeartbeatObservation? observation;
 }
 
+final class HeartbeatQuotaGuard {
+  const HeartbeatQuotaGuard({required this.exhausted, this.resetsAt});
+
+  static const clear = HeartbeatQuotaGuard(exhausted: false);
+
+  final bool exhausted;
+  final DateTime? resetsAt;
+}
+
 final class HeartbeatPolicy {
   const HeartbeatPolicy();
 
+  static const primaryMinutes = 5 * 60;
   static const weeklyMinutes = 7 * 24 * 60;
   static const virginUsageThreshold = 1.0;
   static const ambiguousProbeDelay = Duration(seconds: 45);
@@ -48,30 +58,96 @@ final class HeartbeatPolicy {
 
   HeartbeatObservation? observationFrom(
     UsageSnapshot snapshot, {
-    int expectedWindowMinutes = weeklyMinutes,
+    int? expectedWindowMinutes,
+    String? expectedLimitId,
+    String? expectedWindowType,
   }) {
-    final matching = snapshot.windows.where((window) {
+    var matching = snapshot.windows.where((window) {
       final duration = window.windowDurationMinutes;
-      return duration != null && (duration - expectedWindowMinutes).abs() <= 60;
+      return duration != null && duration > 0;
     }).toList();
+    if (expectedWindowMinutes != null) {
+      matching = matching.where((window) {
+        final duration = window.windowDurationMinutes!;
+        return (duration - expectedWindowMinutes).abs() <= 60;
+      }).toList();
+    } else {
+      final selectedDuration = _preferredDuration(matching);
+      if (selectedDuration == null) return null;
+      matching = matching.where((window) {
+        return (window.windowDurationMinutes! - selectedDuration).abs() <= 60;
+      }).toList();
+    }
+    final normalizedLimitId = expectedLimitId?.trim().toLowerCase();
+    if (normalizedLimitId != null && normalizedLimitId.isNotEmpty) {
+      matching = matching
+          .where(
+            (window) =>
+                window.limitId.trim().toLowerCase() == normalizedLimitId,
+          )
+          .toList();
+    }
+    final normalizedWindowType = expectedWindowType?.trim().toLowerCase();
+    if (normalizedWindowType != null && normalizedWindowType.isNotEmpty) {
+      matching = matching
+          .where(
+            (window) =>
+                window.windowType.trim().toLowerCase() == normalizedWindowType,
+          )
+          .toList();
+    }
     if (matching.isEmpty) return null;
     matching.sort((left, right) {
       final leftCore = left.limitId.toLowerCase() == 'codex' ? 0 : 1;
       final rightCore = right.limitId.toLowerCase() == 'codex' ? 0 : 1;
       final byCore = leftCore.compareTo(rightCore);
-      return byCore != 0 ? byCore : left.windowType.compareTo(right.windowType);
+      if (byCore != 0) return byCore;
+      final leftPrimary = left.windowType.toLowerCase() == 'primary' ? 0 : 1;
+      final rightPrimary = right.windowType.toLowerCase() == 'primary' ? 0 : 1;
+      final byPrimary = leftPrimary.compareTo(rightPrimary);
+      return byPrimary != 0
+          ? byPrimary
+          : left.windowType.compareTo(right.windowType);
     });
     final window = matching.first;
     return HeartbeatObservation(
       limitId: window.limitId,
+      windowType: window.windowType,
       usedPercent: window.usedPercent,
-      windowDurationMinutes:
-          window.windowDurationMinutes ?? expectedWindowMinutes,
+      windowDurationMinutes: window.windowDurationMinutes!,
       resetsAt: window.resetsAt,
       observedAt: snapshot.completedAt,
       accountEmail: snapshot.accountEmail,
       planType: snapshot.planType,
     );
+  }
+
+  HeartbeatQuotaGuard longQuotaGuardFrom(
+    UsageSnapshot snapshot, {
+    required HeartbeatObservation target,
+  }) {
+    DateTime? latestReset;
+    var exhausted = false;
+    for (final window in snapshot.windows) {
+      final duration = window.windowDurationMinutes;
+      if (duration == null ||
+          duration <= target.windowDurationMinutes + 60 ||
+          window.limitId.trim().toLowerCase() !=
+              target.limitId.trim().toLowerCase()) {
+        continue;
+      }
+      final reached = window.reachedType?.trim().isNotEmpty ?? false;
+      if ((window.usedPercent ?? 0) < 99 && !reached) continue;
+      exhausted = true;
+      final reset = window.resetsAt?.toUtc();
+      if (reset != null &&
+          (latestReset == null || reset.isAfter(latestReset))) {
+        latestReset = reset;
+      }
+    }
+    return exhausted
+        ? HeartbeatQuotaGuard(exhausted: true, resetsAt: latestReset)
+        : HeartbeatQuotaGuard.clear;
   }
 
   bool needsHistoricalObservation({
@@ -80,6 +156,7 @@ final class HeartbeatPolicy {
   }) {
     final previous = state.observation;
     return previous == null ||
+        !previous.isSameWindowAs(current) ||
         !previous.observedAt.isBefore(current.observedAt) ||
         !previous.identity.isCompatibleWith(current.identity);
   }
@@ -88,6 +165,7 @@ final class HeartbeatPolicy {
     required HeartbeatState state,
     required HeartbeatObservation current,
     required HeartbeatObservation? previous,
+    HeartbeatQuotaGuard quotaGuard = HeartbeatQuotaGuard.clear,
     required DateTime now,
   }) {
     final currentTime = now.toUtc();
@@ -95,9 +173,19 @@ final class HeartbeatPolicy {
     final verifiedReset = state.verifiedResetAt;
     final identityStillVerified =
         verifiedIdentity != null && verifiedIdentity.isSameAs(current.identity);
+    final observedWindowStillVerified =
+        state.observation?.isSameWindowAs(current) ?? false;
+    final currentReset = current.resetsAt;
+    final anchorStillVerified =
+        verifiedReset != null &&
+        currentReset != null &&
+        verifiedReset.difference(currentReset).abs() <=
+            const Duration(minutes: 1);
     if (verifiedReset != null &&
         verifiedReset.isAfter(currentTime) &&
-        identityStillVerified) {
+        identityStillVerified &&
+        observedWindowStillVerified &&
+        anchorStillVerified) {
       return SkipHeartbeatDecision(
         state: _observedState(
           state,
@@ -108,14 +196,17 @@ final class HeartbeatPolicy {
         ),
         result: HeartbeatRunResult(
           outcome: HeartbeatOutcome.skipped,
-          message: 'La ventana semanal ya está activa y verificada.',
+          message: 'El ciclo de Codex ya está activo y verificado.',
           verifiedResetAt: verifiedReset,
         ),
         nextProbeAt: verifiedReset.add(resetProbeMargin),
       );
     }
 
-    final retainedState = identityStillVerified
+    final retainedState =
+        identityStillVerified &&
+            observedWindowStillVerified &&
+            anchorStillVerified
         ? state
         : HeartbeatState(
             observation: state.observation,
@@ -140,12 +231,35 @@ final class HeartbeatPolicy {
           status: HeartbeatStatus.active,
           message: used == null
               ? 'La cuota no informó porcentaje; no se enviará un heartbeat.'
-              : 'La ventana semanal ya registra uso.',
+              : 'El ciclo de Codex ya registra uso.',
           clearRetry: true,
         ),
         result: const HeartbeatRunResult(
           outcome: HeartbeatOutcome.skipped,
-          message: 'La ventana semanal ya registra actividad.',
+          message: 'El ciclo de Codex ya registra actividad.',
+        ),
+        nextProbeAt: nextProbe,
+      );
+    }
+
+    if (quotaGuard.exhausted) {
+      final reset = quotaGuard.resetsAt;
+      final nextProbe = reset != null && reset.isAfter(currentTime)
+          ? reset.add(resetProbeMargin)
+          : currentTime.add(ambiguousProbeDelay);
+      return SkipHeartbeatDecision(
+        state: _observedState(
+          retainedState,
+          current,
+          status: HeartbeatStatus.active,
+          message:
+              'El límite largo de Codex está agotado; no se enviará un '
+              'heartbeat.',
+          clearRetry: true,
+        ),
+        result: const HeartbeatRunResult(
+          outcome: HeartbeatOutcome.skipped,
+          message: 'El límite largo está agotado; se esperará a su reinicio.',
         ),
         nextProbeAt: nextProbe,
       );
@@ -187,7 +301,7 @@ final class HeartbeatPolicy {
           message: previous == null
               ? 'Se necesita otra lectura para distinguir una ventana activa '
                     'de una proyección.'
-              : 'El ancla semanal parece estable; no se enviará un heartbeat.',
+              : 'El ancla del ciclo parece estable; no se enviará un heartbeat.',
           clearRetry: true,
         ),
         result: const HeartbeatRunResult(
@@ -209,7 +323,7 @@ final class HeartbeatPolicy {
     return ExecuteHeartbeatDecision(
       state: candidate,
       before: current,
-      expectedWindowMinutes: weeklyMinutes,
+      expectedWindowMinutes: current.windowDurationMinutes,
     );
   }
 
@@ -217,15 +331,20 @@ final class HeartbeatPolicy {
     required UsageSnapshot first,
     required UsageSnapshot second,
     required int expectedWindowMinutes,
+    HeartbeatObservation? expectedTarget,
     required DateTime now,
   }) {
     final firstObservation = observationFrom(
       first,
       expectedWindowMinutes: expectedWindowMinutes,
+      expectedLimitId: expectedTarget?.limitId,
+      expectedWindowType: expectedTarget?.windowType,
     );
     final secondObservation = observationFrom(
       second,
       expectedWindowMinutes: expectedWindowMinutes,
+      expectedLimitId: expectedTarget?.limitId,
+      expectedWindowType: expectedTarget?.windowType,
     );
     if (firstObservation == null || secondObservation == null) {
       return const HeartbeatVerification(verified: false);
@@ -302,6 +421,7 @@ final class HeartbeatPolicy {
     HeartbeatObservation current,
   ) {
     if (previous == null ||
+        !previous.isSameWindowAs(current) ||
         !previous.identity.isCompatibleWith(current.identity)) {
       return false;
     }
@@ -319,4 +439,19 @@ final class HeartbeatPolicy {
     windowDurationMinutes: observation.windowDurationMinutes,
     resetsAt: observation.resetsAt,
   );
+
+  static int? _preferredDuration(List<UsageQuotaWindow> windows) {
+    if (windows.isEmpty) return null;
+    for (final preferred in const [primaryMinutes, weeklyMinutes]) {
+      for (final window in windows) {
+        final duration = window.windowDurationMinutes!;
+        if ((duration - preferred).abs() <= 60) return duration;
+      }
+    }
+    windows.sort(
+      (left, right) =>
+          left.windowDurationMinutes!.compareTo(right.windowDurationMinutes!),
+    );
+    return windows.first.windowDurationMinutes;
+  }
 }

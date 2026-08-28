@@ -6,6 +6,7 @@ import 'package:nini_hub/core/database/app_database.dart';
 import 'package:nini_hub/core/process/process_runner.dart';
 import 'package:nini_hub/features/heartbeat/data/dart_heartbeat_scheduler.dart';
 import 'package:nini_hub/features/heartbeat/data/heartbeat_usage_keep_alive_scheduler.dart';
+import 'package:nini_hub/features/heartbeat/domain/heartbeat.dart';
 import 'package:nini_hub/features/profiles/domain/profile.dart';
 import 'package:nini_hub/features/usage/domain/usage.dart';
 
@@ -30,7 +31,12 @@ void main() {
           if (profile.id == 'failing') {
             throw StateError('access_token=secret-value');
           }
+          return const HeartbeatRunResult(
+            outcome: HeartbeatOutcome.skipped,
+            message: 'No heartbeat required.',
+          );
         },
+        publish: ({required profileId, required snapshot}) async {},
       );
 
       expect(
@@ -85,6 +91,57 @@ void main() {
       );
     },
   );
+
+  test('publishes only a snapshot obtained by automatic heartbeat', () async {
+    final database = AppDatabase(NativeDatabase.memory());
+    final scheduler = DartHeartbeatScheduler(onScheduledProbe: (_) async {});
+    addTearDown(() async {
+      scheduler.dispose();
+      await database.close();
+    });
+    final heartbeatSnapshot = _snapshot(DateTime.utc(2026, 8, 23, 0, 1));
+    final published = <({String profileId, UsageSnapshot snapshot})>[];
+    final adapter = HeartbeatUsageKeepAliveScheduler(
+      scheduler: scheduler,
+      runner: ProcessRunner(database),
+      observe: ({required profile, required snapshot}) async {
+        if (profile.id == 'updated') {
+          return HeartbeatRunResult(
+            outcome: HeartbeatOutcome.unverified,
+            message: 'Command sent.',
+            latestUsageSnapshot: heartbeatSnapshot,
+          );
+        }
+        return const HeartbeatRunResult(
+          outcome: HeartbeatOutcome.skipped,
+          message: 'No heartbeat required.',
+        );
+      },
+      publish: ({required profileId, required snapshot}) async {
+        published.add((profileId: profileId, snapshot: snapshot));
+      },
+    );
+
+    expect(
+      adapter.scheduleIfEligible(
+        profile: _profile('updated'),
+        snapshot: _snapshot(),
+      ),
+      isTrue,
+    );
+    expect(
+      adapter.scheduleIfEligible(
+        profile: _profile('unchanged'),
+        snapshot: _snapshot(),
+      ),
+      isTrue,
+    );
+    await scheduler.waitUntilIdle();
+
+    expect(published, hasLength(1));
+    expect(published.single.profileId, 'updated');
+    expect(published.single.snapshot, same(heartbeatSnapshot));
+  });
 }
 
 Profile _profile(String id, {String toolKey = 'codex'}) => Profile(
@@ -101,8 +158,8 @@ Profile _profile(String id, {String toolKey = 'codex'}) => Profile(
   isFavorite: false,
 );
 
-UsageSnapshot _snapshot() {
-  final now = DateTime.utc(2026, 8, 23);
+UsageSnapshot _snapshot([DateTime? observedAt]) {
+  final now = observedAt ?? DateTime.utc(2026, 8, 23);
   return UsageSnapshot(
     status: UsageRefreshStatus.success,
     startedAt: now,

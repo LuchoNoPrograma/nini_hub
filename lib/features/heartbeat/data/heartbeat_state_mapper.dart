@@ -52,6 +52,7 @@ final class HeartbeatStateMapper {
   static HeartbeatObservation _observationFromJson(Map<String, dynamic> json) =>
       HeartbeatObservation(
         limitId: json['limitId'] as String? ?? 'codex',
+        windowType: json['windowType'] as String? ?? '',
         usedPercent: (json['usedPercent'] as num?)?.toDouble(),
         windowDurationMinutes:
             (json['windowDurationMinutes'] as num?)?.toInt() ??
@@ -70,6 +71,7 @@ final class HeartbeatStateMapper {
       ? null
       : {
           'limitId': observation.limitId,
+          'windowType': observation.windowType,
           'usedPercent': observation.usedPercent,
           'windowDurationMinutes': observation.windowDurationMinutes,
           'resetsAt': observation.resetsAt?.toUtc().toIso8601String(),

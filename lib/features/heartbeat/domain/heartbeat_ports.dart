@@ -13,6 +13,8 @@ abstract interface class HeartbeatHistoryRepository {
     required String profileId,
     required DateTime before,
     required int expectedWindowMinutes,
+    required String expectedLimitId,
+    required String expectedWindowType,
   });
 }
 

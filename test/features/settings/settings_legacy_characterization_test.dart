@@ -201,7 +201,7 @@ void main() {
     expect(find.byTooltip('Menta'), findsOneWidget);
     expect(find.byTooltip('Ámbar'), findsOneWidget);
     expect(
-      find.text('Iniciar automáticamente cada ciclo de 7 días'),
+      find.text('Iniciar automáticamente los ciclos de Codex'),
       findsOneWidget,
     );
     expect(

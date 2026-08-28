@@ -45,10 +45,15 @@ void main() {
       previousAt,
       resetAt: previousAt.add(const Duration(days: 7)),
     );
-    harness.probe.results.addAll([
-      _snapshot(now.add(const Duration(seconds: 10)), resetAt: reset),
-      _snapshot(now.add(const Duration(seconds: 20)), resetAt: reset),
-    ]);
+    final firstVerification = _snapshot(
+      now.add(const Duration(seconds: 10)),
+      resetAt: reset,
+    );
+    final secondVerification = _snapshot(
+      now.add(const Duration(seconds: 20)),
+      resetAt: reset,
+    );
+    harness.probe.results.addAll([firstVerification, secondVerification]);
 
     final result = await harness.observe(
       profile: profile,
@@ -58,8 +63,11 @@ void main() {
     expect(result.outcome, HeartbeatOutcome.verified);
     expect(harness.history.calls, 1);
     expect(harness.history.expectedWindowMinutes, [10080]);
+    expect(harness.history.expectedLimitIds, ['codex']);
+    expect(harness.history.expectedWindowTypes, ['rolling']);
     expect(harness.command.calls, 1);
     expect(harness.probe.calls, 2);
+    expect(result.latestUsageSnapshot, same(secondVerification));
     expect(harness.repository.saves.last.status, HeartbeatStatus.verified);
     expect(
       harness.repository.saves.last.verifiedIdentity?.accountEmail,
@@ -68,6 +76,127 @@ void main() {
     expect(harness.activity.kinds, [HeartbeatActivityKind.verified]);
     expect(harness.scheduler.acquired, isEmpty);
   });
+
+  test(
+    'affected 5 hour account executes and verifies its primary cycle',
+    () async {
+      final profile = _profile(id: 'affected_5h');
+      final previousAt = now.subtract(const Duration(seconds: 30));
+      final verifiedReset = now.add(const Duration(hours: 5));
+      final harness = _Harness(now: now, profiles: [profile]);
+      harness.history.result = _observation(
+        previousAt,
+        limitId: 'codex_bengalfox',
+        windowType: 'primary',
+        durationMinutes: HeartbeatPolicy.primaryMinutes,
+        resetAt: previousAt.add(const Duration(hours: 5)),
+      );
+      harness.probe.results.addAll([
+        _mixedSnapshot(
+          now.add(const Duration(seconds: 10)),
+          primaryReset: verifiedReset,
+        ),
+        _mixedSnapshot(
+          now.add(const Duration(seconds: 20)),
+          primaryReset: verifiedReset,
+        ),
+      ]);
+
+      final result = await harness.observe(
+        profile: profile,
+        snapshot: _mixedSnapshot(
+          now,
+          primaryReset: now.add(const Duration(hours: 5)),
+        ),
+      );
+
+      expect(result.outcome, HeartbeatOutcome.verified);
+      expect(harness.history.expectedWindowMinutes, [300]);
+      expect(harness.history.expectedLimitIds, ['codex_bengalfox']);
+      expect(harness.history.expectedWindowTypes, ['primary']);
+      expect(harness.command.calls, 1);
+      expect(harness.repository.saves.last.verifiedResetAt, verifiedReset);
+    },
+  );
+
+  test(
+    'healthy 5 hour account with a stable anchor sends no command',
+    () async {
+      final profile = _profile(id: 'healthy_5h');
+      final reset = now.add(const Duration(hours: 5));
+      final harness = _Harness(now: now, profiles: [profile]);
+      harness.history.result = _observation(
+        now.subtract(const Duration(minutes: 2)),
+        limitId: 'codex_bengalfox',
+        windowType: 'primary',
+        durationMinutes: HeartbeatPolicy.primaryMinutes,
+        resetAt: reset,
+      );
+
+      final result = await harness.observe(
+        profile: profile,
+        snapshot: _mixedSnapshot(now, primaryReset: reset),
+      );
+
+      expect(result.outcome, HeartbeatOutcome.skipped);
+      expect(harness.command.calls, 0);
+      expect(
+        harness.scheduler.scheduled.single.at,
+        reset.add(const Duration(seconds: 30)),
+      );
+    },
+  );
+
+  test(
+    'verification retains its latest snapshot when the second probe fails',
+    () async {
+      final profile = _profile();
+      final previousAt = now.subtract(const Duration(seconds: 30));
+      final reset = now.add(const Duration(days: 7));
+      final harness = _Harness(now: now, profiles: [profile]);
+      harness.history.result = _observation(
+        previousAt,
+        resetAt: previousAt.add(const Duration(days: 7)),
+      );
+      final firstVerification = _snapshot(
+        now.add(const Duration(seconds: 10)),
+        resetAt: reset,
+      );
+      harness.probe.handler = (_) {
+        if (harness.probe.calls == 1) return Future.value(firstVerification);
+        return Future.error(StateError('second probe failed'));
+      };
+
+      final result = await harness.observe(
+        profile: profile,
+        snapshot: _snapshot(now, resetAt: reset),
+      );
+
+      expect(result.outcome, HeartbeatOutcome.unverified);
+      expect(result.latestUsageSnapshot, same(firstVerification));
+      expect(harness.probe.calls, 2);
+    },
+  );
+
+  test(
+    'scheduled probe exposes its initial snapshot when no command runs',
+    () async {
+      final profile = _profile();
+      final harness = _Harness(now: now, profiles: [profile]);
+      harness.scheduler.retained.add(profile.id);
+      final snapshot = _snapshot(
+        now,
+        resetAt: now.add(const Duration(days: 7)),
+      );
+      harness.probe.results.add(snapshot);
+
+      final result = await harness.scheduled(profile.id);
+
+      expect(result.outcome, HeartbeatOutcome.skipped);
+      expect(result.latestUsageSnapshot, same(snapshot));
+      expect(harness.command.calls, 0);
+    },
+  );
 
   test(
     'a scheduled probe cannot persist after the scheduler is disabled',
@@ -290,15 +419,21 @@ final class _History implements HeartbeatHistoryRepository {
   HeartbeatObservation? result;
   int calls = 0;
   final List<int> expectedWindowMinutes = [];
+  final List<String> expectedLimitIds = [];
+  final List<String> expectedWindowTypes = [];
 
   @override
   Future<HeartbeatObservation?> loadLatestBefore({
     required String profileId,
     required DateTime before,
     required int expectedWindowMinutes,
+    required String expectedLimitId,
+    required String expectedWindowType,
   }) async {
     calls++;
     this.expectedWindowMinutes.add(expectedWindowMinutes);
+    expectedLimitIds.add(expectedLimitId);
+    expectedWindowTypes.add(expectedWindowType);
     return result;
   }
 }
@@ -401,12 +536,16 @@ final class _Activity implements HeartbeatActivityRecorder {
   }
 }
 
-Profile _profile({bool isAvailable = true, bool hasAuthFile = true}) => Profile(
-  id: 'profile',
+Profile _profile({
+  String id = 'profile',
+  bool isAvailable = true,
+  bool hasAuthFile = true,
+}) => Profile(
+  id: id,
   toolKey: 'codex',
-  profileName: 'profile',
-  displayName: 'Profile',
-  profileHome: '/tmp/profile',
+  profileName: id,
+  displayName: id,
+  profileHome: '/tmp/$id',
   source: ProfileSource.multiCli,
   kind: isAvailable ? ProfileKind.shared : ProfileKind.deactivated,
   hasAuthFile: hasAuthFile,
@@ -417,14 +556,45 @@ Profile _profile({bool isAvailable = true, bool hasAuthFile = true}) => Profile(
 HeartbeatObservation _observation(
   DateTime observedAt, {
   required DateTime resetAt,
+  String limitId = 'codex',
+  String windowType = 'rolling',
+  int durationMinutes = HeartbeatPolicy.weeklyMinutes,
 }) => HeartbeatObservation(
-  limitId: 'codex',
+  limitId: limitId,
+  windowType: windowType,
   usedPercent: 0,
-  windowDurationMinutes: HeartbeatPolicy.weeklyMinutes,
+  windowDurationMinutes: durationMinutes,
   resetsAt: resetAt,
   observedAt: observedAt,
   accountEmail: 'account@example.com',
   planType: 'pro',
+);
+
+UsageSnapshot _mixedSnapshot(
+  DateTime completedAt, {
+  required DateTime primaryReset,
+}) => UsageSnapshot(
+  status: UsageRefreshStatus.success,
+  startedAt: completedAt.subtract(const Duration(seconds: 1)),
+  completedAt: completedAt,
+  accountEmail: 'account@example.com',
+  planType: 'pro',
+  windows: [
+    UsageQuotaWindow(
+      limitId: 'codex_bengalfox',
+      windowType: 'primary',
+      usedPercent: 0,
+      windowDurationMinutes: HeartbeatPolicy.primaryMinutes,
+      resetsAt: primaryReset,
+    ),
+    UsageQuotaWindow(
+      limitId: 'codex_bengalfox',
+      windowType: 'secondary',
+      usedPercent: 10,
+      windowDurationMinutes: HeartbeatPolicy.weeklyMinutes,
+      resetsAt: completedAt.add(const Duration(days: 6)),
+    ),
+  ],
 );
 
 UsageSnapshot _snapshot(

@@ -29,8 +29,67 @@ void main() {
 
       expect(observation, isNotNull);
       expect(observation!.limitId, 'codex');
+      expect(observation.windowType, 'a');
       expect(observation.observedAt.isUtc, isTrue);
       expect(observation.resetsAt?.isUtc, isTrue);
+    });
+
+    test('affected fixture selects the 5 hour cycle before weekly', () {
+      final snapshot = _snapshot(
+        now,
+        windows: [
+          _window(
+            limitId: 'codex_bengalfox',
+            windowType: 'secondary',
+            durationMinutes: HeartbeatPolicy.weeklyMinutes,
+            resetAt: now.add(const Duration(days: 7)),
+          ),
+          _window(
+            limitId: 'codex_bengalfox',
+            windowType: 'primary',
+            durationMinutes: HeartbeatPolicy.primaryMinutes,
+            resetAt: now.add(const Duration(hours: 5)),
+          ),
+        ],
+      );
+
+      final observation = policy.observationFrom(snapshot);
+
+      expect(observation?.limitId, 'codex_bengalfox');
+      expect(observation?.windowType, 'primary');
+      expect(
+        observation?.windowDurationMinutes,
+        HeartbeatPolicy.primaryMinutes,
+      );
+    });
+
+    test('supports weekly-only and monthly-only account fixtures', () {
+      const monthlyMinutes = 30 * 24 * 60;
+      final weekly = policy.observationFrom(
+        _snapshot(
+          now,
+          windows: [
+            _window(
+              limitId: 'codex_weekly_only',
+              durationMinutes: HeartbeatPolicy.weeklyMinutes,
+            ),
+          ],
+        ),
+      );
+      final monthly = policy.observationFrom(
+        _snapshot(
+          now,
+          windows: [
+            _window(
+              limitId: 'codex_monthly_only',
+              durationMinutes: monthlyMinutes,
+            ),
+          ],
+        ),
+      );
+
+      expect(weekly?.windowDurationMinutes, HeartbeatPolicy.weeklyMinutes);
+      expect(monthly?.windowDurationMinutes, monthlyMinutes);
     });
 
     test('keeps a verified reset only for the same account identity', () {
@@ -102,6 +161,117 @@ void main() {
       expect(decision.state.status, HeartbeatStatus.candidate);
     });
 
+    test('affected 5 hour fixture invalidates stale weekly verification', () {
+      final oldWeeklyReset = now.add(const Duration(days: 7));
+      final oldWeekly = _observation(
+        now.subtract(const Duration(minutes: 2)),
+        resetAt: oldWeeklyReset,
+      );
+      final previousAt = now.subtract(const Duration(seconds: 30));
+      final previousPrimary = _observation(
+        previousAt,
+        limitId: 'codex_bengalfox',
+        windowType: 'primary',
+        durationMinutes: HeartbeatPolicy.primaryMinutes,
+        resetAt: previousAt.add(const Duration(hours: 5)),
+      );
+      final currentPrimary = _observation(
+        now,
+        limitId: 'codex_bengalfox',
+        windowType: 'primary',
+        durationMinutes: HeartbeatPolicy.primaryMinutes,
+        resetAt: now.add(const Duration(hours: 5)),
+      );
+
+      final decision = policy.decide(
+        state: HeartbeatState(
+          observation: oldWeekly,
+          status: HeartbeatStatus.verified,
+          verifiedResetAt: oldWeeklyReset,
+          verifiedIdentity: oldWeekly.identity,
+        ),
+        current: currentPrimary,
+        previous: previousPrimary,
+        now: now,
+      );
+
+      expect(decision, isA<ExecuteHeartbeatDecision>());
+      expect(decision.state.verifiedResetAt, isNull);
+      expect(
+        (decision as ExecuteHeartbeatDecision).expectedWindowMinutes,
+        HeartbeatPolicy.primaryMinutes,
+      );
+    });
+
+    test('healthy stable 5 hour anchor does not execute a heartbeat', () {
+      final reset = now.add(const Duration(hours: 5));
+      final previous = _observation(
+        now.subtract(const Duration(minutes: 2)),
+        limitId: 'codex_healthy',
+        windowType: 'primary',
+        durationMinutes: HeartbeatPolicy.primaryMinutes,
+        resetAt: reset,
+      );
+      final current = _observation(
+        now,
+        limitId: 'codex_healthy',
+        windowType: 'primary',
+        durationMinutes: HeartbeatPolicy.primaryMinutes,
+        resetAt: reset,
+      );
+
+      final decision = policy.decide(
+        state: HeartbeatState(observation: previous),
+        current: current,
+        previous: previous,
+        now: now,
+      );
+
+      expect(decision, isA<SkipHeartbeatDecision>());
+      expect(decision.state.status, HeartbeatStatus.observing);
+    });
+
+    test('does not spend a heartbeat when the matching long limit is full', () {
+      final target = _observation(
+        now,
+        limitId: 'codex_guarded',
+        windowType: 'primary',
+        durationMinutes: HeartbeatPolicy.primaryMinutes,
+        resetAt: now.add(const Duration(hours: 5)),
+      );
+      final snapshot = _snapshot(
+        now,
+        windows: [
+          _window(
+            limitId: 'codex_guarded',
+            windowType: 'primary',
+            durationMinutes: HeartbeatPolicy.primaryMinutes,
+          ),
+          _window(
+            limitId: 'codex_guarded',
+            windowType: 'secondary',
+            durationMinutes: HeartbeatPolicy.weeklyMinutes,
+            usedPercent: 100,
+            resetAt: now.add(const Duration(days: 2)),
+          ),
+        ],
+      );
+
+      final decision = policy.decide(
+        state: HeartbeatState(),
+        current: target,
+        previous: null,
+        quotaGuard: policy.longQuotaGuardFrom(snapshot, target: target),
+        now: now,
+      );
+
+      expect(decision, isA<SkipHeartbeatDecision>());
+      expect(
+        (decision as SkipHeartbeatDecision).nextProbeAt,
+        now.add(const Duration(days: 2, seconds: 30)),
+      );
+    });
+
     test('verifies a future reset anchor that remains stable', () {
       final reset = now.add(const Duration(days: 7));
 
@@ -134,11 +304,15 @@ void main() {
 HeartbeatObservation _observation(
   DateTime observedAt, {
   String email = 'account@example.com',
+  String limitId = 'codex',
+  String windowType = 'rolling',
+  int durationMinutes = HeartbeatPolicy.weeklyMinutes,
   DateTime? resetAt,
 }) => HeartbeatObservation(
-  limitId: 'codex',
+  limitId: limitId,
+  windowType: windowType,
   usedPercent: 0,
-  windowDurationMinutes: HeartbeatPolicy.weeklyMinutes,
+  windowDurationMinutes: durationMinutes,
   resetsAt: resetAt,
   observedAt: observedAt,
   accountEmail: email,
@@ -160,11 +334,13 @@ UsageSnapshot _snapshot(
 UsageQuotaWindow _window({
   String limitId = 'codex',
   String windowType = 'rolling',
+  int durationMinutes = HeartbeatPolicy.weeklyMinutes,
+  double usedPercent = 0,
   DateTime? resetAt,
 }) => UsageQuotaWindow(
   limitId: limitId,
   windowType: windowType,
-  usedPercent: 0,
-  windowDurationMinutes: HeartbeatPolicy.weeklyMinutes,
+  usedPercent: usedPercent,
+  windowDurationMinutes: durationMinutes,
   resetsAt: resetAt,
 );

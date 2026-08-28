@@ -53,6 +53,23 @@ void main() {
       ),
       expectsRefresh: true,
       cycleMinutes: monthlyMinutes,
+      expectedHeartbeatMinutes: monthlyMinutes,
+      includePrimaryCycle: false,
+    );
+  });
+
+  testWidgets('manual heartbeat preserves a weekly-only Codex cycle', (
+    tester,
+  ) async {
+    await _runFlow(
+      tester,
+      result: const HeartbeatRunResult(
+        outcome: HeartbeatOutcome.verified,
+        message: 'Ciclo semanal confirmado.',
+      ),
+      expectsRefresh: true,
+      expectedHeartbeatMinutes: HeartbeatPolicy.weeklyMinutes,
+      includePrimaryCycle: false,
     );
   });
 }
@@ -62,6 +79,8 @@ Future<void> _runFlow(
   required HeartbeatRunResult result,
   required bool expectsRefresh,
   int cycleMinutes = HeartbeatPolicy.weeklyMinutes,
+  int expectedHeartbeatMinutes = HeartbeatPolicy.primaryMinutes,
+  bool includePrimaryCycle = true,
 }) async {
   await tester.binding.setSurfaceSize(const Size(900, 600));
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -99,7 +118,7 @@ Future<void> _runFlow(
       );
   await database.batch((batch) {
     batch.insertAll(database.quotaWindows, [
-      if (cycleMinutes == HeartbeatPolicy.weeklyMinutes)
+      if (includePrimaryCycle)
         QuotaWindow(
           id: 'short',
           checkId: 'check',
@@ -166,7 +185,7 @@ Future<void> _runFlow(
   await tester.pump();
   await started.future;
 
-  expect(recordedWindowMinutes, cycleMinutes);
+  expect(recordedWindowMinutes, expectedHeartbeatMinutes);
   expect(
     container.read(heartbeatControllerProvider).isRunningProfile('account'),
     isTrue,

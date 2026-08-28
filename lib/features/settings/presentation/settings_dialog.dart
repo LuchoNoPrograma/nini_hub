@@ -224,7 +224,7 @@ class _SettingsDialogState extends ConsumerState<_SettingsDialog> {
                 value: weeklyKeepAlive,
                 onChanged: (value) => setState(() => weeklyKeepAlive = value),
                 title: const Text(
-                  'Iniciar automáticamente cada ciclo de 7 días',
+                  'Iniciar automáticamente los ciclos de Codex',
                 ),
                 subtitle: const Text(
                   'Cuando termine el ciclo actual de una cuenta de Codex, '

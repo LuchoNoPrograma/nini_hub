@@ -131,6 +131,10 @@ final class UsageController extends Notifier<UsageState> {
     }
   }
 
+  void projectPersistedSnapshot(String profileId, UsageSnapshot snapshot) {
+    _recordLatestSnapshot(profileId, snapshot);
+  }
+
   Future<bool> refreshAll({UsageRefreshProgressCallback? onProgress}) async {
     if (state.isRefreshing) return false;
     final generation = _generation;

@@ -86,7 +86,13 @@ final class ExecuteHeartbeat {
       );
     }
 
-    final verification = await _verify(profile, expectedWindowMinutes, now);
+    final verificationResult = await _verify(
+      profile,
+      expectedWindowMinutes,
+      before,
+      now,
+    );
+    final verification = verificationResult.verification;
     if (!verification.verified) {
       final message =
           'Comando enviado; Codex respondió, pero todavía no se pudo '
@@ -112,6 +118,7 @@ final class ExecuteHeartbeat {
       return HeartbeatRunResult(
         outcome: HeartbeatOutcome.unverified,
         message: message,
+        latestUsageSnapshot: verificationResult.latestSnapshot,
       );
     }
 
@@ -148,6 +155,7 @@ final class ExecuteHeartbeat {
       outcome: HeartbeatOutcome.verified,
       message: message,
       verifiedResetAt: verifiedReset,
+      latestUsageSnapshot: verificationResult.latestSnapshot,
     );
   }
 
@@ -181,28 +189,39 @@ final class ExecuteHeartbeat {
     );
   }
 
-  Future<HeartbeatVerification> _verify(
+  Future<_HeartbeatVerificationResult> _verify(
     Profile profile,
     int expectedWindowMinutes,
+    HeartbeatObservation? expectedTarget,
     DateTime now,
   ) async {
+    UsageSnapshot? latestSnapshot;
     try {
       if (verificationDelay > Duration.zero) {
         await delay.wait(const Duration(seconds: 2));
       }
       final first = await probe.probe(profile);
+      latestSnapshot = first;
       if (verificationDelay > Duration.zero) {
         await delay.wait(verificationDelay);
       }
       final second = await probe.probe(profile);
-      return policy.verify(
-        first: first,
-        second: second,
-        expectedWindowMinutes: expectedWindowMinutes,
-        now: now,
+      latestSnapshot = second;
+      return _HeartbeatVerificationResult(
+        verification: policy.verify(
+          first: first,
+          second: second,
+          expectedWindowMinutes: expectedWindowMinutes,
+          expectedTarget: expectedTarget,
+          now: now,
+        ),
+        latestSnapshot: latestSnapshot,
       );
     } catch (_) {
-      return const HeartbeatVerification(verified: false);
+      return _HeartbeatVerificationResult(
+        verification: const HeartbeatVerification(verified: false),
+        latestSnapshot: latestSnapshot,
+      );
     }
   }
 
@@ -292,7 +311,7 @@ final class ObserveHeartbeatUsage {
             observation: stored.observation,
             status: HeartbeatStatus.unsupported,
             message:
-                'La lectura actual no contiene una ventana semanal de Codex.',
+                'La lectura actual no contiene un ciclo compatible de Codex.',
             lastAttemptAt: stored.lastAttemptAt,
             lastSuccessAt: stored.lastSuccessAt,
             verifiedResetAt: stored.verifiedResetAt,
@@ -301,7 +320,7 @@ final class ObserveHeartbeatUsage {
         );
         return const HeartbeatRunResult(
           outcome: HeartbeatOutcome.skipped,
-          message: 'La cuenta no expone una ventana semanal en esta lectura.',
+          message: 'La cuenta no expone un ciclo compatible en esta lectura.',
         );
       }
 
@@ -310,10 +329,13 @@ final class ObserveHeartbeatUsage {
         previous = await history.loadLatestBefore(
           profileId: profile.id,
           before: current.observedAt,
-          expectedWindowMinutes: HeartbeatPolicy.weeklyMinutes,
+          expectedWindowMinutes: current.windowDurationMinutes,
+          expectedLimitId: current.limitId,
+          expectedWindowType: current.windowType,
         );
         if (previous != null &&
-            !previous.identity.isCompatibleWith(current.identity)) {
+            (!previous.isSameWindowAs(current) ||
+                !previous.identity.isCompatibleWith(current.identity))) {
           previous = null;
         }
       }
@@ -321,6 +343,7 @@ final class ObserveHeartbeatUsage {
         state: stored,
         current: current,
         previous: previous,
+        quotaGuard: policy.longQuotaGuardFrom(snapshot, target: current),
         now: clock.nowUtc(),
       );
       return switch (decision) {
@@ -437,13 +460,22 @@ final class RunHeartbeat {
     }
     try {
       final stored = await repository.load(profile.id);
+      final selectedMinutes =
+          expectedWindowMinutes ??
+          stored.observation?.windowDurationMinutes ??
+          HeartbeatPolicy.primaryMinutes;
+      final storedObservation = stored.observation;
+      final before =
+          storedObservation != null &&
+              (storedObservation.windowDurationMinutes - selectedMinutes)
+                      .abs() <=
+                  60
+          ? storedObservation
+          : null;
       return execute(
         profile: profile,
-        before: stored.observation,
-        expectedWindowMinutes:
-            expectedWindowMinutes ??
-            stored.observation?.windowDurationMinutes ??
-            HeartbeatPolicy.weeklyMinutes,
+        before: before,
+        expectedWindowMinutes: selectedMinutes,
         previousState: stored,
       );
     } finally {
@@ -477,7 +509,10 @@ final class ProbeHeartbeat {
       if (!scheduler.enabled || !scheduler.isRetained(profileId)) {
         return _disabledResult;
       }
-      return observe(profile: profile, snapshot: snapshot);
+      final result = await observe(profile: profile, snapshot: snapshot);
+      return result.latestUsageSnapshot == null
+          ? result.withLatestUsageSnapshot(snapshot)
+          : result;
     } catch (error) {
       if (!scheduler.enabled || !scheduler.isRetained(profileId)) {
         return _disabledResult;
@@ -494,6 +529,16 @@ final class ProbeHeartbeat {
     outcome: HeartbeatOutcome.skipped,
     message: 'El scheduler de heartbeat ya no está activo para esta cuenta.',
   );
+}
+
+final class _HeartbeatVerificationResult {
+  const _HeartbeatVerificationResult({
+    required this.verification,
+    required this.latestSnapshot,
+  });
+
+  final HeartbeatVerification verification;
+  final UsageSnapshot? latestSnapshot;
 }
 
 Profile _findProfile(List<Profile> profiles, String profileId) {

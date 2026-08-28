@@ -143,15 +143,34 @@ final heartbeatProbeProvider = Provider<ProbeHeartbeat>(
   ),
 );
 
+final heartbeatUsageSnapshotPublisherProvider =
+    Provider<HeartbeatUsageSnapshotPublisher>((ref) {
+      final repository = DriftUsageSnapshotRepository(
+        ref.watch(databaseProvider),
+      );
+      return ({required profileId, required snapshot}) async {
+        await repository.saveSnapshot(profileId: profileId, snapshot: snapshot);
+        ref
+            .read(usageControllerProvider.notifier)
+            .projectPersistedSnapshot(profileId, snapshot);
+      };
+    });
+
 final Provider<HeartbeatScheduledProbe> heartbeatScheduledProbeProvider =
     Provider<HeartbeatScheduledProbe>(
       (ref) => (profileId) async {
-        await ref
+        final result = await ref
             .read(heartbeatSchedulerProvider)
             .enqueueOperation<HeartbeatRunResult>(
               profileId: profileId,
               operation: () => ref.read(heartbeatProbeProvider)(profileId),
             );
+        final snapshot = result?.latestUsageSnapshot;
+        if (snapshot == null) return;
+        await ref.read(heartbeatUsageSnapshotPublisherProvider)(
+          profileId: profileId,
+          snapshot: snapshot,
+        );
       },
     );
 
@@ -191,12 +210,13 @@ final heartbeatUsageKeepAliveProvider = Provider<UsageKeepAliveScheduler>(
   (ref) => HeartbeatUsageKeepAliveScheduler(
     scheduler: ref.watch(heartbeatSchedulerProvider),
     runner: ref.watch(processRunnerProvider),
-    observe: ({required profile, required snapshot}) async {
-      await ref.read(heartbeatObserveUsageProvider)(
+    observe: ({required profile, required snapshot}) {
+      return ref.read(heartbeatObserveUsageProvider)(
         profile: profile,
         snapshot: snapshot,
       );
     },
+    publish: ref.watch(heartbeatUsageSnapshotPublisherProvider),
   ),
 );
 
