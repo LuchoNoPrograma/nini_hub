@@ -13,10 +13,12 @@ final class SkipHeartbeatDecision extends HeartbeatDecision {
     required HeartbeatState state,
     required this.result,
     this.nextProbeAt,
+    this.usePlannedTime = false,
   }) : super(state);
 
   final HeartbeatRunResult result;
   final DateTime? nextProbeAt;
+  final bool usePlannedTime;
 }
 
 final class ExecuteHeartbeatDecision extends HeartbeatDecision {
@@ -200,6 +202,7 @@ final class HeartbeatPolicy {
           verifiedResetAt: verifiedReset,
         ),
         nextProbeAt: verifiedReset.add(resetProbeMargin),
+        usePlannedTime: true,
       );
     }
 
@@ -239,6 +242,7 @@ final class HeartbeatPolicy {
           message: 'El ciclo de Codex ya registra actividad.',
         ),
         nextProbeAt: nextProbe,
+        usePlannedTime: nextProbe != null,
       );
     }
 
@@ -262,6 +266,7 @@ final class HeartbeatPolicy {
           message: 'El límite largo está agotado; se esperará a su reinicio.',
         ),
         nextProbeAt: nextProbe,
+        usePlannedTime: reset != null && reset.isAfter(currentTime),
       );
     }
 
@@ -309,6 +314,7 @@ final class HeartbeatPolicy {
           message: 'La ventana no requiere un heartbeat en esta lectura.',
         ),
         nextProbeAt: nextProbe,
+        usePlannedTime: previous != null && sampleAge >= minimumDriftSample,
       );
     }
 

@@ -40,6 +40,10 @@ abstract interface class HeartbeatScheduler {
 
   void schedule({required Profile profile, required DateTime at});
 
+  void scheduleNextPlanned({required Profile profile, DateTime? notBefore});
+
+  bool isPlannedTime(DateTime at);
+
   void cancel(String profileId);
 }
 

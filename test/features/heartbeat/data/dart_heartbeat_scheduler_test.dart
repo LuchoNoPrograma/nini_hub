@@ -48,6 +48,9 @@ void main() {
   });
 
   test('monitor queues one initial probe per continuous retention', () async {
+    final localNow = DateTime(2026, 8, 23, 10);
+    final clock = _Clock(localNow.toUtc());
+    final timers = _TimerFactory();
     final firstGate = Completer<void>();
     final probes = <String>[];
     final scheduler = DartHeartbeatScheduler(
@@ -57,11 +60,17 @@ void main() {
           await firstGate.future;
         }
       },
+      clock: clock,
+      timerFactory: timers.call,
     );
     addTearDown(scheduler.dispose);
 
     scheduler.monitorProfileIds(['first', 'second']);
     scheduler.monitorProfileIds(['first', 'second']);
+    expect(timers.timers, hasLength(2));
+    expect(scheduler.nextProbeAt('first'), DateTime(2026, 8, 23, 12).toUtc());
+    timers.timers[0].fire();
+    timers.timers[1].fire();
     await _flush();
     expect(probes, ['first']);
 
@@ -74,8 +83,41 @@ void main() {
     expect(probes, ['first', 'second']);
 
     scheduler.monitorProfileIds(['first', 'second']);
+    expect(timers.timers, hasLength(3));
+    timers.timers.last.fire();
     await scheduler.waitUntilIdle();
     expect(probes, ['first', 'second', 'second']);
+  });
+
+  test('aligns automatic probes to the requested daily hours', () {
+    final localNow = DateTime(2026, 8, 23, 17, 16);
+    final clock = _Clock(localNow.toUtc());
+    final timers = _TimerFactory();
+    final scheduler = DartHeartbeatScheduler(
+      onScheduledProbe: (_) async {},
+      clock: clock,
+      timerFactory: timers.call,
+    );
+    addTearDown(scheduler.dispose);
+
+    scheduler.scheduleNextPlanned(
+      profile: _profile('first'),
+      notBefore: DateTime(2026, 8, 23, 22).toUtc(),
+    );
+
+    expect(scheduler.nextProbeAt('first'), DateTime(2026, 8, 24).toUtc());
+    expect(
+      timers.timers.single.duration,
+      const Duration(hours: 6, minutes: 44),
+    );
+    expect(
+      scheduler.isPlannedTime(DateTime(2026, 8, 23, 12, 10).toUtc()),
+      isTrue,
+    );
+    expect(
+      scheduler.isPlannedTime(DateTime(2026, 8, 23, 12, 16).toUtc()),
+      isFalse,
+    );
   });
 
   test('scheduled probes are FIFO and recheck retained profiles', () async {

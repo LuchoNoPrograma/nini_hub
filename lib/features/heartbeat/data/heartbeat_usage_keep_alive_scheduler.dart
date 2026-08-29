@@ -37,6 +37,10 @@ final class HeartbeatUsageKeepAliveScheduler
     required UsageSnapshot snapshot,
   }) {
     if (profile.toolKey != 'codex') return false;
+    if (!scheduler.isCurrentPlannedTime) {
+      scheduler.scheduleNextPlanned(profile: profile);
+      return false;
+    }
     return scheduler.enqueueBackgroundOperation(
       profileId: profile.id,
       operation: () async {

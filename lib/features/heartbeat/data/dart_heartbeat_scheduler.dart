@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:collection';
 
 import 'package:nini_hub/features/heartbeat/data/dart_heartbeat_runtime.dart';
+import 'package:nini_hub/features/heartbeat/domain/heartbeat_daily_schedule.dart';
 import 'package:nini_hub/features/heartbeat/domain/heartbeat_ports.dart';
 import 'package:nini_hub/features/profiles/domain/profile.dart';
 
@@ -16,12 +17,14 @@ final class DartHeartbeatScheduler implements HeartbeatScheduler {
     required this.onScheduledProbe,
     HeartbeatClock? clock,
     HeartbeatTimerFactory? timerFactory,
+    this.dailySchedule = HeartbeatDailySchedule.continuous,
   }) : _clock = clock ?? const SystemHeartbeatClock(),
        _timerFactory = timerFactory ?? _createTimer;
 
   final HeartbeatScheduledProbe onScheduledProbe;
   final HeartbeatClock _clock;
   final HeartbeatTimerFactory _timerFactory;
+  final HeartbeatDailySchedule dailySchedule;
   final Queue<_QueuedHeartbeatOperation> _operationQueue = Queue();
   final Queue<String> _probeQueue = Queue();
   final Set<String> _queuedOperationProfiles = <String>{};
@@ -72,7 +75,7 @@ final class DartHeartbeatScheduler implements HeartbeatScheduler {
     if (!enabled) return;
     for (final profileId in ids) {
       if (_initialProbeQueued.add(profileId)) {
-        _enqueueScheduledProbe(profileId);
+        _scheduleProfileIdAtNextPlanned(profileId);
       }
     }
   }
@@ -132,19 +135,49 @@ final class DartHeartbeatScheduler implements HeartbeatScheduler {
 
   @override
   void schedule({required Profile profile, required DateTime at}) {
+    _scheduleProfileId(profile.id, at);
+  }
+
+  @override
+  void scheduleNextPlanned({required Profile profile, DateTime? notBefore}) {
+    _scheduleProfileIdAtNextPlanned(profile.id, notBefore: notBefore);
+  }
+
+  @override
+  bool isPlannedTime(DateTime at) => dailySchedule.contains(at.toLocal());
+
+  bool get isCurrentPlannedTime => isPlannedTime(_clock.nowUtc());
+
+  void _scheduleProfileIdAtNextPlanned(
+    String profileId, {
+    DateTime? notBefore,
+  }) {
     if (!enabled) return;
-    cancel(profile.id);
+    final now = _clock.nowUtc().toUtc();
+    final requested = notBefore?.toUtc();
+    final floor = requested == null || requested.isBefore(now)
+        ? now
+        : requested;
+    final deadline = dailySchedule.nextSlotAtOrAfter(floor.toLocal()).toUtc();
+    final current = _probeDeadlines[profileId];
+    if (current != null && !current.isAfter(deadline)) return;
+    _scheduleProfileId(profileId, deadline);
+  }
+
+  void _scheduleProfileId(String profileId, DateTime at) {
+    if (!enabled) return;
+    cancel(profileId);
     final deadline = at.toUtc();
     final delay = deadline.difference(_clock.nowUtc().toUtc());
     late final Timer timer;
     timer = _timerFactory(delay.isNegative ? Duration.zero : delay, () {
-      if (!identical(_probeTimers[profile.id], timer)) return;
-      _probeTimers.remove(profile.id);
-      _probeDeadlines.remove(profile.id);
-      _enqueueScheduledProbe(profile.id);
+      if (!identical(_probeTimers[profileId], timer)) return;
+      _probeTimers.remove(profileId);
+      _probeDeadlines.remove(profileId);
+      _enqueueScheduledProbe(profileId);
     });
-    _probeTimers[profile.id] = timer;
-    _probeDeadlines[profile.id] = deadline;
+    _probeTimers[profileId] = timer;
+    _probeDeadlines[profileId] = deadline;
   }
 
   @override

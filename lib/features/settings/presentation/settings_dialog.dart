@@ -227,9 +227,9 @@ class _SettingsDialogState extends ConsumerState<_SettingsDialog> {
                   'Iniciar automáticamente los ciclos de Codex',
                 ),
                 subtitle: const Text(
-                  'Cuando termine el ciclo actual de una cuenta de Codex, '
-                  'Nini Hub hará una solicitud mínima para iniciar el '
-                  'siguiente.',
+                  'Todos los días a las 00:00, 07:00, 12:00 y 17:00, Nini Hub '
+                  'comprobará cada cuenta y hará una solicitud mínima sólo si '
+                  'su ventana está inactiva.',
                 ),
               ),
               const Divider(height: 32),

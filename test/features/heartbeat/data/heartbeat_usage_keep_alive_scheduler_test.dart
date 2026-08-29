@@ -7,6 +7,7 @@ import 'package:nini_hub/core/process/process_runner.dart';
 import 'package:nini_hub/features/heartbeat/data/dart_heartbeat_scheduler.dart';
 import 'package:nini_hub/features/heartbeat/data/heartbeat_usage_keep_alive_scheduler.dart';
 import 'package:nini_hub/features/heartbeat/domain/heartbeat.dart';
+import 'package:nini_hub/features/heartbeat/domain/heartbeat_ports.dart';
 import 'package:nini_hub/features/profiles/domain/profile.dart';
 import 'package:nini_hub/features/usage/domain/usage.dart';
 
@@ -15,7 +16,10 @@ void main() {
     'queues only eligible work and logs detached failures sanitized',
     () async {
       final database = AppDatabase(NativeDatabase.memory());
-      final scheduler = DartHeartbeatScheduler(onScheduledProbe: (_) async {});
+      final scheduler = DartHeartbeatScheduler(
+        onScheduledProbe: (_) async {},
+        clock: _Clock(DateTime(2026, 8, 23, 7).toUtc()),
+      );
       addTearDown(() async {
         scheduler.dispose();
         await database.close();
@@ -94,7 +98,10 @@ void main() {
 
   test('publishes only a snapshot obtained by automatic heartbeat', () async {
     final database = AppDatabase(NativeDatabase.memory());
-    final scheduler = DartHeartbeatScheduler(onScheduledProbe: (_) async {});
+    final scheduler = DartHeartbeatScheduler(
+      onScheduledProbe: (_) async {},
+      clock: _Clock(DateTime(2026, 8, 23, 12).toUtc()),
+    );
     addTearDown(() async {
       scheduler.dispose();
       await database.close();
@@ -142,6 +149,49 @@ void main() {
     expect(published.single.profileId, 'updated');
     expect(published.single.snapshot, same(heartbeatSnapshot));
   });
+
+  test('defers usage observations outside the four daily slots', () async {
+    final database = AppDatabase(NativeDatabase.memory());
+    final scheduler = DartHeartbeatScheduler(
+      onScheduledProbe: (_) async {},
+      clock: _Clock(DateTime(2026, 8, 23, 10).toUtc()),
+    );
+    addTearDown(() async {
+      scheduler.dispose();
+      await database.close();
+    });
+    final adapter = HeartbeatUsageKeepAliveScheduler(
+      scheduler: scheduler,
+      runner: ProcessRunner(database),
+      observe: ({required profile, required snapshot}) async =>
+          const HeartbeatRunResult(
+            outcome: HeartbeatOutcome.skipped,
+            message: 'Not expected.',
+          ),
+      publish: ({required profileId, required snapshot}) async {},
+    );
+
+    expect(
+      adapter.scheduleIfEligible(
+        profile: _profile('deferred'),
+        snapshot: _snapshot(),
+      ),
+      isFalse,
+    );
+    expect(
+      scheduler.nextProbeAt('deferred'),
+      DateTime(2026, 8, 23, 12).toUtc(),
+    );
+  });
+}
+
+final class _Clock implements HeartbeatClock {
+  const _Clock(this.value);
+
+  final DateTime value;
+
+  @override
+  DateTime nowUtc() => value;
 }
 
 Profile _profile(String id, {String toolKey = 'codex'}) => Profile(

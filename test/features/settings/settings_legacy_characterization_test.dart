@@ -205,9 +205,7 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.textContaining(
-        'Nini Hub hará una solicitud mínima para iniciar el siguiente',
-      ),
+      find.textContaining('Todos los días a las 00:00, 07:00, 12:00 y 17:00'),
       findsOneWidget,
     );
     expect(find.text('Mantener abierta al finalizar'), findsOneWidget);

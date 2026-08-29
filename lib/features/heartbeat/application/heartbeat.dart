@@ -142,9 +142,9 @@ final class ExecuteHeartbeat {
         verifiedIdentity: observation?.identity,
       ),
     );
-    scheduler.schedule(
+    scheduler.scheduleNextPlanned(
       profile: profile,
-      at: verifiedReset.add(HeartbeatPolicy.resetProbeMargin),
+      notBefore: verifiedReset.add(HeartbeatPolicy.resetProbeMargin),
     );
     await _recordVerification(
       profile: profile,
@@ -346,6 +346,16 @@ final class ObserveHeartbeatUsage {
         quotaGuard: policy.longQuotaGuardFrom(snapshot, target: current),
         now: clock.nowUtc(),
       );
+      if (decision is ExecuteHeartbeatDecision &&
+          !scheduler.isPlannedTime(clock.nowUtc())) {
+        scheduler.scheduleNextPlanned(profile: profile);
+        return const HeartbeatRunResult(
+          outcome: HeartbeatOutcome.skipped,
+          message:
+              'La ventana está inactiva; se esperará al próximo horario '
+              'planificado.',
+        );
+      }
       return switch (decision) {
         SkipHeartbeatDecision() => _applySkip(profile, decision),
         ExecuteHeartbeatDecision() => execute(
@@ -368,6 +378,8 @@ final class ObserveHeartbeatUsage {
     final nextProbe = decision.nextProbeAt;
     if (nextProbe == null) {
       scheduler.cancel(profile.id);
+    } else if (decision.usePlannedTime) {
+      scheduler.scheduleNextPlanned(profile: profile, notBefore: nextProbe);
     } else {
       scheduler.schedule(profile: profile, at: nextProbe);
     }

@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nini_hub/app/providers.dart';
 import 'package:nini_hub/core/database/app_database.dart';
+import 'package:nini_hub/features/heartbeat/data/dart_heartbeat_scheduler.dart';
 import 'package:nini_hub/features/heartbeat/domain/heartbeat.dart';
 import 'package:nini_hub/features/heartbeat/domain/heartbeat_policy.dart';
+import 'package:nini_hub/features/heartbeat/domain/heartbeat_ports.dart';
 import 'package:nini_hub/features/profiles/domain/profile.dart';
 import 'package:nini_hub/features/usage/domain/usage.dart';
 
@@ -12,7 +14,18 @@ void main() {
   test('real composition observes Usage without running Codex', () async {
     final database = AppDatabase(NativeDatabase.memory());
     final container = ProviderContainer(
-      overrides: [databaseProvider.overrideWithValue(database)],
+      overrides: [
+        databaseProvider.overrideWithValue(database),
+        heartbeatSchedulerProvider.overrideWith((ref) {
+          final scheduler = DartHeartbeatScheduler(
+            onScheduledProbe: (profileId) =>
+                ref.read(heartbeatScheduledProbeProvider)(profileId),
+            clock: _Clock(DateTime(2026, 8, 23, 12).toUtc()),
+          );
+          ref.onDispose(scheduler.dispose);
+          return scheduler;
+        }),
+      ],
     );
     addTearDown(() async {
       container.dispose();
@@ -127,4 +140,13 @@ void main() {
       same(snapshot),
     );
   });
+}
+
+final class _Clock implements HeartbeatClock {
+  const _Clock(this.value);
+
+  final DateTime value;
+
+  @override
+  DateTime nowUtc() => value;
 }

@@ -78,6 +78,30 @@ void main() {
   });
 
   test(
+    'automatic observation defers an inactive window outside a slot',
+    () async {
+      final profile = _profile();
+      final previousAt = now.subtract(const Duration(seconds: 30));
+      final harness = _Harness(now: now, profiles: [profile]);
+      harness.scheduler.plannedTime = false;
+      harness.history.result = _observation(
+        previousAt,
+        resetAt: previousAt.add(const Duration(days: 7)),
+      );
+
+      final result = await harness.observe(
+        profile: profile,
+        snapshot: _snapshot(now, resetAt: now.add(const Duration(days: 7))),
+      );
+
+      expect(result.outcome, HeartbeatOutcome.skipped);
+      expect(result.message, contains('próximo horario planificado'));
+      expect(harness.command.calls, 0);
+      expect(harness.scheduler.scheduled, hasLength(1));
+    },
+  );
+
+  test(
     'affected 5 hour account executes and verifies its primary cycle',
     () async {
       final profile = _profile(id: 'affected_5h');
@@ -478,6 +502,7 @@ final class _Scheduler implements HeartbeatScheduler {
   final Set<String> acquired = {};
   final List<_Scheduled> scheduled = [];
   final List<String> cancelled = [];
+  bool plannedTime = true;
 
   @override
   bool acquire(String profileId) {
@@ -498,6 +523,14 @@ final class _Scheduler implements HeartbeatScheduler {
   void schedule({required Profile profile, required DateTime at}) {
     scheduled.add(_Scheduled(profile.id, at));
   }
+
+  @override
+  void scheduleNextPlanned({required Profile profile, DateTime? notBefore}) {
+    scheduled.add(_Scheduled(profile.id, notBefore ?? DateTime.utc(9999)));
+  }
+
+  @override
+  bool isPlannedTime(DateTime at) => plannedTime;
 }
 
 final class _Scheduled {
