@@ -135,7 +135,7 @@ class ProfileDiscoveryService implements ProfileDiscovery {
           ),
           profileSource: 'multicli',
           profileType: summary.type,
-          hasAuthFile: null,
+          hasAuthFile: summary.hasAuthFile,
           isAvailable: true,
         ),
       );

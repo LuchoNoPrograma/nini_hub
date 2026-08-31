@@ -52,7 +52,7 @@ void main() {
               profileHome: '/old/codex/team',
               profileSource: 'multicli',
               profileType: 'full',
-              hasAuthFile: true,
+              hasAuthFile: false,
               isAvailable: false,
               isFavorite: true,
               createdAt: createdAt,
@@ -62,9 +62,9 @@ void main() {
           );
       final runner = _FakeNiniAgentsRunner(database)
         ..profilesByRoot[root] = const [
-          _ProfileSummary('codex', 'legacy', 'full', 1),
-          _ProfileSummary('codex', 'team', 'shared', 2),
-          _ProfileSummary('codex', 'vault', 'isolated', 2),
+          _ProfileSummary('codex', 'legacy', 'full', 1, false),
+          _ProfileSummary('codex', 'team', 'shared', 2, true),
+          _ProfileSummary('codex', 'vault', 'isolated', 2, true),
         ];
       final discovery = ProfileDiscoveryService(
         database,
@@ -100,6 +100,12 @@ void main() {
         'isolated',
       );
       expect(
+        profiles
+            .singleWhere((profile) => profile.profileName == 'vault')
+            .hasAuthFile,
+        isTrue,
+      );
+      expect(
         profiles.where(
           (profile) =>
               profile.toolKey == 'codex' &&
@@ -123,10 +129,10 @@ void main() {
       const newRoot = '/synthetic/new-root';
       final runner = _FakeNiniAgentsRunner(database)
         ..profilesByRoot[oldRoot] = const [
-          _ProfileSummary('codex', 'old-profile', 'full', 2),
+          _ProfileSummary('codex', 'old-profile', 'full', 2, false),
         ]
         ..profilesByRoot[newRoot] = const [
-          _ProfileSummary('codex', 'new-profile', 'full', 2),
+          _ProfileSummary('codex', 'new-profile', 'full', 2, false),
         ];
       final firstRoot = Completer<String>();
       final secondRoot = Completer<String>();
@@ -169,7 +175,7 @@ void main() {
     const newRoot = '/synthetic/new-root';
     final runner = _FakeNiniAgentsRunner(database)
       ..profilesByRoot[newRoot] = const [
-        _ProfileSummary('codex', 'new-profile', 'full', 2),
+        _ProfileSummary('codex', 'new-profile', 'full', 2, false),
       ];
     final firstRoot = Completer<String>();
     final discovery = _ControlledRootDiscovery(
@@ -217,12 +223,19 @@ final class _FixedHomeDiscovery extends ProfileDiscoveryService {
 }
 
 final class _ProfileSummary {
-  const _ProfileSummary(this.tool, this.name, this.type, this.schemaVersion);
+  const _ProfileSummary(
+    this.tool,
+    this.name,
+    this.type,
+    this.schemaVersion,
+    this.hasAuthFile,
+  );
 
   final String tool;
   final String name;
   final String type;
   final int schemaVersion;
+  final bool hasAuthFile;
 }
 
 final class _FakeNiniAgentsRunner extends ProcessRunner {
@@ -288,7 +301,7 @@ String _profilesEnvelope(String command, List<_ProfileSummary> profiles) {
         (profile) =>
             '{"tool":"${profile.tool}","name":"${profile.name}",'
             '"type":"${profile.type}","schemaVersion":${profile.schemaVersion},'
-            '"sizeBytes":1}',
+            '"sizeBytes":1,"hasAuthFile":${profile.hasAuthFile}}',
       )
       .join(',');
   return _success(command, '{"profiles":[$items],"count":${profiles.length}}');

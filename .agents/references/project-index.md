@@ -96,8 +96,9 @@ concretas. No trasladar reglas o queries hacia ese archivo.
 - `partially_applied` provoca `status`, reconciliacion SQLite y una lectura
   fresca del controller antes de presentar el fallo.
 - Identidad historica, alias, favorito y fechas se conservan primero por path y
-  luego por tool/profile/source. `hasAuthFile` se preserva como metadata local:
-  el contrato publico no lee ni expone credenciales.
+  luego por tool/profile/source. `hasAuthFile` se reconcilia desde el booleano
+  publico de Nini Agents, que comprueba solo presencia mediante el adapter sin
+  leer ni exponer credenciales.
 
 ### Workspaces y launch
 
@@ -230,7 +231,7 @@ Contrato consumido por Nini Hub:
 
 - `NiniAgentsReadClient` ejecuta `nini-agents --json` con argumentos
   separados y valida envelope v1, comando, `ok/data/error`, exit code, stderr,
-  conteos, schema de summaries y errores snake-case.
+  conteos, schema de summaries, `hasAuthFile` booleano y errores snake-case.
 - `tools` es el inventario de capacidades; no inventar un comando
   `capabilities`.
 - Discovery/status/mutaciones propagan `MULTICLI_HOME` sin leer credenciales ni

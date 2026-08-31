@@ -49,6 +49,7 @@ final class NiniAgentsProfileSummary {
     required this.type,
     required this.schemaVersion,
     required this.sizeBytes,
+    required this.hasAuthFile,
   });
 
   final String tool;
@@ -56,6 +57,7 @@ final class NiniAgentsProfileSummary {
   final String type;
   final int schemaVersion;
   final int sizeBytes;
+  final bool hasAuthFile;
 }
 
 final class NiniAgentsProfileList {
@@ -350,6 +352,7 @@ final class NiniAgentsReadClient {
           final map = _requiredObject(item, command: command, label: 'profile');
           final profileSchema = map['schemaVersion'];
           final sizeBytes = map['sizeBytes'];
+          final hasAuthFile = map['hasAuthFile'];
           final type = _requiredString(map, 'type', command: command);
           if (profileSchema is! int ||
               (profileSchema != 1 && profileSchema != 2)) {
@@ -364,6 +367,12 @@ final class NiniAgentsReadClient {
               'A profile summary contains an invalid size.',
             );
           }
+          if (hasAuthFile is! bool) {
+            throw _protocolFailure(
+              command,
+              'A profile summary contains an invalid authentication flag.',
+            );
+          }
           if (!_profileTypes.contains(type)) {
             throw _protocolFailure(
               command,
@@ -376,6 +385,7 @@ final class NiniAgentsReadClient {
             type: type,
             schemaVersion: profileSchema,
             sizeBytes: sizeBytes,
+            hasAuthFile: hasAuthFile,
           );
         })
         .toList(growable: false);

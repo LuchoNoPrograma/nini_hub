@@ -450,7 +450,7 @@ String _profilesSuccess(String command, List<_Summary> profiles) {
       .map(
         (profile) =>
             '{"tool":"${profile.tool}","name":"${profile.name}",'
-            '"type":"${profile.type}","schemaVersion":2,"sizeBytes":1}',
+            '"type":"${profile.type}","schemaVersion":2,"sizeBytes":1,"hasAuthFile":true}',
       )
       .join(',');
   return _success(

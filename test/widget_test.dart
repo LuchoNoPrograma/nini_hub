@@ -1976,8 +1976,8 @@ final class _ProviderDiscoveryRunner extends ProcessRunner {
               '{"id":"codex","kind":"cli","strategy":"accountOverlay","supportLevel":"supported","installed":true}'
               '],"count":2}'
         : '{"profiles":['
-              '{"tool":"claude-cli","name":"research","type":"full","schemaVersion":1,"sizeBytes":1},'
-              '{"tool":"codex","name":"team","type":"full","schemaVersion":2,"sizeBytes":1}'
+              '{"tool":"claude-cli","name":"research","type":"full","schemaVersion":1,"sizeBytes":1,"hasAuthFile":true},'
+              '{"tool":"codex","name":"team","type":"full","schemaVersion":2,"sizeBytes":1,"hasAuthFile":true}'
               '],"count":2}';
     final now = DateTime.utc(2026, 8, 24);
     return SafeProcessResult(

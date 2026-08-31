@@ -85,7 +85,7 @@ final class _DiscoveryRunner extends ProcessRunner {
               '],"count":1}'
         : profileAvailable
         ? '{"profiles":['
-              '{"tool":"codex","name":"luis","type":"full","schemaVersion":2,"sizeBytes":1}'
+              '{"tool":"codex","name":"luis","type":"full","schemaVersion":2,"sizeBytes":1,"hasAuthFile":true}'
               '],"count":1}'
         : '{"profiles":[],"count":0}';
     final now = DateTime.utc(2026, 8, 24);

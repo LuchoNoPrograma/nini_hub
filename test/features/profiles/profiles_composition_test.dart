@@ -170,7 +170,7 @@ final class _NiniAgentsRunner extends ProcessRunner {
             .map(
               (profile) =>
                   '{"tool":"${profile.tool}","name":"${profile.name}",'
-                  '"type":"${profile.type}","schemaVersion":2,"sizeBytes":1}',
+                  '"type":"${profile.type}","schemaVersion":2,"sizeBytes":1,"hasAuthFile":true}',
             )
             .join(',');
         data = '{"profiles":[$items],"count":${profiles.length}}';

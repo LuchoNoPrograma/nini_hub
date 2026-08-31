@@ -60,6 +60,7 @@ void main() {
     expect(account.displayEmail, 'current@example.com');
     expect(account.isReady, isFalse);
     expect(account.needsAttention, isTrue);
+    expect(account.isUnlinked, isFalse);
   });
 
   test('usable current windows take precedence and clamp availability', () {

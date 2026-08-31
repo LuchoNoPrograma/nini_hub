@@ -45,8 +45,8 @@ void main() {
       runner.result = _result(
         stdout: _success('list', '''{
           "profiles":[
-            {"tool":"codex","name":"legacy","type":"full","schemaVersion":1,"sizeBytes":4},
-            {"tool":"codex","name":"work","type":"shared","schemaVersion":2,"sizeBytes":8}
+            {"tool":"codex","name":"legacy","type":"full","schemaVersion":1,"sizeBytes":4,"hasAuthFile":false},
+            {"tool":"codex","name":"work","type":"shared","schemaVersion":2,"sizeBytes":8,"hasAuthFile":true}
           ],
           "count":2
         }'''),
@@ -57,7 +57,9 @@ void main() {
       expect(profiles.command, 'list');
       expect(profiles.count, 2);
       expect(profiles.profiles.first.schemaVersion, 1);
+      expect(profiles.profiles.first.hasAuthFile, isFalse);
       expect(profiles.profiles.last.schemaVersion, 2);
+      expect(profiles.profiles.last.hasAuthFile, isTrue);
       expect(runner.calls.single.arguments, ['--json', 'list']);
       expect(runner.calls.single.environment, {
         'MULTICLI_HOME': '/synthetic/profiles',
@@ -70,7 +72,7 @@ void main() {
     runner.result = _result(
       stdout: _success('status', '''{
           "profiles":[
-            {"tool":"codex","name":"work","type":"full","schemaVersion":2,"sizeBytes":9}
+            {"tool":"codex","name":"work","type":"full","schemaVersion":2,"sizeBytes":9,"hasAuthFile":true}
           ],
           "count":1
         }'''),
@@ -80,6 +82,7 @@ void main() {
 
     expect(profiles.command, 'status');
     expect(profiles.profiles.single.tool, 'codex');
+    expect(profiles.profiles.single.hasAuthFile, isTrue);
     expect(runner.calls.single.arguments, ['--json', 'status', 'codex']);
     expect(runner.calls.single.recordActivity, isFalse);
   });
@@ -342,12 +345,18 @@ void main() {
           "profiles":[
             {"tool":"codex","name":"work","type":"full","schemaVersion":2,"sizeBytes":1}
           ],
+          "count":1
+        }'''),
+      _success('list', '''{
+          "profiles":[
+            {"tool":"codex","name":"work","type":"full","schemaVersion":2,"sizeBytes":1,"hasAuthFile":true}
+          ],
           "count":2
         }'''),
       _success('list', '''{
           "profiles":[
-            {"tool":"codex","name":"z","type":"full","schemaVersion":2,"sizeBytes":1},
-            {"tool":"codex","name":"a","type":"full","schemaVersion":2,"sizeBytes":1}
+            {"tool":"codex","name":"z","type":"full","schemaVersion":2,"sizeBytes":1,"hasAuthFile":true},
+            {"tool":"codex","name":"a","type":"full","schemaVersion":2,"sizeBytes":1,"hasAuthFile":false}
           ],
           "count":2
         }'''),
