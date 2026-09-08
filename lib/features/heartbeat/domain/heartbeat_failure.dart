@@ -40,7 +40,11 @@ final class HeartbeatUnsupportedProviderFailure implements Exception {
   String toString() => 'Heartbeat is not supported for $toolKey ($profileId)';
 }
 
-enum HeartbeatAppliedProgress { statePersisted, verificationPersisted }
+enum HeartbeatAppliedProgress {
+  statePersisted,
+  verificationPersisted,
+  usageRead,
+}
 
 final class HeartbeatAppliedFailure implements Exception {
   const HeartbeatAppliedFailure({

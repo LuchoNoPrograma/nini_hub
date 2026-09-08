@@ -215,13 +215,13 @@ void main() {
     );
 
     test(
-      'serial failure exposes completed results and applied profile cause',
+      'serial failure drains the queue and exposes the applied profile cause',
       () async {
         final fixture = _Fixture(
           profiles: [
             _profile(id: 'first'),
             _profile(id: 'failing'),
-            _profile(id: 'unreached'),
+            _profile(id: 'last'),
           ],
           failingActivityProfileId: 'failing',
         );
@@ -242,7 +242,7 @@ void main() {
         expect(thrown, isA<UsageBatchFailure>());
         final failure = thrown! as UsageBatchFailure;
         expect(failure.failedProfileId, 'failing');
-        expect(failure.completedByProfile.keys, ['first']);
+        expect(failure.completedByProfile.keys, ['first', 'last']);
         expect(
           failure.cause,
           isA<UsageRefreshAppliedFailure>().having(
@@ -254,12 +254,14 @@ void main() {
         expect((fixture.provider as _FakeProvider).profileIds, [
           'first',
           'failing',
+          'last',
         ]);
         expect(fixture.repository.saved.map((item) => item.profileId), [
           'first',
           'failing',
+          'last',
         ]);
-        expect(progress, ['first']);
+        expect(progress, ['first', 'last']);
         expect(failures.keys, ['failing']);
         expect(failures['failing'], isA<UsageRefreshAppliedFailure>());
         expect(
@@ -268,6 +270,37 @@ void main() {
         );
       },
     );
+
+    test('concurrent failures do not strand profiles in the queue', () async {
+      final provider = _SelectiveFailureProvider(
+        _snapshot(),
+        failingProfileIds: {'first-failure', 'second-failure'},
+      );
+      final fixture = _Fixture(
+        profiles: [
+          _profile(id: 'first-failure'),
+          _profile(id: 'second-failure'),
+          _profile(id: 'last'),
+        ],
+        provider: provider,
+      );
+      final started = <String>[];
+      final failures = <String>[];
+
+      await expectLater(
+        fixture.refreshAll(
+          concurrency: 2,
+          onStarted: started.add,
+          onFailure: (profileId, _) => failures.add(profileId),
+        ),
+        throwsA(isA<UsageBatchFailure>()),
+      );
+
+      expect(started.toSet(), {'first-failure', 'second-failure', 'last'});
+      expect(provider.profileIds.toSet(), started.toSet());
+      expect(failures.toSet(), {'first-failure', 'second-failure'});
+      expect(fixture.repository.saved.map((item) => item.profileId), ['last']);
+    });
 
     test('empty eligible set returns without provider effects', () async {
       final fixture = _Fixture(
@@ -387,6 +420,24 @@ final class _GatedProvider extends _FakeProvider {
     } finally {
       active--;
     }
+  }
+}
+
+final class _SelectiveFailureProvider extends _FakeProvider {
+  _SelectiveFailureProvider(
+    UsageSnapshot snapshot, {
+    required this.failingProfileIds,
+  }) : super(<String>[], snapshot);
+
+  final Set<String> failingProfileIds;
+
+  @override
+  Future<UsageSnapshot> refresh(Profile profile) async {
+    profileIds.add(profile.id);
+    if (failingProfileIds.contains(profile.id)) {
+      throw StateError('provider failed for ${profile.id}');
+    }
+    return snapshot;
   }
 }
 

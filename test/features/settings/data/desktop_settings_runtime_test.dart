@@ -14,6 +14,7 @@ void main() {
     final timeoutValues = <int>[];
     final enabledValues = <bool>[];
     final runtime = DesktopSettingsRuntime(
+      heartbeatScheduleSetter: (_) {},
       discovery: _RecordingDiscovery(database, const []),
       requestTimeoutSetter: timeoutValues.add,
       weeklyKeepAliveEnabledSetter: enabledValues.add,
@@ -38,6 +39,7 @@ void main() {
     var accountsReloads = 0;
     var monitoredIds = <String>[];
     final runtime = DesktopSettingsRuntime(
+      heartbeatScheduleSetter: (_) {},
       discovery: discovery,
       requestTimeoutSetter: (_) {},
       weeklyKeepAliveEnabledSetter: (_) {},

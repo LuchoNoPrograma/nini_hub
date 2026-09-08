@@ -10,8 +10,19 @@ import 'package:nini_hub/features/accounts/domain/account_device_auth.dart';
 import 'package:nini_hub/features/accounts/presentation/controllers/accounts_controller.dart';
 import 'package:nini_hub/features/accounts/presentation/state/accounts_state.dart';
 import 'package:nini_hub/features/profiles/domain/profile_provider.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
+
+String accountProfileConfigurationLabel(Profile profile) {
+  if (profile.source == ProfileSource.defaultProfile) return 'Perfil principal';
+  return switch (profile.kind) {
+    ProfileKind.shared => 'Configuración compartida',
+    ProfileKind.full || ProfileKind.isolated => 'Configuración propia',
+    ProfileKind.deactivated => 'Perfil desactivado',
+    ProfileKind.base || ProfileKind.cli => 'Perfil de herramienta',
+  };
+}
 
 Future<void> showEditAccountDialog(
   BuildContext context,
@@ -59,15 +70,116 @@ Future<bool> showCodexHeartbeatConfirmation(
     ) ??
     false;
 
+Future<AccountAuthMethod?> showAccountAuthMethodDialog(
+  BuildContext context, {
+  String title = 'Vincular con ChatGPT',
+}) {
+  return showDialog<AccountAuthMethod>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(title),
+      scrollable: true,
+      content: SizedBox(
+        width: 440,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'Elige cómo iniciar sesión en la página oficial de OpenAI.',
+            ),
+            const SizedBox(height: 20),
+            FilledButton.icon(
+              onPressed: () =>
+                  Navigator.pop(context, AccountAuthMethod.browser),
+              icon: const Icon(Icons.open_in_browser),
+              label: const Text('Continuar en el navegador'),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () =>
+                  Navigator.pop(context, AccountAuthMethod.deviceCode),
+              icon: const Icon(Icons.phonelink_lock_outlined),
+              label: const Text('Usar código de dispositivo'),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+      ],
+    ),
+  );
+}
+
+Future<bool> showPendingAccountAuthDialog(
+  BuildContext context,
+  Profile profile,
+  AccountDeviceAuthSession session,
+  AccountAuthMethod method,
+) async {
+  final completion = Completer<Object?>();
+  final route = showDialog<Object>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => _DeviceAuthDialog(
+      account: Account(
+        profile: profile,
+        metadata: null,
+        costShares: const [],
+        currentCheck: null,
+        currentWindows: const [],
+        lastSuccessfulCheck: null,
+        lastSuccessfulWindows: const [],
+        resetCredits: null,
+      ),
+      session: session,
+      browser: method == AccountAuthMethod.browser,
+      isNewProfile: true,
+      externallyOwnedSession: true,
+      onDisposed: () {
+        if (!completion.isCompleted) completion.complete(false);
+      },
+      complete: (_, _) async {},
+    ),
+  );
+  unawaited(
+    route.then(
+      (value) {
+        if (!completion.isCompleted) completion.complete(value);
+      },
+      onError: (Object error, StackTrace stack) {
+        if (!completion.isCompleted) completion.complete(error);
+      },
+    ),
+  );
+  final result = await completion.future;
+  if (result == null || result == false) return false;
+  if (result == true) return true;
+  throw result;
+}
+
 Future<void> showDeviceAuthDialog(
   BuildContext context,
   Account account, {
   required Future<AccountDeviceAuthSession> Function(Account account) start,
+  Future<AccountDeviceAuthSession> Function(Account account)? startBrowser,
   required Future<void> Function(Account account, bool success) complete,
+  AccountAuthMethod? method,
+  bool isNewProfile = false,
 }) async {
+  var browser = method == AccountAuthMethod.browser;
+  if (method == null && startBrowser != null) {
+    method = await showAccountAuthMethodDialog(context);
+    if (method == null || !context.mounted) return;
+    browser = method == AccountAuthMethod.browser;
+  }
   AccountDeviceAuthSession session;
   try {
-    session = await start(account);
+    session = await (browser ? startBrowser! : start)(account);
   } catch (error) {
     if (!context.mounted) return;
     ScaffoldMessenger.of(
@@ -85,6 +197,8 @@ Future<void> showDeviceAuthDialog(
     builder: (_) => _DeviceAuthDialog(
       account: account,
       session: session,
+      browser: browser,
+      isNewProfile: isNewProfile,
       complete: complete,
     ),
   );
@@ -105,15 +219,30 @@ class _EditAccountDialog extends StatefulWidget {
   State<_EditAccountDialog> createState() => _EditAccountDialogState();
 }
 
-class _EditAccountDialogState extends State<_EditAccountDialog> {
+class _EditAccountDialogState extends State<_EditAccountDialog>
+    with SingleTickerProviderStateMixin {
+  late final TabController sections = TabController(length: 3, vsync: this);
   final formKey = GlobalKey<FormState>();
-  late final displayName = TextEditingController(
-    text: widget.account.profile.displayName,
-  );
+  final _fieldKeys = <TextEditingController, GlobalKey>{};
+  final _fieldFocus = <TextEditingController, FocusNode>{};
+  final _fieldErrors = <TextEditingController, String>{};
+  String get _accountLabel =>
+      widget.account.profile.source == ProfileSource.defaultProfile &&
+          const [
+            'main',
+            'principal',
+            'codex principal',
+            'codex main',
+          ].contains(widget.account.profile.displayName.trim().toLowerCase())
+      ? 'Perfil principal'
+      : widget.account.profile.displayName;
+  late final displayName = TextEditingController(text: _accountLabel);
   late final accountName = TextEditingController(
     text: widget.account.metadata?.accountDisplayName ?? '',
   );
-  late final plan = TextEditingController(text: widget.account.displayPlan);
+  late final plan = TextEditingController(
+    text: widget.account.metadata?.planName ?? '',
+  );
   late final notes = TextEditingController(
     text: widget.account.metadata?.notes ?? '',
   );
@@ -149,6 +278,16 @@ class _EditAccountDialogState extends State<_EditAccountDialog> {
   bool saving = false;
   String? error;
 
+  @override
+  void initState() {
+    super.initState();
+    sections.addListener(_sectionChanged);
+  }
+
+  void _sectionChanged() {
+    if (mounted) setState(() {});
+  }
+
   List<TextEditingController> get _controllers => [
     displayName,
     accountName,
@@ -161,6 +300,10 @@ class _EditAccountDialogState extends State<_EditAccountDialog> {
 
   @override
   void dispose() {
+    sections.dispose();
+    for (final focus in _fieldFocus.values) {
+      focus.dispose();
+    }
     for (final controller in _controllers) {
       controller.dispose();
     }
@@ -181,7 +324,7 @@ class _EditAccountDialogState extends State<_EditAccountDialog> {
       cancelText: 'Cancelar',
       confirmText: 'Aceptar',
     );
-    if (selected == null) return;
+    if (selected == null || !mounted) return;
     setState(() {
       if (renewal) {
         renewalOn = selected;
@@ -197,11 +340,60 @@ class _EditAccountDialogState extends State<_EditAccountDialog> {
       builder: (_) => _CurrencyPickerDialog(selectedCode: currencyCode),
     );
     if (selected == null || !mounted) return;
-    setState(() => currencyCode = selected.code);
+    setState(() {
+      currencyCode = selected.code;
+      _fieldErrors.clear();
+      error = null;
+    });
   }
 
   Future<void> submit() async {
+    if (saving) return;
+    if (displayName.text.trim().isEmpty) {
+      await _revealError(
+        0,
+        displayName,
+        'Escribe un nombre para identificar esta cuenta.',
+      );
+      return;
+    }
+    final moneyError = _validateMoney(amount.text, currencyCode);
+    if (moneyError != null) {
+      await _revealError(
+        1,
+        amount,
+        moneyError,
+        summary: 'Precio por renovación: $moneyError',
+      );
+      return;
+    }
+    for (final share in shares) {
+      if (share.name.text.trim().isEmpty &&
+          (share.expected.text.trim().isNotEmpty ||
+              share.paid.text.trim().isNotEmpty)) {
+        await _revealError(
+          2,
+          share.name,
+          'Escribe el nombre de la persona para registrar su pago.',
+        );
+        return;
+      }
+      if (share.name.text.trim().isEmpty) continue;
+      for (final field in [share.expected, share.paid]) {
+        final invalidAmount = _validateMoney(field.text, currencyCode);
+        if (invalidAmount != null) {
+          await _revealError(
+            2,
+            field,
+            invalidAmount,
+            summary: '${share.name.text}: $invalidAmount',
+          );
+          return;
+        }
+      }
+    }
     if (!formKey.currentState!.validate()) return;
+    FocusScope.of(context).unfocus();
     setState(() {
       saving = true;
       error = null;
@@ -230,7 +422,14 @@ class _EditAccountDialogState extends State<_EditAccountDialog> {
         ),
       );
       if (updated != null) {
-        if (mounted) Navigator.pop(context);
+        if (mounted) {
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Datos de la cuenta guardados en Nini Hub.'),
+            ),
+          );
+        }
         return;
       }
       if (mounted) {
@@ -247,470 +446,611 @@ class _EditAccountDialogState extends State<_EditAccountDialog> {
     }
   }
 
+  Future<void> _revealError(
+    int tab,
+    TextEditingController field,
+    String message, {
+    String? summary,
+  }) async {
+    setState(() {
+      error = summary ?? message;
+      _fieldErrors[field] = message;
+      sections.index = tab;
+    });
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+    _fieldFocus[field]?.requestFocus();
+    final fieldContext = _fieldKeys[field]?.currentContext;
+    if (fieldContext != null && fieldContext.mounted) {
+      await Scrollable.ensureVisible(
+        fieldContext,
+        alignment: .3,
+        duration: const Duration(milliseconds: 180),
+      );
+    }
+  }
+
+  Widget _field(
+    TextEditingController controller, {
+    required String label,
+    String? helper,
+    String? hint,
+    bool money = false,
+    int? minLines,
+    int? maxLines = 1,
+  }) => TextFormField(
+    key: _fieldKeys.putIfAbsent(controller, GlobalKey.new),
+    focusNode: _fieldFocus.putIfAbsent(controller, FocusNode.new),
+    controller: controller,
+    enabled: !saving,
+    minLines: minLines,
+    maxLines: maxLines,
+    textInputAction: maxLines == 1
+        ? TextInputAction.next
+        : TextInputAction.newline,
+    keyboardType: money
+        ? const TextInputType.numberWithOptions(decimal: true)
+        : null,
+    inputFormatters: money
+        ? [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))]
+        : null,
+    decoration: InputDecoration(
+      labelText: label,
+      helperText: helper,
+      hintText: hint,
+      suffixText: money ? currencyCode : null,
+      errorText: _fieldErrors[controller],
+    ),
+    onChanged: (_) {
+      if (_fieldErrors.containsKey(controller) || error != null) {
+        setState(() {
+          _fieldErrors.remove(controller);
+          error = null;
+        });
+      }
+    },
+  );
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final availableHeight = MediaQuery.sizeOf(context).height - 160;
-    final dialogHeight = availableHeight.clamp(340.0, 440.0);
-    return DefaultTabController(
-      length: 3,
-      child: AlertDialog(
-        titlePadding: const EdgeInsets.fromLTRB(20, 16, 10, 0),
-        title: Row(
-          children: [
-            Expanded(
-              child: Text(
-                'Editar perfil "${widget.account.profile.displayName}"',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+    final provider = profileProvider(widget.account.profile.toolKey);
+    return PopScope(
+      canPop: !saving,
+      child: Dialog(
+        insetPadding: const EdgeInsets.all(24),
+        clipBehavior: Clip.antiAlias,
+        child: SizedBox(
+          width: 760,
+          height: (MediaQuery.sizeOf(context).height - 48).clamp(0.0, 560.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 12, 12),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Datos de la cuenta',
+                            style: theme.textTheme.titleLarge,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${provider.displayName} · $_accountLabel',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Cerrar',
+                      onPressed: saving ? null : () => Navigator.pop(context),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            IconButton(
-              tooltip: 'Cerrar',
-              onPressed: saving ? null : () => Navigator.pop(context),
-              icon: const Icon(Icons.close),
-            ),
-          ],
-        ),
-        contentPadding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
-        content: SizedBox(
-          width: 700,
-          height: dialogHeight,
-          child: Form(
-            key: formKey,
-            child: Column(
-              children: [
-                const TabBar(
-                  tabs: [
+              AbsorbPointer(
+                absorbing: saving,
+                child: TabBar(
+                  controller: sections,
+                  onTap: (_) => FocusScope.of(context).unfocus(),
+                  tabs: const [
                     Tab(
-                      height: 38,
+                      height: 40,
                       child: _DialogTab(
                         icon: Icons.person_outline,
                         label: 'Cuenta',
                       ),
                     ),
                     Tab(
-                      height: 38,
+                      height: 40,
                       child: _DialogTab(
                         icon: Icons.event_repeat,
-                        label: 'Renovación',
+                        label: 'Suscripción',
                       ),
                     ),
                     Tab(
-                      height: 38,
+                      height: 40,
                       child: _DialogTab(
                         icon: Icons.group_outlined,
-                        label: 'Pagos',
+                        label: 'Pagos compartidos',
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 12),
-                Expanded(
-                  child: TabBarView(
-                    children: [
-                      _accountTab(theme),
-                      _subscriptionTab(theme),
-                      _sharesTab(theme),
-                    ],
-                  ),
-                ),
-                if (error != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        error!,
-                        style: TextStyle(color: theme.colorScheme.error),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: saving ? null : () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton.icon(
-            onPressed: saving ? null : submit,
-            icon: saving
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.save_outlined, size: 18),
-            label: const Text('Guardar cambios'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _accountTab(ThemeData theme) => ListView(
-    padding: const EdgeInsets.fromLTRB(0, 9, 0, 4),
-    children: [
-      Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: TextFormField(
-              controller: displayName,
-              decoration: const InputDecoration(labelText: 'Nombre visible'),
-              validator: (value) =>
-                  value?.trim().isEmpty == true ? 'Escribe un nombre.' : null,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: TextFormField(
-              initialValue: widget.account.profile.commandName ?? 'codex',
-              readOnly: true,
-              decoration: const InputDecoration(
-                labelText: 'Comando',
-                prefixIcon: Icon(Icons.terminal, size: 18),
               ),
-            ),
-          ),
-        ],
-      ),
-      const SizedBox(height: 14),
-      Row(
-        children: [
-          Expanded(
-            child: TextFormField(
-              initialValue: widget.account.displayEmail,
-              readOnly: true,
-              decoration: const InputDecoration(
-                labelText: 'Correo reconocido',
-                helperText: 'Codex lo actualiza al consultar esta cuenta.',
-                prefixIcon: Icon(Icons.lock_outline, size: 18),
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: TextFormField(
-              controller: accountName,
-              decoration: const InputDecoration(
-                labelText: 'Usuario o propietario',
-              ),
-            ),
-          ),
-        ],
-      ),
-      const SizedBox(height: 14),
-      TextFormField(
-        controller: plan,
-        decoration: InputDecoration(
-          labelText: 'Plan declarado',
-          helperText:
-              'Se muestra aparte del plan observado por ${profileProvider(widget.account.profile.toolKey).productName}.',
-        ),
-      ),
-      const SizedBox(height: 14),
-      TextFormField(
-        controller: notes,
-        minLines: 4,
-        maxLines: 6,
-        decoration: const InputDecoration(labelText: 'Notas'),
-      ),
-      const SizedBox(height: 8),
-      SwitchListTile.adaptive(
-        contentPadding: EdgeInsets.zero,
-        value: favorite,
-        onChanged: (value) => setState(() => favorite = value),
-        title: const Text('Fijar como favorita'),
-        secondary: Icon(Icons.star_outline, color: theme.colorScheme.tertiary),
-      ),
-    ],
-  );
-
-  Widget _subscriptionTab(ThemeData theme) => ListView(
-    padding: const EdgeInsets.fromLTRB(0, 9, 0, 4),
-    children: [
-      Row(
-        children: [
-          Expanded(
-            child: _DateButton(
-              fieldKey: const Key('purchase-date-field'),
-              label: 'Fecha de compra',
-              value: purchasedOn,
-              onTap: () => _pickDate(renewal: false),
-              onClear: () => setState(() => purchasedOn = null),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _DateButton(
-              fieldKey: const Key('next-renewal-date-field'),
-              label: 'Fecha de próxima renovación',
-              value: renewalOn,
-              onTap: () => _pickDate(renewal: true),
-              onClear: () => setState(() => renewalOn = null),
-            ),
-          ),
-        ],
-      ),
-      const SizedBox(height: 14),
-      Row(
-        children: [
-          Expanded(
-            child: DropdownButtonFormField<String>(
-              initialValue: interval,
-              decoration: const InputDecoration(
-                labelText: 'Ciclo de facturación',
-              ),
-              items: const [
-                DropdownMenuItem(value: 'monthly', child: Text('Mensual')),
-                DropdownMenuItem(value: 'yearly', child: Text('Anual')),
-                DropdownMenuItem(value: 'one_time', child: Text('Pago único')),
-                DropdownMenuItem(value: 'unknown', child: Text('Sin definir')),
-              ],
-              onChanged: (value) =>
-                  setState(() => interval = value ?? 'monthly'),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: DropdownButtonFormField<String>(
-              initialValue: subscriptionStatus,
-              decoration: InputDecoration(
-                labelText: 'Estado de la suscripción',
-                helperText: _subscriptionStatusDescription(subscriptionStatus),
-              ),
-              items: const [
-                DropdownMenuItem(value: 'active', child: Text('Activa')),
-                DropdownMenuItem(
-                  value: 'trial',
-                  child: Text('En periodo de prueba'),
-                ),
-                DropdownMenuItem(value: 'paused', child: Text('Pausada')),
-                DropdownMenuItem(value: 'cancelled', child: Text('Cancelada')),
-                DropdownMenuItem(value: 'expired', child: Text('Vencida')),
-              ],
-              onChanged: (value) {
-                setState(() {
-                  subscriptionStatus = value ?? 'active';
-                  if (subscriptionStatus == 'cancelled' ||
-                      subscriptionStatus == 'expired') {
-                    autoRenew = false;
-                  }
-                });
-              },
-            ),
-          ),
-        ],
-      ),
-      const SizedBox(height: 14),
-      Row(
-        children: [
-          Expanded(
-            flex: 2,
-            child: TextFormField(
-              controller: amount,
-              decoration: InputDecoration(
-                labelText: 'Precio por renovación',
-                helperText: 'Total que esperas pagar en cada cobro.',
-                suffixText: currencyCode,
-              ),
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
-              ],
-              validator: (value) => _validateMoney(value, currencyCode),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _CurrencyField(
-              fieldKey: const Key('currency-field'),
-              value: currencyByCode(currencyCode),
-              onTap: _pickCurrency,
-            ),
-          ),
-        ],
-      ),
-      const SizedBox(height: 14),
-      Row(
-        children: [
-          Expanded(
-            child: TextFormField(
-              controller: purchasedFrom,
-              decoration: const InputDecoration(
-                labelText: 'Tienda o canal de compra',
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: TextFormField(
-              controller: paymentMethod,
-              decoration: const InputDecoration(labelText: 'Método de pago'),
-            ),
-          ),
-        ],
-      ),
-      const SizedBox(height: 8),
-      SwitchListTile.adaptive(
-        contentPadding: EdgeInsets.zero,
-        value: autoRenew,
-        onChanged:
-            subscriptionStatus == 'cancelled' || subscriptionStatus == 'expired'
-            ? null
-            : (value) => setState(() => autoRenew = value),
-        title: const Text('Se renueva automáticamente'),
-        subtitle: Text(
-          subscriptionStatus == 'cancelled' || subscriptionStatus == 'expired'
-              ? 'No aplica a una suscripción cancelada o vencida.'
-              : 'Dato administrativo; no cambia la suscripción real.',
-        ),
-        secondary: Icon(Icons.autorenew, color: theme.colorScheme.primary),
-      ),
-    ],
-  );
-
-  Widget _sharesTab(ThemeData theme) => Column(
-    children: [
-      Row(
-        children: [
-          Expanded(
-            child: Text(
-              'Registra quién participa del costo y qué monto pagó.',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-          TextButton.icon(
-            onPressed: () => setState(() => shares.add(_ShareEditor.empty())),
-            icon: const Icon(Icons.person_add_alt, size: 18),
-            label: const Text('Agregar persona'),
-          ),
-        ],
-      ),
-      const SizedBox(height: 10),
-      Expanded(
-        child: shares.isEmpty
-            ? Center(
-                child: Text(
-                  'No hay participantes registrados.',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              )
-            : ListView.separated(
-                itemCount: shares.length,
-                separatorBuilder: (_, _) => const SizedBox(height: 10),
-                itemBuilder: (context, index) {
-                  final share = shares[index];
-                  return Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: theme.colorScheme.outline),
-                      borderRadius: BorderRadius.circular(7),
-                    ),
-                    child: Column(
+              Expanded(
+                child: AbsorbPointer(
+                  absorbing: saving,
+                  child: Form(
+                    key: formKey,
+                    // Keep all fields mounted so a validation error can focus
+                    // and reveal any participant, including in another tab.
+                    child: IndexedStack(
+                      index: sections.index,
                       children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              flex: 3,
-                              child: TextFormField(
-                                controller: share.name,
-                                decoration: const InputDecoration(
-                                  labelText: 'Persona',
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: TextFormField(
-                                controller: share.expected,
-                                decoration: const InputDecoration(
-                                  labelText: 'Debe',
-                                ),
-                                inputFormatters: [
-                                  FilteringTextInputFormatter.allow(
-                                    RegExp(r'[0-9.,]'),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: TextFormField(
-                                controller: share.paid,
-                                decoration: const InputDecoration(
-                                  labelText: 'Pagó',
-                                ),
-                                inputFormatters: [
-                                  FilteringTextInputFormatter.allow(
-                                    RegExp(r'[0-9.,]'),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            SizedBox(
-                              width: 135,
-                              child: DropdownButtonFormField<String>(
-                                initialValue: share.status,
-                                decoration: const InputDecoration(
-                                  labelText: 'Estado',
-                                ),
-                                items: const [
-                                  DropdownMenuItem(
-                                    value: 'pending',
-                                    child: Text('Pendiente'),
-                                  ),
-                                  DropdownMenuItem(
-                                    value: 'partial',
-                                    child: Text('Parcial'),
-                                  ),
-                                  DropdownMenuItem(
-                                    value: 'paid',
-                                    child: Text('Pagado'),
-                                  ),
-                                ],
-                                onChanged: (value) =>
-                                    share.status = value ?? 'pending',
-                              ),
-                            ),
-                            IconButton(
-                              tooltip: 'Quitar persona',
-                              onPressed: () {
-                                setState(() {
-                                  shares.removeAt(index);
-                                  share.dispose();
-                                });
-                              },
-                              icon: const Icon(Icons.close, size: 18),
-                            ),
-                          ],
+                        _accountTab(theme),
+                        _subscriptionTab(theme),
+                        _sharesTab(theme),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              Divider(height: 1, color: theme.colorScheme.outlineVariant),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (error != null) ...[
+                      Semantics(
+                        liveRegion: true,
+                        child: Text(
+                          error!,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.error,
+                          ),
                         ),
-                        const SizedBox(height: 10),
-                        TextFormField(
-                          controller: share.notes,
-                          decoration: const InputDecoration(
-                            labelText: 'Nota del pago',
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Solo se guarda en Nini Hub.\nNo cambia tu cuenta ni tus cobros.',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        TextButton(
+                          onPressed: saving
+                              ? null
+                              : () => Navigator.pop(context),
+                          child: const Text('Cancelar'),
+                        ),
+                        const SizedBox(width: 8),
+                        FilledButton.icon(
+                          onPressed: saving ? null : submit,
+                          icon: saving
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.check, size: 18),
+                          label: Text(
+                            saving ? 'Guardando…' : 'Guardar cambios',
                           ),
                         ),
                       ],
                     ),
-                  );
-                },
+                  ],
+                ),
               ),
+            ],
+          ),
+        ),
       ),
-    ],
+    );
+  }
+
+  Widget _accountTab(ThemeData theme) => SingleChildScrollView(
+    primary: false,
+    padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surfaceContainer,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                Icons.lock_outline,
+                size: 16,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SelectableText(
+                      widget.account.displayEmail.isEmpty
+                          ? 'Correo aún no reconocido'
+                          : widget.account.displayEmail,
+                      key: const ValueKey('account-observed-email'),
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${accountProfileConfigurationLabel(widget.account.profile)} · Plan detectado: ${widget.account.observedPlan.isEmpty ? 'sin información' : widget.account.observedPlan}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Información de consulta; se actualiza al consultar la cuenta.',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+        _FormColumns(
+          first: _field(
+            displayName,
+            label: 'Nombre en Nini Hub *',
+            hint: 'Por ejemplo, Cuenta de trabajo',
+          ),
+          second: _field(accountName, label: 'Propietario (opcional)'),
+        ),
+        const SizedBox(height: 16),
+        _field(
+          plan,
+          label: 'Nombre del plan (opcional)',
+          hint: widget.account.observedPlan,
+          helper: 'Déjalo vacío para mostrar el plan detectado.',
+        ),
+        const SizedBox(height: 16),
+        _field(notes, label: 'Notas (opcional)', minLines: 2, maxLines: 4),
+        const SizedBox(height: 8),
+        CheckboxListTile(
+          contentPadding: EdgeInsets.zero,
+          controlAffinity: ListTileControlAffinity.leading,
+          dense: true,
+          value: favorite,
+          onChanged: saving
+              ? null
+              : (value) => setState(() => favorite = value ?? false),
+          title: Text('Fijar como favorita', style: theme.textTheme.bodyMedium),
+        ),
+      ],
+    ),
   );
+
+  Widget _subscriptionTab(ThemeData theme) => SingleChildScrollView(
+    primary: false,
+    padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _FormColumns(
+          first: _field(amount, label: 'Precio por renovación', money: true),
+          second: _CurrencyField(
+            fieldKey: const Key('currency-field'),
+            value: currencyByCode(currencyCode),
+            onTap: _pickCurrency,
+          ),
+        ),
+        const SizedBox(height: 16),
+        _FormColumns(
+          first: DropdownButtonFormField<String>(
+            initialValue: interval,
+            isExpanded: true,
+            decoration: const InputDecoration(
+              labelText: 'Ciclo de facturación',
+            ),
+            items: const [
+              DropdownMenuItem(value: 'monthly', child: Text('Mensual')),
+              DropdownMenuItem(value: 'yearly', child: Text('Anual')),
+              DropdownMenuItem(value: 'one_time', child: Text('Pago único')),
+              DropdownMenuItem(value: 'unknown', child: Text('Sin definir')),
+            ],
+            onChanged: saving
+                ? null
+                : (value) => setState(() => interval = value ?? 'monthly'),
+          ),
+          second: DropdownButtonFormField<String>(
+            initialValue: subscriptionStatus,
+            isExpanded: true,
+            decoration: InputDecoration(
+              labelText: 'Estado de la suscripción',
+              helperText: _subscriptionStatusDescription(subscriptionStatus),
+            ),
+            items: const [
+              DropdownMenuItem(value: 'active', child: Text('Activa')),
+              DropdownMenuItem(
+                value: 'trial',
+                child: Text('En periodo de prueba'),
+              ),
+              DropdownMenuItem(value: 'paused', child: Text('Pausada')),
+              DropdownMenuItem(value: 'cancelled', child: Text('Cancelada')),
+              DropdownMenuItem(value: 'expired', child: Text('Vencida')),
+            ],
+            onChanged: saving
+                ? null
+                : (value) => setState(() {
+                    subscriptionStatus = value ?? 'active';
+                    if (subscriptionStatus == 'cancelled' ||
+                        subscriptionStatus == 'expired') {
+                      autoRenew = false;
+                    }
+                  }),
+          ),
+        ),
+        const SizedBox(height: 16),
+        _FormColumns(
+          first: _DateButton(
+            fieldKey: const Key('purchase-date-field'),
+            label: 'Fecha de compra',
+            value: purchasedOn,
+            onTap: () => _pickDate(renewal: false),
+            onClear: () => setState(() => purchasedOn = null),
+          ),
+          second: _DateButton(
+            fieldKey: const Key('next-renewal-date-field'),
+            label: 'Fecha de próxima renovación',
+            value: renewalOn,
+            onTap: () => _pickDate(renewal: true),
+            onClear: () => setState(() => renewalOn = null),
+          ),
+        ),
+        const SizedBox(height: 8),
+        SwitchListTile.adaptive(
+          contentPadding: EdgeInsets.zero,
+          value: autoRenew,
+          onChanged:
+              saving ||
+                  subscriptionStatus == 'cancelled' ||
+                  subscriptionStatus == 'expired'
+              ? null
+              : (value) => setState(() => autoRenew = value),
+          title: Text(
+            'Se renueva automáticamente',
+            style: theme.textTheme.bodyMedium,
+          ),
+          subtitle: Text(
+            subscriptionStatus == 'cancelled' || subscriptionStatus == 'expired'
+                ? 'No aplica a una suscripción cancelada o vencida.'
+                : 'Registra aquí cómo se renueva tu suscripción.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+        const Divider(height: 28),
+        Text('Datos de compra (opcionales)', style: theme.textTheme.titleSmall),
+        const SizedBox(height: 12),
+        _FormColumns(
+          first: _field(purchasedFrom, label: 'Tienda o canal de compra'),
+          second: _field(paymentMethod, label: 'Método de pago'),
+        ),
+      ],
+    ),
+  );
+
+  void _addShare() {
+    final share = _ShareEditor.empty();
+    setState(() => shares.add(share));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _fieldFocus[share.name]?.requestFocus();
+      final fieldContext = _fieldKeys[share.name]?.currentContext;
+      if (fieldContext != null) {
+        unawaited(
+          Scrollable.ensureVisible(
+            fieldContext,
+            alignment: .1,
+            duration: const Duration(milliseconds: 180),
+          ),
+        );
+      }
+    });
+  }
+
+  Widget _sharesTab(ThemeData theme) => SingleChildScrollView(
+    primary: false,
+    padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Reparte el costo y registra los pagos en $currencyCode.',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 12),
+        if (shares.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 28),
+            child: Column(
+              children: [
+                Icon(
+                  Icons.group_outlined,
+                  size: 28,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  '¿Compartes el costo de esta cuenta?',
+                  style: theme.textTheme.titleMedium,
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Agrega a cada persona y registra cuánto aporta y cuánto pagó.',
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: saving ? null : _addShare,
+                  icon: const Icon(Icons.person_add_alt, size: 16),
+                  label: const Text('Agregar persona'),
+                ),
+              ],
+            ),
+          )
+        else ...[
+          for (var index = 0; index < shares.length; index++) ...[
+            _shareFields(theme, shares[index], index),
+            const SizedBox(height: 16),
+          ],
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: saving ? null : _addShare,
+              icon: const Icon(Icons.person_add_alt, size: 16),
+              label: const Text('Agregar persona'),
+            ),
+          ),
+        ],
+      ],
+    ),
+  );
+
+  Widget _shareFields(ThemeData theme, _ShareEditor share, int index) =>
+      Container(
+        key: ValueKey(share.id),
+        padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+        decoration: BoxDecoration(
+          border: Border.all(color: theme.colorScheme.outlineVariant),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Participante ${index + 1}',
+                    style: theme.textTheme.titleSmall,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Quitar persona',
+                  icon: const Icon(Icons.close, size: 16),
+                  onPressed: saving
+                      ? null
+                      : () {
+                          FocusScope.of(context).unfocus();
+                          setState(() {
+                            shares.remove(share);
+                            for (final field in [
+                              share.name,
+                              share.expected,
+                              share.paid,
+                              share.notes,
+                            ]) {
+                              _fieldErrors.remove(field);
+                            }
+                            error = null;
+                          });
+                          share.dispose();
+                        },
+                ),
+              ],
+            ),
+            _field(share.name, label: 'Persona'),
+            const SizedBox(height: 16),
+            _FormColumns(
+              first: _field(
+                share.expected,
+                label: 'Aporte acordado',
+                money: true,
+              ),
+              second: _field(share.paid, label: 'Importe pagado', money: true),
+            ),
+            const SizedBox(height: 16),
+            _FormColumns(
+              first: DropdownButtonFormField<String>(
+                initialValue: share.status,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Estado del pago'),
+                items: const [
+                  DropdownMenuItem(value: 'pending', child: Text('Pendiente')),
+                  DropdownMenuItem(value: 'partial', child: Text('Parcial')),
+                  DropdownMenuItem(value: 'paid', child: Text('Pagado')),
+                ],
+                onChanged: saving
+                    ? null
+                    : (value) =>
+                          setState(() => share.status = value ?? 'pending'),
+              ),
+              second: _field(share.notes, label: 'Nota del pago (opcional)'),
+            ),
+          ],
+        ),
+      );
+}
+
+class _FormColumns extends StatelessWidget {
+  const _FormColumns({required this.first, required this.second});
+  final Widget first;
+  final Widget second;
+
+  @override
+  Widget build(BuildContext context) {
+    final fontSize = Theme.of(context).textTheme.bodyLarge!.fontSize!;
+    final textScale = (MediaQuery.textScalerOf(context).scale(fontSize) / 13)
+        .clamp(1.0, 2.0);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 560 * textScale) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [first, const SizedBox(height: 16), second],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: first),
+            const SizedBox(width: 16),
+            Expanded(child: second),
+          ],
+        );
+      },
+    );
+  }
 }
 
 class _DialogTab extends StatelessWidget {
@@ -963,11 +1303,19 @@ class _DeviceAuthDialog extends StatefulWidget {
   const _DeviceAuthDialog({
     required this.account,
     required this.session,
+    this.browser = false,
+    this.isNewProfile = false,
+    this.externallyOwnedSession = false,
+    this.onDisposed,
     required this.complete,
   });
 
   final Account account;
   final AccountDeviceAuthSession session;
+  final bool browser;
+  final bool isNewProfile;
+  final bool externallyOwnedSession;
+  final VoidCallback? onDisposed;
   final Future<void> Function(Account account, bool success) complete;
 
   @override
@@ -976,6 +1324,7 @@ class _DeviceAuthDialog extends StatefulWidget {
 
 class _DeviceAuthDialogState extends State<_DeviceAuthDialog> {
   bool waiting = true;
+  bool confirmed = false;
   bool closing = false;
   String? error;
 
@@ -989,6 +1338,7 @@ class _DeviceAuthDialogState extends State<_DeviceAuthDialog> {
   }
 
   Future<void> _openBrowser() async {
+    if (!mounted || closing || confirmed) return;
     try {
       await launchUrl(
         Uri.parse(widget.session.verificationUrl),
@@ -1010,10 +1360,14 @@ class _DeviceAuthDialogState extends State<_DeviceAuthDialog> {
   Future<void> _wait() async {
     try {
       final success = await widget.session.waitForCompletion();
+      if (!mounted || closing) return;
+      if (success) setState(() => confirmed = true);
       await widget.complete(widget.account, success);
-      if (!mounted) return;
+      if (!mounted || closing) return;
       if (success) {
-        Navigator.pop(context);
+        Navigator.pop(context, widget.externallyOwnedSession ? true : null);
+      } else if (widget.externallyOwnedSession) {
+        Navigator.pop(context, StateError('Codex no confirmó el acceso.'));
       } else {
         setState(() {
           waiting = false;
@@ -1021,7 +1375,11 @@ class _DeviceAuthDialogState extends State<_DeviceAuthDialog> {
         });
       }
     } catch (exception) {
-      if (!mounted) return;
+      if (!mounted || closing) return;
+      if (widget.externallyOwnedSession) {
+        Navigator.pop(context, exception);
+        return;
+      }
       setState(() {
         waiting = false;
         error = _cleanError(exception);
@@ -1029,9 +1387,20 @@ class _DeviceAuthDialogState extends State<_DeviceAuthDialog> {
     }
   }
 
+  @override
+  void dispose() {
+    widget.onDisposed?.call();
+    if (!widget.externallyOwnedSession) unawaited(widget.session.close());
+    super.dispose();
+  }
+
   Future<void> _cancel() async {
-    if (closing) return;
+    if (closing || confirmed) return;
     setState(() => closing = true);
+    if (widget.externallyOwnedSession) {
+      Navigator.pop(context, false);
+      return;
+    }
     await widget.session.cancel();
     if (mounted) Navigator.pop(context);
   }
@@ -1039,7 +1408,7 @@ class _DeviceAuthDialogState extends State<_DeviceAuthDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final action = widget.account.profile.hasAuthFile
+    final action = !widget.isNewProfile && widget.account.profile.hasAuthFile
         ? 'Revincular'
         : 'Vincular';
     return AlertDialog(
@@ -1056,53 +1425,73 @@ class _DeviceAuthDialogState extends State<_DeviceAuthDialog> {
               color: theme.colorScheme.primary,
             ),
             const SizedBox(height: 16),
-            Text('Código de dispositivo', style: theme.textTheme.titleMedium),
-            const SizedBox(height: 9),
-            SelectableText(
-              widget.session.userCode,
-              style: theme.textTheme.headlineLarge?.copyWith(
-                fontFamily: 'monospace',
-                color: theme.colorScheme.primary,
-              ),
+            Text(
+              widget.browser
+                  ? (confirmed
+                        ? 'Acceso confirmado'
+                        : 'Iniciar sesión en el navegador')
+                  : 'Código de dispositivo',
+              style: theme.textTheme.titleMedium,
             ),
-            const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(6),
+            if (!widget.browser) ...[
+              const SizedBox(height: 9),
+              SelectableText(
+                widget.session.userCode,
+                style: theme.textTheme.headlineLarge?.copyWith(
+                  fontFamily: 'monospace',
+                  color: theme.colorScheme.primary,
+                ),
               ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(
-                    Icons.security_outlined,
-                    size: 18,
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                  const SizedBox(width: 9),
-                  Expanded(
-                    child: Text(
-                      'Primero, en ChatGPT abre Configuración > Seguridad y habilita el acceso mediante código de dispositivo.',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 11,
+                  vertical: 9,
+                ),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.security_outlined,
+                      size: 18,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 9),
+                    Expanded(
+                      child: Text(
+                        'Primero, en ChatGPT abre Configuración > Seguridad y habilita el acceso mediante código de dispositivo.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              '1. Copia el código.  2. Inicia sesión con la cuenta que quieres vincular.  '
-              '3. Ingresa el código, confirma el acceso y regresa aquí.',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
+              const SizedBox(height: 12),
+              Text(
+                '1. Copia el código.  2. Inicia sesión con la cuenta que quieres vincular.  '
+                '3. Ingresa el código, confirma el acceso y regresa aquí.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
+              const SizedBox(height: 12),
+            ],
+            if (widget.browser)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Text(
+                  'Completa el acceso en la página oficial de OpenAI. Esta ventana se actualizará automáticamente al terminar.',
+                  textAlign: TextAlign.center,
+                ),
+              ),
             Align(
               alignment: Alignment.centerLeft,
               child: Text(
@@ -1140,18 +1529,20 @@ class _DeviceAuthDialogState extends State<_DeviceAuthDialog> {
               ),
             ),
             const SizedBox(height: 14),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 8,
+              runSpacing: 8,
               children: [
-                OutlinedButton.icon(
-                  onPressed: () =>
-                      _copy(widget.session.userCode, 'Código copiado.'),
-                  icon: const Icon(Icons.copy, size: 17),
-                  label: const Text('Copiar código'),
-                ),
-                const SizedBox(width: 8),
+                if (!widget.browser)
+                  OutlinedButton.icon(
+                    onPressed: () =>
+                        _copy(widget.session.userCode, 'Código copiado.'),
+                    icon: const Icon(Icons.copy, size: 17),
+                    label: const Text('Copiar código'),
+                  ),
                 FilledButton.icon(
-                  onPressed: _openBrowser,
+                  onPressed: confirmed ? null : _openBrowser,
                   icon: const Icon(Icons.open_in_new, size: 17),
                   label: const Text('Abrir navegador'),
                 ),
@@ -1159,7 +1550,7 @@ class _DeviceAuthDialogState extends State<_DeviceAuthDialog> {
             ),
             const SizedBox(height: 18),
             if (waiting)
-              const Row(
+              Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   SizedBox(
@@ -1168,7 +1559,13 @@ class _DeviceAuthDialogState extends State<_DeviceAuthDialog> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   ),
                   SizedBox(width: 10),
-                  Text('Esperando confirmación de Codex…'),
+                  Flexible(
+                    child: Text(
+                      confirmed
+                          ? 'Acceso confirmado. Guardando la vinculación…'
+                          : 'Esperando confirmación de Codex…',
+                    ),
+                  ),
                 ],
               ),
             if (error != null)
@@ -1178,8 +1575,12 @@ class _DeviceAuthDialogState extends State<_DeviceAuthDialog> {
       ),
       actions: [
         TextButton(
-          onPressed: closing ? null : _cancel,
-          child: const Text('Cancelar'),
+          onPressed: closing
+              ? null
+              : confirmed
+              ? (error == null ? null : () => Navigator.pop(context))
+              : _cancel,
+          child: Text(confirmed && error != null ? 'Cerrar' : 'Cancelar'),
         ),
       ],
     );

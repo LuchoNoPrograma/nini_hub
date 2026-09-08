@@ -136,8 +136,41 @@ concretas. No trasladar reglas o queries hacia ese archivo.
   ese registro; mutaciones, launch, Heartbeat y acciones operativas continúan
   visibles.
 
+### Vincular ChatGPT
+
+- Accounts permite elegir navegador oficial (`chatgpt`) o codigo de dispositivo
+  (`chatgptDeviceCode`) mediante `account/login/start`. `AccountAuthMethod` viaja
+  por el caso de uso y el gateway; Codex conserva OAuth, callback, credenciales,
+  renovacion y cancelacion. El contrato local mantiene los nombres DeviceAuth.
+
+- El alta usa `CreateLinkedAccount` y el puerto `ProfileDraftStore`: prepara un
+  perfil sin cuenta SQLite, espera confirmación, cierra la sesión y publica.
+  `NiniAgentsProfileDraftStore` reserva su path en `ProfileDiscoveryService`
+  mientras está pendiente para excluirlo de descubrimientos concurrentes.
+- Cancelación o fallo de autenticación cierra el escritor antes de descartar
+  únicamente el draft propio, usando el root capturado al prepararlo. Un fallo
+  de limpieza o creación indeterminada queda explícito; no se borra por nombre
+  sin confirmación de ownership. Una cuenta autenticada se conserva si falla
+  su publicación o la consulta posterior. Revincular no usa este descarte.
+- Las reservas de drafts viven durante el proceso: un cierre forzado de Hub
+  puede dejar el perfil provisional en el motor; no hay recuperación durable
+  automática. El alta integrada está disponible solo para Codex.
+
 ### Heartbeat
 
+- `HeartbeatDailySchedule` admite dias de semana y horas con minutos o intervalos
+  desde medianoche local. `AppPreferences.heartbeatSchedule` se guarda como JSON
+  versionado en `AppSettings.heartbeat_schedule`, sin cambiar schema SQLite.
+  Configurar recalcula los timers; la programacion es global y requiere Hub abierto.
+- Cada horario vuelve a consultar las cuentas aunque su ciclo ya este activo.
+  La policy conserva la decision de enviar o no una solicitud minima; los
+  reintentos de verificacion siguen siendo distintos de los horarios recurrentes.
+- `CompleteHeartbeatOperation` mantiene heartbeat y publicacion en una operacion
+  encolada. Las dos muestras de verificacion se guardan atomicamente mediante
+  `DriftUsageSnapshotRepository.saveSnapshots`; luego se sincronizan Usage,
+  calendario y Accounts sin otra consulta externa. Un fallo de publicacion queda
+  tipado como `HeartbeatAppliedProgress.usageRead` y los fallos programados se
+  registran en Activity. Datos recientes no equivalen a un reinicio confirmado.
 - `HeartbeatPolicy` concentra ventanas y decisiones puras.
 - La ventana esperada se toma de la proyeccion Codex vigente; un perfil con una
   unica ventana de 43200 minutos conserva su ciclo de 30 dias. Exito del
@@ -210,7 +243,7 @@ Contratos:
 | Lifecycle | `NiniAgentsProfileLifecycle`: JSON `new/rename/delete`, metadata local y reconciliacion por `status` |
 | Launch | `NiniAgentsAgentLauncher` + `DesktopWorkspaceRuntime`: terminal, working directory, titulo y recencia |
 | Procesos | `ProcessRunner`: executable/args, environment, timeout, cancelacion, redaccion y Activity |
-| Device Auth | `CodexAccountDeviceAuthGateway`: JSON-RPC encapsulado y handoff focal de autenticacion |
+| ChatGPT Auth | `CodexAccountDeviceAuthGateway`: navegador/codigo por JSON-RPC y handoff focal de autenticacion |
 | Usage | `CodexUsageProvider`: app-server por perfil, snapshot tipado y persistencia atomica |
 | Heartbeat | `ProcessHeartbeatCommandGateway` + scheduler unico: ciclo dinamico, exec y verificacion |
 | Codex app-server | `providers/codex` + runtime compartido: stdio limpio, lifecycle y fallos tipados |

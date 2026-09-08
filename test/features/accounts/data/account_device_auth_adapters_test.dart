@@ -12,17 +12,26 @@ void main() {
     'gateway forwards the complete profile to the configured starter',
     () async {
       Profile? received;
+      AccountAuthMethod? receivedMethod;
       final session = _FakeSession();
       final gateway = CodexAccountDeviceAuthGateway.withStarter((
-        profile,
-      ) async {
+        profile, {
+        AccountAuthMethod method = AccountAuthMethod.deviceCode,
+      }) async {
         received = profile;
+        receivedMethod = method;
         return session;
       });
 
       expect(await gateway.start(_profile()), same(session));
       expect(received?.id, 'account');
       expect(received?.profileHome, '/profiles/account');
+      expect(receivedMethod, AccountAuthMethod.deviceCode);
+      expect(
+        await gateway.start(_profile(), method: AccountAuthMethod.browser),
+        same(session),
+      );
+      expect(receivedMethod, AccountAuthMethod.browser);
     },
   );
 

@@ -9,6 +9,7 @@ final class LoadSettings {
 
   Future<AppPreferences> call() async {
     final preferences = await repository.load();
+    runtime.setHeartbeatSchedule(preferences.heartbeatSchedule);
     runtime.setWeeklyKeepAliveEnabled(preferences.weeklyKeepAliveEnabled);
     runtime.setRequestTimeoutSeconds(preferences.timeoutSeconds);
     return preferences;
@@ -39,9 +40,10 @@ final class SaveSettings {
 
   Future<SaveSettingsResult> call(AppPreferences preferences) async {
     final normalized = preferences.normalizedForSave();
-    runtime.setWeeklyKeepAliveEnabled(normalized.weeklyKeepAliveEnabled);
     await repository.save(normalized);
     try {
+      runtime.setWeeklyKeepAliveEnabled(normalized.weeklyKeepAliveEnabled);
+      runtime.setHeartbeatSchedule(normalized.heartbeatSchedule);
       runtime.setRequestTimeoutSeconds(normalized.timeoutSeconds);
       await runtime.refreshProfiles();
       runtime.syncWeeklyScheduler();

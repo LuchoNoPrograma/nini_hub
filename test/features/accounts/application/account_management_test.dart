@@ -7,6 +7,37 @@ import 'package:nini_hub/features/profiles/domain/profile.dart';
 import 'package:nini_hub/features/profiles/domain/profile_ports.dart';
 
 void main() {
+  test(
+    'availability sorting and filtering ignore non-operational balances',
+    () {
+      final snapshot = AccountSnapshot([
+        _account(id: 'unlinked', usedPercent: 0, hasAuthFile: false),
+        _account(id: 'ready', usedPercent: 40),
+        _account(id: 'exhausted', usedPercent: 100),
+        _account(id: 'failed', usedPercent: 0, status: AccountUsageState.error),
+      ]);
+      expect(
+        _ids(
+          snapshot.visible(
+            const AccountQuery(sort: AccountSortMode.availability),
+          ),
+        ),
+        ['ready', 'exhausted', 'failed', 'unlinked'],
+      );
+      expect(
+        _ids(
+          snapshot.visible(
+            const AccountQuery(status: AccountStatusFilter.ready),
+          ),
+        ),
+        ['ready'],
+      );
+      expect(
+        snapshot.findById('unlinked')!.visibleWindows.single.remainingPercent,
+        100,
+      );
+    },
+  );
   test('snapshot preserves search, status, and selection lookup semantics', () {
     final snapshot = AccountSnapshot([
       _account(
@@ -45,12 +76,12 @@ void main() {
       _ids(
         snapshot.visible(const AccountQuery(status: AccountStatusFilter.ready)),
       ),
-      ['alpha', 'epsilon'],
+      ['epsilon'],
     );
     expect(
       _ids(
         snapshot.visible(
-          const AccountQuery(status: AccountStatusFilter.attention),
+          const AccountQuery(status: AccountStatusFilter.queryError),
         ),
       ),
       ['gamma'],

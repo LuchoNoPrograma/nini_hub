@@ -1,3 +1,4 @@
+import 'package:nini_hub/features/heartbeat/domain/heartbeat_daily_schedule.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:nini_hub/core/theme/app_theme.dart';
@@ -36,6 +37,11 @@ class _SettingsDialogState extends ConsumerState<_SettingsDialog> {
   late bool weeklyKeepAlive;
   late bool keepTerminalOpenAfterExit;
   final root = TextEditingController();
+  final heartbeatTimes = TextEditingController();
+  final heartbeatInterval = TextEditingController();
+  late Set<int> heartbeatDays;
+  late bool repeatHeartbeat;
+  String? scheduleError;
 
   @override
   void initState() {
@@ -51,15 +57,64 @@ class _SettingsDialogState extends ConsumerState<_SettingsDialog> {
     weeklyKeepAlive = preferences.weeklyKeepAliveEnabled;
     keepTerminalOpenAfterExit = preferences.keepTerminalOpenAfterExit;
     root.text = preferences.profilesRoot;
+    final schedule = preferences.heartbeatSchedule;
+    heartbeatTimes.text = schedule.slots
+        .map(
+          (minute) =>
+              '${(minute ~/ 60).toString().padLeft(2, '0')}:${(minute % 60).toString().padLeft(2, '0')}',
+        )
+        .join(', ');
+    heartbeatDays = schedule.weekdays.toSet();
+    repeatHeartbeat = schedule.intervalMinutes != null;
+    heartbeatInterval.text = '${schedule.intervalMinutes ?? 300}';
   }
 
   @override
   void dispose() {
     root.dispose();
+    heartbeatTimes.dispose();
+    heartbeatInterval.dispose();
     super.dispose();
   }
 
   Future<void> save() async {
+    HeartbeatDailySchedule schedule;
+    try {
+      final minutes = <int>[];
+      if (!repeatHeartbeat) {
+        for (final raw in heartbeatTimes.text.split(',')) {
+          final value = raw.trim();
+          if (!RegExp(r'^([01]?\d|2[0-3]):[0-5]\d$').hasMatch(value)) {
+            throw const FormatException(
+              'Escribe horas como 07:00, 12:30, 17:00.',
+            );
+          }
+          final parts = value.split(':').map(int.parse).toList();
+          minutes.add(parts[0] * 60 + parts[1]);
+        }
+      }
+      final interval = repeatHeartbeat
+          ? int.tryParse(heartbeatInterval.text.trim())
+          : null;
+      if (repeatHeartbeat && interval == null) {
+        throw const FormatException('Escribe un intervalo en minutos.');
+      }
+      schedule = HeartbeatDailySchedule(
+        minutes: minutes,
+        weekdays: heartbeatDays.toList(),
+        intervalMinutes: interval,
+      ).normalized();
+    } catch (error) {
+      setState(
+        () => scheduleError = error is FormatException
+            ? error.message
+            : error is ArgumentError
+            ? '${error.message}'
+            : 'Revisa la programación.',
+      );
+      return;
+    }
+    setState(() => scheduleError = null);
     final saved = await ref
         .read(widget.provider.notifier)
         .save(
@@ -74,6 +129,7 @@ class _SettingsDialogState extends ConsumerState<_SettingsDialog> {
             weeklyKeepAliveEnabled: weeklyKeepAlive,
             keepTerminalOpenAfterExit: keepTerminalOpenAfterExit,
             profilesRoot: root.text,
+            heartbeatSchedule: schedule,
           ),
         );
     if (mounted && saved) Navigator.pop(context, true);
@@ -148,13 +204,28 @@ class _SettingsDialogState extends ConsumerState<_SettingsDialog> {
                 ],
               ),
               Slider(
+                key: const ValueKey('settings-font-scale'),
                 value: fontScale,
                 min: .8,
                 max: 1.2,
                 divisions: 8,
                 label: '${(fontScale * 100).round()}%',
-                onChanged: (value) => setState(() => fontScale = value),
+                onChanged: saving
+                    ? null
+                    : (value) => setState(() => fontScale = value),
               ),
+              _TypographyPreview(
+                theme: theme,
+                accent: accent,
+                fontScale: fontScale,
+                fontFamily: fontFamily,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Se aplicará a toda la aplicación al guardar.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 14),
               Row(
                 children: [
                   const Expanded(child: Text('Color de énfasis')),
@@ -227,11 +298,95 @@ class _SettingsDialogState extends ConsumerState<_SettingsDialog> {
                   'Iniciar automáticamente los ciclos de Codex',
                 ),
                 subtitle: const Text(
-                  'Todos los días a las 00:00, 07:00, 12:00 y 17:00, Nini Hub '
-                  'comprobará cada cuenta y hará una solicitud mínima sólo si '
-                  'su ventana está inactiva.',
+                  'En cada horario se actualizan las cuentas. Si un ciclo está inactivo, se envía una solicitud mínima y se vuelve a consultar su uso. Nini Hub debe permanecer abierto.',
                 ),
               ),
+              const SizedBox(height: 12),
+              Text(
+                'Programación del heartbeat · hora local',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: [
+                  for (var day = 1; day <= 7; day++)
+                    FilterChip(
+                      label: Text(
+                        const [
+                          'Lun',
+                          'Mar',
+                          'Mié',
+                          'Jue',
+                          'Vie',
+                          'Sáb',
+                          'Dom',
+                        ][day - 1],
+                      ),
+                      selected: heartbeatDays.contains(day),
+                      onSelected: saving
+                          ? null
+                          : (selected) => setState(() {
+                              if (selected) {
+                                heartbeatDays.add(day);
+                              } else {
+                                heartbeatDays.remove(day);
+                              }
+                            }),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<bool>(
+                initialValue: repeatHeartbeat,
+                decoration: const InputDecoration(labelText: 'Frecuencia'),
+                items: const [
+                  DropdownMenuItem(
+                    value: false,
+                    child: Text('A horas específicas'),
+                  ),
+                  DropdownMenuItem(
+                    value: true,
+                    child: Text('Repetir por intervalo'),
+                  ),
+                ],
+                onChanged: saving
+                    ? null
+                    : (value) =>
+                          setState(() => repeatHeartbeat = value ?? false),
+              ),
+              const SizedBox(height: 12),
+              if (repeatHeartbeat)
+                TextField(
+                  key: const Key('heartbeat-interval'),
+                  controller: heartbeatInterval,
+                  enabled: !saving,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Intervalo en minutos',
+                    helperText:
+                        'De 15 a 1440 minutos, desde las 00:00 de cada día elegido.',
+                  ),
+                )
+              else
+                TextField(
+                  key: const Key('heartbeat-times'),
+                  controller: heartbeatTimes,
+                  enabled: !saving,
+                  decoration: const InputDecoration(
+                    labelText: 'Horas separadas por comas',
+                    hintText: '07:00, 12:30, 17:00',
+                  ),
+                ),
+              if (scheduleError != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    scheduleError!,
+                    style: TextStyle(color: colors.error),
+                  ),
+                ),
               const Divider(height: 32),
               _Label('TERMINAL'),
               const SizedBox(height: 9),
@@ -285,6 +440,65 @@ class _SettingsDialogState extends ConsumerState<_SettingsDialog> {
           label: const Text('Guardar'),
         ),
       ],
+    );
+  }
+}
+
+class _TypographyPreview extends StatelessWidget {
+  const _TypographyPreview({
+    required this.theme,
+    required this.accent,
+    required this.fontScale,
+    required this.fontFamily,
+  });
+
+  final String theme;
+  final String accent;
+  final double fontScale;
+  final String fontFamily;
+
+  @override
+  Widget build(BuildContext context) {
+    final brightness = switch (theme) {
+      'light' => Brightness.light,
+      'system' => MediaQuery.platformBrightnessOf(context),
+      _ => Brightness.dark,
+    };
+    final previewTheme = brightness == Brightness.dark
+        ? AppTheme.dark(accent, fontScale: fontScale, fontFamily: fontFamily)
+        : AppTheme.light(accent, fontScale: fontScale, fontFamily: fontFamily);
+    final text = previewTheme.textTheme;
+    return Container(
+      key: const ValueKey('settings-typography-preview'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: previewTheme.colorScheme.surface,
+        border: Border.all(color: previewTheme.colorScheme.outline),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Vista previa', style: text.labelMedium),
+          const SizedBox(height: 6),
+          Text('Cuenta personal', style: text.titleLarge),
+          const SizedBox(height: 4),
+          Text(
+            'Uso disponible y próximas renovaciones.',
+            key: const ValueKey('settings-preview-body'),
+            style: text.bodyMedium,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Actualizado hace un momento',
+            key: const ValueKey('settings-preview-label'),
+            style: text.labelSmall?.copyWith(
+              color: previewTheme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

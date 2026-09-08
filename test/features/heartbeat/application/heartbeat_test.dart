@@ -13,6 +13,122 @@ import 'package:nini_hub/features/usage/domain/usage.dart';
 void main() {
   final now = DateTime.utc(2026, 8, 22, 12);
 
+  test(
+    'the operation waits for publication of both verification samples',
+    () async {
+      final scheduler = _Scheduler()..retained.add('profile');
+      final gate = Completer<void>();
+      final published = Completer<void>();
+      final first = _snapshot(now, resetAt: now.add(const Duration(days: 7)));
+      final second = _snapshot(
+        now.add(const Duration(seconds: 5)),
+        resetAt: now.add(const Duration(days: 7)),
+      );
+      final result = HeartbeatRunResult(
+        outcome: HeartbeatOutcome.verified,
+        message: 'OK',
+        previousUsageSnapshot: first,
+        latestUsageSnapshot: second,
+      );
+      final complete = CompleteHeartbeatOperation(
+        scheduler: scheduler,
+        publish:
+            ({required profileId, required snapshot, previousSnapshot}) async {
+              expect(profileId, 'profile');
+              expect(previousSnapshot, same(first));
+              expect(snapshot, same(second));
+              published.complete();
+              await gate.future;
+            },
+      );
+      var finished = false;
+      final pending =
+          complete(
+            profileId: 'profile',
+            requireRetained: true,
+            operation: () async => result,
+          ).then((value) {
+            finished = true;
+            return value;
+          });
+      await published.future;
+      expect(finished, isFalse);
+      gate.complete();
+      expect(await pending, same(result));
+    },
+  );
+
+  test(
+    'disable or removal during heartbeat prevents late data publication',
+    () async {
+      for (final disable in [true, false]) {
+        final scheduler = _Scheduler()..retained.add('profile');
+        var writes = 0;
+        final complete = CompleteHeartbeatOperation(
+          scheduler: scheduler,
+          publish:
+              ({
+                required profileId,
+                required snapshot,
+                previousSnapshot,
+              }) async {
+                writes++;
+              },
+        );
+        await complete(
+          profileId: 'profile',
+          requireRetained: true,
+          operation: () async {
+            if (disable) {
+              scheduler.enabled = false;
+            } else {
+              scheduler.retained.clear();
+            }
+            return HeartbeatRunResult(
+              outcome: HeartbeatOutcome.unverified,
+              message: 'OK',
+              latestUsageSnapshot: _snapshot(now, resetAt: now),
+            );
+          },
+        );
+        expect(writes, 0);
+      }
+    },
+  );
+
+  test(
+    'publication failure reports a typed partial heartbeat result',
+    () async {
+      final failure = StateError('storage unavailable');
+      final complete = CompleteHeartbeatOperation(
+        scheduler: _Scheduler(),
+        publish:
+            ({required profileId, required snapshot, previousSnapshot}) async {
+              throw failure;
+            },
+      );
+      await expectLater(
+        complete(
+          profileId: 'profile',
+          operation: () async => HeartbeatRunResult(
+            outcome: HeartbeatOutcome.verified,
+            message: 'OK',
+            latestUsageSnapshot: _snapshot(now, resetAt: now),
+          ),
+        ),
+        throwsA(
+          isA<HeartbeatAppliedFailure>()
+              .having(
+                (error) => error.progress,
+                'progress',
+                HeartbeatAppliedProgress.usageRead,
+              )
+              .having((error) => error.cause, 'cause', same(failure)),
+        ),
+      );
+    },
+  );
+
   test('manual run validates the rediscovered current profile', () async {
     final harness = _Harness(
       now: now,
@@ -78,25 +194,39 @@ void main() {
   });
 
   test(
-    'automatic observation defers an inactive window outside a slot',
+    'automatic observation recovers a clean primary window outside a slot',
     () async {
       final profile = _profile();
       final previousAt = now.subtract(const Duration(seconds: 30));
+      final verifiedReset = now.add(const Duration(hours: 5));
       final harness = _Harness(now: now, profiles: [profile]);
       harness.scheduler.plannedTime = false;
       harness.history.result = _observation(
         previousAt,
-        resetAt: previousAt.add(const Duration(days: 7)),
+        limitId: 'codex_bengalfox',
+        windowType: 'primary',
+        durationMinutes: HeartbeatPolicy.primaryMinutes,
+        resetAt: previousAt.add(const Duration(hours: 5)),
       );
+      harness.probe.results.addAll([
+        _mixedSnapshot(
+          now.add(const Duration(seconds: 10)),
+          primaryReset: verifiedReset,
+        ),
+        _mixedSnapshot(
+          now.add(const Duration(seconds: 20)),
+          primaryReset: verifiedReset,
+        ),
+      ]);
 
       final result = await harness.observe(
         profile: profile,
-        snapshot: _snapshot(now, resetAt: now.add(const Duration(days: 7))),
+        snapshot: _mixedSnapshot(now, primaryReset: verifiedReset),
       );
 
-      expect(result.outcome, HeartbeatOutcome.skipped);
-      expect(result.message, contains('próximo horario planificado'));
-      expect(harness.command.calls, 0);
+      expect(result.outcome, HeartbeatOutcome.verified);
+      expect(harness.command.calls, 1);
+      expect(harness.probe.calls, 2);
       expect(harness.scheduler.scheduled, hasLength(1));
     },
   );
@@ -298,8 +428,7 @@ void main() {
     expect(result.outcome, HeartbeatOutcome.unverified);
     expect(
       result.message,
-      'Comando enviado; Codex respondió, pero todavía no se pudo confirmar '
-      'el ciclo de 30 días.',
+      'Heartbeat completado y datos consultados. OpenAI aún no confirma el reinicio del ciclo de 30 días.',
     );
     expect(harness.command.calls, 1);
     expect(harness.activity.kinds, [HeartbeatActivityKind.unverified]);

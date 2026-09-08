@@ -11,17 +11,13 @@ typedef ProfilesStateReader = ProfilesState Function();
 
 Future<Profile?> showCreateProfileDialog(
   BuildContext context, {
-  required ProfilesController controller,
-  required ProfilesStateReader readState,
-}) {
-  controller.clearFailure();
-  return showDialog<Profile>(
-    context: context,
-    barrierDismissible: false,
-    builder: (_) =>
-        _CreateProfileDialog(controller: controller, readState: readState),
-  );
-}
+  required Future<Profile?> Function(CreateProfileCommand) create,
+  required String? Function() readError,
+}) => showDialog<Profile>(
+  context: context,
+  barrierDismissible: false,
+  builder: (_) => _CreateProfileDialog(create: create, readError: readError),
+);
 
 Future<Profile?> showRenameProfileDialog(
   BuildContext context, {
@@ -62,7 +58,7 @@ Future<bool> showDeleteProfileDialog(
       content: const SizedBox(
         width: 430,
         child: Text(
-          'Multi CLI eliminará el perfil físico y su credencial local. El historial '
+          'Nini Hub eliminará el perfil y su credencial local. El historial '
           'de esta aplicación también se borrará. Esta acción no cierra ni cancela '
           'ninguna suscripción.',
         ),
@@ -98,14 +94,9 @@ Future<bool> showDeleteProfileDialog(
 }
 
 class _CreateProfileDialog extends StatefulWidget {
-  const _CreateProfileDialog({
-    required this.controller,
-    required this.readState,
-  });
-
-  final ProfilesController controller;
-  final ProfilesStateReader readState;
-
+  const _CreateProfileDialog({required this.create, required this.readError});
+  final Future<Profile?> Function(CreateProfileCommand) create;
+  final String? Function() readError;
   @override
   State<_CreateProfileDialog> createState() => _CreateProfileDialogState();
 }
@@ -127,12 +118,13 @@ class _CreateProfileDialogState extends State<_CreateProfileDialog> {
   }
 
   Future<void> submit() async {
+    if (saving) return;
     if (!formKey.currentState!.validate()) return;
     setState(() {
       saving = true;
       error = null;
     });
-    final created = await widget.controller.create(
+    final created = await widget.create(
       CreateProfileCommand(
         toolKey: toolKey,
         name: name.text,
@@ -148,227 +140,222 @@ class _CreateProfileDialogState extends State<_CreateProfileDialog> {
     }
     setState(() {
       saving = false;
-      error =
-          widget.readState().errorMessage ??
-          'Ya hay una operación de perfiles en curso.';
+      error = widget.readError();
     });
   }
 
   @override
   Widget build(BuildContext context) {
     final provider = profileProvider(toolKey);
-    final alias = name.text.trim().isEmpty ? 'alias' : name.text.trim();
-    return AlertDialog(
-      scrollable: true,
-      title: const Text('Nuevo perfil'),
-      content: SizedBox(
-        width: 540,
-        child: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              DropdownButtonFormField<String>(
-                initialValue: toolKey,
-                decoration: const InputDecoration(labelText: 'Herramienta'),
-                items: supportedProfileProviders
-                    .map(
-                      (item) => DropdownMenuItem(
-                        value: item.toolKey,
-                        child: Row(
+    return PopScope(
+      canPop: !saving,
+      child: AlertDialog(
+        scrollable: true,
+        title: const Text('Nuevo perfil'),
+        content: SizedBox(
+          width: 540,
+          child: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '1. Configura   →   2. Vincula   →   3. Cuenta creada',
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Cada perfil mantiene su propia cuenta y su historial en Nini Hub.',
+                ),
+                const SizedBox(height: 18),
+                DropdownButtonFormField<String>(
+                  initialValue: toolKey,
+                  decoration: const InputDecoration(
+                    labelText: 'Herramienta',
+                    helperText:
+                        'El alta con vinculación está disponible para Codex.',
+                  ),
+                  items: supportedProfileProviders
+                      .where((item) => item.supportsDeviceAuth)
+                      .map(
+                        (item) => DropdownMenuItem(
+                          value: item.toolKey,
+                          child: Row(
+                            children: [
+                              ProfileProviderIcon(
+                                toolKey: item.toolKey,
+                                size: 22,
+                              ),
+                              const SizedBox(width: 9),
+                              Text('${item.displayName} · ${item.productName}'),
+                            ],
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: saving
+                      ? null
+                      : (value) => setState(() => toolKey = value ?? toolKey),
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: name,
+                  enabled: !saving,
+                  textInputAction: TextInputAction.next,
+                  autofocus: true,
+                  onChanged: (_) => setState(() {}),
+                  decoration: InputDecoration(
+                    labelText: 'Identificador del perfil *',
+                    hintText: 'trabajo',
+                    prefixText: provider.commandPrefix,
+                    helperText:
+                        'Único para esta herramienta. Usa letras, números, guion o guion bajo.',
+                  ),
+                  validator: _validateProfileName,
+                ),
+                const SizedBox(height: 14),
+                TextFormField(
+                  controller: displayName,
+                  enabled: !saving,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Nombre en Nini Hub (opcional)',
+                    hintText: 'Cuenta de trabajo',
+                    helperText:
+                        'El nombre que verás en la tarjeta. Puedes cambiarlo después.',
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  'Configuración del perfil',
+                  style: Theme.of(context).textTheme.labelLarge,
+                ),
+                const SizedBox(height: 4),
+                RadioGroup<ProfileSetupMode>(
+                  groupValue: setupMode,
+                  onChanged: saving
+                      ? (_) {}
+                      : (value) {
+                          if (value != null) setState(() => setupMode = value);
+                        },
+                  child: const Column(
+                    children: [
+                      RadioListTile<ProfileSetupMode>(
+                        value: ProfileSetupMode.shared,
+                        contentPadding: EdgeInsets.zero,
+                        visualDensity: VisualDensity.compact,
+                        title: Text('Usar mis ajustes habituales'),
+                        subtitle: Text(
+                          'Usa las reglas, skills y configuración principal. La cuenta y el historial quedan separados.',
+                        ),
+                      ),
+                      RadioListTile<ProfileSetupMode>(
+                        value: ProfileSetupMode.full,
+                        contentPadding: EdgeInsets.zero,
+                        visualDensity: VisualDensity.compact,
+                        title: Text('Empezar con ajustes nuevos'),
+                        subtitle: Text(
+                          'Crea un perfil independiente, sin historial ni ajustes anteriores.',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 11,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surfaceContainerLow,
+                    border: Border(
+                      left: BorderSide(
+                        width: 3,
+                        color: provider.supportsDeviceAuth
+                            ? Theme.of(context).colorScheme.primary
+                            : Theme.of(context).colorScheme.outline,
+                      ),
+                    ),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        provider.supportsDeviceAuth
+                            ? Icons.phonelink_lock_outlined
+                            : Icons.login,
+                        size: 19,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 9),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            ProfileProviderIcon(
-                              toolKey: item.toolKey,
-                              size: 22,
+                            Text(
+                              provider.supportsDeviceAuth
+                                  ? 'Siguiente paso: vincular tu cuenta'
+                                  : 'Acceso de Claude Code',
+                              style: Theme.of(context).textTheme.labelLarge,
                             ),
-                            const SizedBox(width: 9),
-                            Text('${item.displayName} · ${item.productName}'),
+                            const SizedBox(height: 3),
+                            Text(
+                              provider.supportsDeviceAuth
+                                  ? 'Elige navegador o código de dispositivo. La cuenta se guardará solo al confirmar el acceso; si cancelas o falla, descartaremos el perfil provisional.'
+                                  : 'La vinculación automática todavía no está disponible para Claude. Después de crear el perfil, ábrelo y completa el acceso desde Claude Code.',
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onSurfaceVariant,
+                                  ),
+                            ),
                           ],
                         ),
                       ),
-                    )
-                    .toList(),
-                onChanged: saving
-                    ? null
-                    : (value) => setState(() => toolKey = value ?? toolKey),
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: name,
-                autofocus: true,
-                onChanged: (_) => setState(() {}),
-                decoration: InputDecoration(
-                  labelText: 'Alias físico',
-                  prefixText: provider.commandPrefix,
-                  helperText: 'Nombre del perfil en multi-cli y del comando.',
-                ),
-                validator: _validateProfileName,
-              ),
-              const SizedBox(height: 14),
-              TextFormField(
-                controller: displayName,
-                decoration: const InputDecoration(
-                  labelText: 'Nombre visible',
-                  hintText: 'Nexo',
-                ),
-              ),
-              const SizedBox(height: 18),
-              Text(
-                'Cómo empezar',
-                style: Theme.of(context).textTheme.labelLarge,
-              ),
-              const SizedBox(height: 4),
-              RadioGroup<ProfileSetupMode>(
-                groupValue: setupMode,
-                onChanged: saving
-                    ? (_) {}
-                    : (value) {
-                        if (value != null) setState(() => setupMode = value);
-                      },
-                child: const Column(
-                  children: [
-                    RadioListTile<ProfileSetupMode>(
-                      value: ProfileSetupMode.shared,
-                      contentPadding: EdgeInsets.zero,
-                      visualDensity: VisualDensity.compact,
-                      title: Text('Compartir ajustes'),
-                      subtitle: Text(
-                        'Usa las reglas, skills y configuración principal. La cuenta y el historial quedan separados.',
-                      ),
-                    ),
-                    RadioListTile<ProfileSetupMode>(
-                      value: ProfileSetupMode.full,
-                      contentPadding: EdgeInsets.zero,
-                      visualDensity: VisualDensity.compact,
-                      title: Text('Independiente'),
-                      subtitle: Text(
-                        'Crea un perfil independiente, sin historial ni ajustes anteriores.',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 11,
-                  vertical: 10,
-                ),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surfaceContainerLow,
-                  border: Border(
-                    left: BorderSide(
-                      width: 3,
-                      color: provider.supportsDeviceAuth
-                          ? Theme.of(context).colorScheme.primary
-                          : Theme.of(context).colorScheme.outline,
-                    ),
+                    ],
                   ),
                 ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(
-                      provider.supportsDeviceAuth
-                          ? Icons.phonelink_lock_outlined
-                          : Icons.login,
-                      size: 19,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                if (error != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    error!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
                     ),
-                    const SizedBox(width: 9),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            provider.supportsDeviceAuth
-                                ? 'Acceso mediante Codex Device Auth'
-                                : 'Acceso de Claude Code',
-                            style: Theme.of(context).textTheme.labelLarge,
-                          ),
-                          const SizedBox(height: 3),
-                          Text(
-                            provider.supportsDeviceAuth
-                                ? 'Antes de continuar, abre Configuración > Seguridad en ChatGPT y habilita el acceso mediante código de dispositivo. Después de crear el perfil se abrirá el navegador y aparecerá el código para vincular la cuenta.'
-                                : 'La vinculación automática todavía no está disponible para Claude. Después de crear el perfil, ábrelo y completa el acceso desde Claude Code.',
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.onSurfaceVariant,
-                                ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 10),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 11,
-                  vertical: 9,
-                ),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.terminal_outlined,
-                      size: 16,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'multi-cli new ${provider.profileSpec(alias)}',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          fontFamily: 'monospace',
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (error != null) ...[
-                const SizedBox(height: 8),
-                Text(
-                  error!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
+        actions: [
+          TextButton(
+            onPressed: saving ? null : () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton.icon(
+            onPressed: saving ? null : submit,
+            icon: saving
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.add, size: 18),
+            label: Text(
+              provider.supportsDeviceAuth
+                  ? 'Crear y vincular'
+                  : 'Crear en ${provider.displayName}',
+            ),
+          ),
+        ],
       ),
-      actions: [
-        TextButton(
-          onPressed: saving ? null : () => Navigator.pop(context),
-          child: const Text('Cancelar'),
-        ),
-        FilledButton.icon(
-          onPressed: saving ? null : submit,
-          icon: saving
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.add, size: 18),
-          label: Text(
-            provider.supportsDeviceAuth
-                ? 'Crear y vincular'
-                : 'Crear en ${provider.displayName}',
-          ),
-        ),
-      ],
     );
   }
 }
@@ -430,7 +417,7 @@ class _RenameProfileDialogState extends State<_RenameProfileDialog> {
   Widget build(BuildContext context) {
     final provider = profileProvider(widget.toolKey);
     return AlertDialog(
-      title: const Text('Renombrar alias físico'),
+      title: const Text('Cambiar identificador'),
       content: SizedBox(
         width: 480,
         child: Column(
@@ -445,7 +432,7 @@ class _RenameProfileDialogState extends State<_RenameProfileDialog> {
             ),
             const SizedBox(height: 12),
             Text(
-              'Multi CLI moverá el directorio y creará el comando nuevo. La credencial '
+              'Nini Hub cambiará el identificador y el comando del perfil. La credencial '
               'local no se modifica, por lo que la cuenta vinculada conserva su acceso.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,

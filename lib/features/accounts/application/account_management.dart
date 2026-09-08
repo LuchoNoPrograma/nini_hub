@@ -2,8 +2,23 @@ import 'package:nini_hub/features/accounts/domain/account.dart';
 import 'package:nini_hub/features/accounts/domain/account_failure.dart';
 import 'package:nini_hub/features/accounts/domain/account_repository.dart';
 import 'package:nini_hub/features/profiles/domain/profile_ports.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
 
-enum AccountStatusFilter { all, ready, attention, unlinked }
+enum AccountStatusFilter {
+  all(null),
+  ready(AccountStatus.available),
+  quotaExhausted(AccountStatus.quotaExhausted),
+  authRequired(AccountStatus.authRequired),
+  deactivated(AccountStatus.deactivated),
+  unlinked(AccountStatus.unlinked),
+  unchecked(AccountStatus.unchecked),
+  quotaUnconfirmed(AccountStatus.quotaUnconfirmed),
+  queryError(AccountStatus.queryError),
+  unavailable(AccountStatus.unavailable);
+
+  const AccountStatusFilter(this.accountStatus);
+  final AccountStatus? accountStatus;
+}
 
 enum AccountSortMode { name, availability, renewal, reset }
 
@@ -39,13 +54,12 @@ final class AccountSnapshot {
           search.isEmpty ||
           account.profile.displayName.toLowerCase().contains(search) ||
           account.profile.profileName.toLowerCase().contains(search) ||
+          (account.profile.source == ProfileSource.defaultProfile &&
+              'perfil principal'.contains(search)) ||
           account.displayEmail.toLowerCase().contains(search);
-      final matchesStatus = switch (query.status) {
-        AccountStatusFilter.ready => account.isReady,
-        AccountStatusFilter.attention => account.needsAttention,
-        AccountStatusFilter.unlinked => account.isUnlinked,
-        AccountStatusFilter.all => true,
-      };
+      final matchesStatus =
+          query.status.accountStatus == null ||
+          account.status == query.status.accountStatus;
       return matchesSearch && matchesStatus;
     }).toList();
     visible.sort((left, right) => _compare(left, right, query.sort));
@@ -56,8 +70,8 @@ final class AccountSnapshot {
     final bySelectedField = switch (sort) {
       AccountSortMode.name => 0,
       AccountSortMode.availability => _compareOptionalValuesDescending(
-        left.lowestAvailablePercent,
-        right.lowestAvailablePercent,
+        left.operationalAvailablePercent,
+        right.operationalAvailablePercent,
       ),
       AccountSortMode.renewal => _compareOptionalDates(
         left.metadata?.nextRenewalOn,

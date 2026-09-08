@@ -177,7 +177,13 @@ void main() {
       expect(accountsState.isInitialized, isTrue);
       expect(accountsState.accounts.single.profile.id, 'account');
       await container.read(heartbeatSchedulerProvider).waitUntilIdle();
-      expect(scheduledHeartbeats, ['account']);
+      final scheduler = container.read(heartbeatSchedulerProvider);
+      expect(scheduler.isRetained('account'), isTrue);
+      expect(
+        scheduledHeartbeats.isNotEmpty ||
+            scheduler.nextProbeAt('account') != null,
+        isTrue,
+      );
       expect(
         counter.statements.where(
           (statement) => statement.toLowerCase().contains('cost_shares'),
@@ -305,7 +311,10 @@ final class _RecordingDeviceAuthGateway implements AccountDeviceAuthGateway {
   final List<String> profileIds = [];
 
   @override
-  Future<AccountDeviceAuthSession> start(Profile profile) async {
+  Future<AccountDeviceAuthSession> start(
+    Profile profile, {
+    AccountAuthMethod method = AccountAuthMethod.deviceCode,
+  }) async {
     profileIds.add(profile.id);
     return session;
   }

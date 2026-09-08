@@ -1,3 +1,4 @@
+import 'package:nini_hub/features/heartbeat/domain/heartbeat_daily_schedule.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nini_hub/features/settings/application/settings.dart';
 import 'package:nini_hub/features/settings/domain/app_preferences.dart';
@@ -46,7 +47,7 @@ void main() {
     expect(events, ['load', 'keep-alive:false', 'timeout:45']);
   });
 
-  test('save normalizes and preserves the legacy effect order', () async {
+  test('save persists before applying runtime settings', () async {
     final events = <String>[];
     final repository = _MemorySettingsRepository(
       AppPreferences.defaults,
@@ -77,15 +78,15 @@ void main() {
     expect(result.preferences.keepTerminalOpenAfterExit, isFalse);
     expect(repository.saved, same(result.preferences));
     expect(events, [
-      'keep-alive:false',
       'save',
+      'keep-alive:false',
       'timeout:5',
       'refresh-profiles',
       'sync-weekly-scheduler',
     ]);
   });
 
-  test('save failure keeps only the pre-persistence runtime effect', () async {
+  test('failed save leaves the runtime unchanged', () async {
     final events = <String>[];
     final repository = _MemorySettingsRepository(
       AppPreferences.defaults,
@@ -112,7 +113,7 @@ void main() {
       throwsStateError,
     );
 
-    expect(events, ['keep-alive:false', 'save']);
+    expect(events, ['save']);
   });
 
   test(
@@ -135,8 +136,8 @@ void main() {
       expect((result as SettingsPersistedWithFailure).failure, same(failure));
       expect(repository.saved, isNotNull);
       expect(events, [
-        'keep-alive:true',
         'save',
+        'keep-alive:true',
         'timeout:15',
         'refresh-profiles',
       ]);
@@ -168,6 +169,9 @@ final class _MemorySettingsRepository implements SettingsRepository {
 }
 
 final class _RecordingSettingsRuntime implements SettingsRuntime {
+  @override
+  void setHeartbeatSchedule(HeartbeatDailySchedule schedule) {}
+
   _RecordingSettingsRuntime(this.events, {this.refreshError});
 
   final List<String> events;

@@ -4,6 +4,84 @@ import 'package:nini_hub/features/profiles/domain/profile.dart';
 import 'package:nini_hub/features/usage/domain/quota_reset_anchor_policy.dart';
 
 void main() {
+  test('status distinguishes current evidence from historical quota', () {
+    Account sample(AccountUsageState? state, {String? code, double? used}) =>
+        Account(
+          profile: _profile(),
+          metadata: null,
+          costShares: const [],
+          currentCheck: state == null
+              ? null
+              : AccountUsageCheck(
+                  state: state,
+                  startedAt: DateTime.utc(2026, 9, 7),
+                  errorCode: code,
+                ),
+          currentWindows: used == null
+              ? const []
+              : [
+                  AccountQuotaWindow(
+                    limitId: 'codex',
+                    windowType: 'primary',
+                    usedPercent: used,
+                  ),
+                ],
+          lastSuccessfulCheck: AccountUsageCheck(
+            state: AccountUsageState.success,
+            startedAt: DateTime.utc(2026, 9, 6),
+          ),
+          lastSuccessfulWindows: const [
+            AccountQuotaWindow(
+              limitId: 'codex',
+              windowType: 'primary',
+              usedPercent: 100,
+            ),
+          ],
+          resetCredits: null,
+        );
+    expect(sample(null).status, AccountStatus.unchecked);
+    expect(
+      sample(AccountUsageState.success).status,
+      AccountStatus.quotaUnconfirmed,
+    );
+    expect(
+      sample(AccountUsageState.success, used: 20).status,
+      AccountStatus.available,
+    );
+    expect(
+      sample(AccountUsageState.partial, used: 20).status,
+      AccountStatus.available,
+    );
+    expect(
+      sample(AccountUsageState.partial).status,
+      AccountStatus.quotaUnconfirmed,
+    );
+    expect(
+      sample(AccountUsageState.success, used: 100).status,
+      AccountStatus.quotaExhausted,
+    );
+    expect(
+      sample(AccountUsageState.authRequired).status,
+      AccountStatus.authRequired,
+    );
+    for (final code in ['TOKEN_EXPIRED', 'TOKEN_INVALIDATED']) {
+      expect(
+        sample(AccountUsageState.error, code: code).status,
+        AccountStatus.authRequired,
+      );
+    }
+    for (final state in [AccountUsageState.error, AccountUsageState.timeout]) {
+      expect(sample(state).status, AccountStatus.queryError);
+    }
+    for (final state in [
+      AccountUsageState.toolMissing,
+      AccountUsageState.profileMissing,
+      AccountUsageState.unavailable,
+    ]) {
+      expect(sample(state).status, AccountStatus.unavailable);
+    }
+  });
+
   test('account preserves visible fallback and descriptive issue rules', () {
     final current = AccountUsageCheck(
       state: AccountUsageState.error,
@@ -54,6 +132,7 @@ void main() {
     expect(account.currentIssue, AccountUsageIssue.network);
     expect(account.visibleWindows.single.limitId, 'fallback');
     expect(account.lowestAvailablePercent, 88);
+    expect(account.operationalAvailablePercent, isNull);
     expect(account.nextResetAt, fallbackReset);
     expect(account.displayPlan, 'Metadata plan');
     expect(account.observedEmail, 'current@example.com');
@@ -104,8 +183,121 @@ void main() {
     expect(account.lowestAvailablePercent, 0);
     expect(account.displayPlan, 'Observed');
     expect(account.displayEmail, 'observed@example.com');
-    expect(account.isReady, isTrue);
-    expect(account.needsAttention, isFalse);
+    expect(account.isReady, isFalse);
+    expect(account.needsAttention, isTrue);
+  });
+
+  test('weekly quota blocks only windows of the same limit', () {
+    const short = AccountQuotaWindow(
+      limitId: 'codex',
+      windowType: 'primary',
+      usedPercent: 0,
+      windowDurationMinutes: 300,
+    );
+    const weekly = AccountQuotaWindow(
+      limitId: ' CODEX ',
+      windowType: 'secondary',
+      usedPercent: 100,
+      windowDurationMinutes: 10080,
+    );
+    const independent = AccountQuotaWindow(
+      limitId: 'spark',
+      windowType: 'primary',
+      usedPercent: 0,
+      windowDurationMinutes: 300,
+    );
+    final account = _quotaAccount([short, weekly, independent]);
+    expect(account.blockingWindowFor(short), weekly);
+    expect(account.blockingWindowFor(independent), isNull);
+    expect(account.hasWeeklyLimitReached, isTrue);
+    expect(account.isReady, isFalse);
+    expect(account.needsAttention, isTrue);
+    expect(account.operationalAvailablePercent, 0);
+    expect(short.remainingPercent, 100);
+  });
+
+  test('short exhaustion preserves weekly balance and its own reset', () {
+    final shortReset = DateTime.utc(2026, 9, 5, 20);
+    final weeklyReset = DateTime.utc(2026, 9, 10);
+    final short = AccountQuotaWindow(
+      limitId: 'codex',
+      windowType: 'primary',
+      usedPercent: 100,
+      windowDurationMinutes: 300,
+      resetsAt: shortReset,
+    );
+    final weekly = AccountQuotaWindow(
+      limitId: 'codex',
+      windowType: 'secondary',
+      usedPercent: 20,
+      windowDurationMinutes: 10080,
+      resetsAt: weeklyReset,
+    );
+    final account = _quotaAccount([short, weekly]);
+    expect(account.operationalAvailablePercent, 0);
+    expect(account.isReady, isFalse);
+    expect(account.blockingWindowFor(weekly), same(short));
+    expect(account.visibleWindows, [short, weekly]);
+    expect(weekly.remainingPercent, 80);
+    expect(weekly.resetsAt, weeklyReset);
+    expect(short.resetsAt, shortReset);
+    expect(account.hasWeeklyLimitReached, isFalse);
+  });
+
+  test('unknown quota cannot borrow availability from a known window', () {
+    for (final unknown in [null, double.nan, double.infinity]) {
+      final account = _quotaAccount([
+        AccountQuotaWindow(
+          limitId: 'codex',
+          windowType: 'primary',
+          usedPercent: unknown,
+        ),
+        const AccountQuotaWindow(
+          limitId: 'codex',
+          windowType: 'secondary',
+          usedPercent: 20,
+        ),
+      ]);
+      expect(account.lowestAvailablePercent, 80);
+      expect(account.operationalAvailablePercent, isNull);
+      expect(account.isReady, isFalse);
+    }
+  });
+
+  test('successful query requires known positive quota to count as ready', () {
+    for (final used in [null, double.nan, double.infinity, 100.0, 120.0]) {
+      final account = _quotaAccount([
+        AccountQuotaWindow(
+          limitId: 'codex',
+          windowType: 'primary',
+          usedPercent: used,
+        ),
+      ]);
+      expect(account.isReady, isFalse, reason: 'used=$used');
+    }
+    expect(_quotaAccount([]).isReady, isFalse);
+    expect(
+      _quotaAccount(const [
+        AccountQuotaWindow(
+          limitId: 'codex',
+          windowType: 'primary',
+          usedPercent: 0,
+        ),
+      ]).isReady,
+      isTrue,
+    );
+  });
+
+  test('unnamed and unknown limits never invent a blocking relationship', () {
+    const unknown = AccountQuotaWindow(limitId: '', windowType: 'primary');
+    const exhausted = AccountQuotaWindow(
+      limitId: '',
+      windowType: 'secondary',
+      usedPercent: 100,
+    );
+    final account = _quotaAccount([unknown, exhausted]);
+    expect(account.blockingWindowFor(unknown), isNull);
+    expect(unknown.remainingPercent, isNull);
   });
 
   test('details normalize storage values and omit blank participants', () {
@@ -290,4 +482,18 @@ AccountMetadata _metadata({
   subscriptionStatus: 'active',
   purchasedFrom: '',
   paymentMethodLabel: '',
+);
+
+Account _quotaAccount(List<AccountQuotaWindow> windows) => Account(
+  profile: _profile(),
+  metadata: null,
+  costShares: const [],
+  currentCheck: AccountUsageCheck(
+    state: AccountUsageState.success,
+    startedAt: DateTime.utc(2026, 9, 5),
+  ),
+  currentWindows: windows,
+  lastSuccessfulCheck: null,
+  lastSuccessfulWindows: const [],
+  resetCredits: null,
 );

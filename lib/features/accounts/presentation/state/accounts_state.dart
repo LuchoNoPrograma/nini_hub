@@ -1,7 +1,13 @@
 import 'package:nini_hub/features/accounts/application/account_management.dart';
 import 'package:nini_hub/features/accounts/domain/account.dart';
 
-enum AccountsOperation { load, update, deviceAuthStart, deviceAuthComplete }
+enum AccountsOperation {
+  create,
+  load,
+  update,
+  deviceAuthStart,
+  deviceAuthComplete,
+}
 
 final class AccountsState {
   AccountsState({
@@ -13,7 +19,11 @@ final class AccountsState {
     this.operationProfileId,
     this.errorMessage,
     this.failure,
-  }) : snapshot = snapshot ?? AccountSnapshot(const []);
+    Iterable<String> authRefreshingProfileIds = const [],
+    Map<String, String> authRefreshFailures = const {},
+  }) : authRefreshingProfileIds = Set.unmodifiable(authRefreshingProfileIds),
+       authRefreshFailures = Map.unmodifiable(authRefreshFailures),
+       snapshot = snapshot ?? AccountSnapshot(const []);
 
   static const _unset = Object();
 
@@ -25,6 +35,8 @@ final class AccountsState {
   final String? operationProfileId;
   final String? errorMessage;
   final Object? failure;
+  final Set<String> authRefreshingProfileIds;
+  final Map<String, String> authRefreshFailures;
 
   List<Account> get accounts => snapshot.accounts;
 
@@ -54,6 +66,8 @@ final class AccountsState {
     Object? operationProfileId = _unset,
     Object? errorMessage = _unset,
     Object? failure = _unset,
+    Iterable<String>? authRefreshingProfileIds,
+    Map<String, String>? authRefreshFailures,
   }) => AccountsState(
     snapshot: snapshot ?? this.snapshot,
     isInitialized: isInitialized ?? this.isInitialized,
@@ -71,5 +85,8 @@ final class AccountsState {
         ? this.errorMessage
         : errorMessage as String?,
     failure: identical(failure, _unset) ? this.failure : failure,
+    authRefreshingProfileIds:
+        authRefreshingProfileIds ?? this.authRefreshingProfileIds,
+    authRefreshFailures: authRefreshFailures ?? this.authRefreshFailures,
   );
 }

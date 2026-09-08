@@ -2,6 +2,19 @@ import 'package:nini_hub/features/profiles/domain/profile.dart';
 import 'package:nini_hub/features/profiles/domain/profile_provider.dart';
 import 'package:nini_hub/features/usage/domain/quota_reset_anchor_policy.dart';
 
+/// Mutually exclusive status shared by account cards, counts and filters.
+enum AccountStatus {
+  available,
+  quotaExhausted,
+  authRequired,
+  deactivated,
+  unlinked,
+  unchecked,
+  quotaUnconfirmed,
+  queryError,
+  unavailable,
+}
+
 enum AccountUsageState {
   success,
   partial,
@@ -195,7 +208,7 @@ final class AccountQuotaWindow {
   final String? reachedType;
   final String? planType;
 
-  double? get remainingPercent => usedPercent == null
+  double? get remainingPercent => usedPercent == null || !usedPercent!.isFinite
       ? null
       : (100 - usedPercent!).clamp(0, 100).toDouble();
 }
@@ -309,11 +322,33 @@ final class Account {
     );
   }
 
+  /// Informational balance, including the last successful observation.
+  /// Use [operationalAvailablePercent] for current availability decisions.
   double? get lowestAvailablePercent {
     double? lowest;
     for (final window in visibleWindows) {
       final remaining = window.remainingPercent;
       if (remaining == null) continue;
+      if (lowest == null || remaining < lowest) lowest = remaining;
+    }
+    return lowest;
+  }
+
+  /// Current account-wide quota. Unknown or historical quota cannot establish
+  /// availability; an exhausted window still proves that the account is blocked.
+  /// This never changes the observed balance or reset of any individual window.
+  double? get operationalAvailablePercent {
+    if (isDeactivated ||
+        !profile.isAvailable ||
+        !profile.hasAuthFile ||
+        !hasCurrentQuota) {
+      return null;
+    }
+    if (hasExhaustedQuota) return 0;
+    double? lowest;
+    for (final window in currentWindows) {
+      final remaining = window.remainingPercent;
+      if (remaining == null) return null;
       if (lowest == null || remaining < lowest) lowest = remaining;
     }
     return lowest;
@@ -344,17 +379,86 @@ final class Account {
     return next;
   }
 
+  /// Quotas from a previous successful query are informative, not evidence
+  /// that the account can currently be used.
+  bool get hasCurrentQuota => currentIsUsable && currentWindows.isNotEmpty;
+
+  bool get hasExhaustedQuota =>
+      hasCurrentQuota &&
+      currentWindows.any((window) => window.remainingPercent == 0);
+
+  bool get hasWeeklyLimitReached =>
+      hasCurrentQuota &&
+      currentWindows.any(
+        (window) =>
+            window.windowDurationMinutes == 10080 &&
+            window.remainingPercent == 0,
+      );
+
+  /// Only windows in the same provider limit constrain one another.
+  /// An unnamed limit is not enough evidence to associate two windows.
+  AccountQuotaWindow? blockingWindowFor(AccountQuotaWindow window) {
+    if (!hasCurrentQuota) return null;
+    final limit = window.limitId.trim().toLowerCase();
+    if (limit.isEmpty || window.remainingPercent == 0) return null;
+    AccountQuotaWindow? blocking;
+    for (final candidate in visibleWindows) {
+      if (candidate.limitId.trim().toLowerCase() != limit ||
+          candidate.remainingPercent != 0 ||
+          identical(candidate, window)) {
+        continue;
+      }
+      if (blocking == null ||
+          (candidate.windowDurationMinutes ?? 0) >
+              (blocking.windowDurationMinutes ?? 0)) {
+        blocking = candidate;
+      }
+    }
+    return blocking;
+  }
+
+  AccountStatus get status {
+    if (isDeactivated) return AccountStatus.deactivated;
+    if (!profile.isAvailable) return AccountStatus.unavailable;
+    if (!profile.hasAuthFile) return AccountStatus.unlinked;
+    if (!profileProvider(profile.toolKey).supportsUsage) {
+      return AccountStatus.available;
+    }
+    if (currentCheck?.state == AccountUsageState.authRequired ||
+        currentIssue == AccountUsageIssue.credentialExpired ||
+        currentIssue == AccountUsageIssue.credentialInvalidated) {
+      return AccountStatus.authRequired;
+    }
+    if (hasExhaustedQuota) return AccountStatus.quotaExhausted;
+    return switch (currentCheck?.state) {
+      null => AccountStatus.unchecked,
+      AccountUsageState.success || AccountUsageState.partial =>
+        isReady ? AccountStatus.available : AccountStatus.quotaUnconfirmed,
+      AccountUsageState.authRequired => AccountStatus.authRequired,
+      AccountUsageState.toolMissing ||
+      AccountUsageState.profileMissing ||
+      AccountUsageState.unavailable => AccountStatus.unavailable,
+      AccountUsageState.timeout ||
+      AccountUsageState.error => AccountStatus.queryError,
+    };
+  }
+
   bool get isReady {
-    final provider = profileProvider(profile.toolKey);
-    return profile.isAvailable && provider.supportsUsage
-        ? currentIsUsable
-        : profile.isAvailable && profile.hasAuthFile;
+    if (isDeactivated || !profile.isAvailable || !profile.hasAuthFile) {
+      return false;
+    }
+    if (!profileProvider(profile.toolKey).supportsUsage) return true;
+    return (operationalAvailablePercent ?? 0) > 0;
   }
 
   bool get needsAttention {
     final provider = profileProvider(profile.toolKey);
-    return !profile.isAvailable ||
-        (provider.supportsUsage && currentCheck != null && !isReady);
+    return isDeactivated ||
+        !profile.isAvailable ||
+        (provider.supportsUsage &&
+            profile.hasAuthFile &&
+            currentCheck != null &&
+            !isReady);
   }
 
   bool get isUnlinked => profile.isAvailable && !profile.hasAuthFile;

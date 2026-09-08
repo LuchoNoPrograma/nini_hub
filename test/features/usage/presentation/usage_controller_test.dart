@@ -305,6 +305,29 @@ void main() {
       },
     );
 
+    test('serial batch attempts profiles queued after a failure', () async {
+      fixture = _Fixture(
+        profiles: [_profile('first'), _profile('failing'), _profile('last')],
+        refreshConcurrency: () => 1,
+      );
+      fixture.activity.failures['failing'] = StateError('activity failed');
+
+      expect(await fixture.controller.refreshAll(), isFalse);
+
+      expect(fixture.provider.profileIds, ['first', 'failing', 'last']);
+      expect(fixture.state.batchTargetProfileIds, {'first', 'failing', 'last'});
+      expect(fixture.state.completedBatchByProfile.keys.toSet(), {
+        'first',
+        'last',
+      });
+      expect(fixture.state.failedBatchProfileIds, {'failing'});
+      expect(fixture.state.persistedBatchProfileIds, {
+        'first',
+        'failing',
+        'last',
+      });
+    });
+
     test('synchronization remains busy and rejects a new refresh', () async {
       fixture = _Fixture(profiles: [_profile('primary')]);
 

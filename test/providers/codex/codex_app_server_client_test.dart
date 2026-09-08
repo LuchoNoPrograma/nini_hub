@@ -152,6 +152,153 @@ void main() {
   );
 
   test(
+    'browser auth uses official ChatGPT RPC and completes without a device code',
+    () async {
+      final profile = await _managedProfile(scratch);
+      final process = _FakeCodexProcess((process, request) {
+        if (request['method'] == 'initialize') {
+          process.respond(request, {});
+          return;
+        }
+        expect(request['method'], 'account/login/start');
+        expect(request['params'], {'type': 'chatgpt'});
+        process.respond(request, {
+          'type': 'chatgpt',
+          'loginId': 'browser-1',
+          'authUrl': 'https://auth.openai.com/authorize',
+        });
+      });
+      final client = CodexAppServerClient(processStarter: (_) async => process);
+      final session = await client.startDeviceAuth(profile, useBrowser: true);
+      expect(session.userCode, isEmpty);
+      expect(session.verificationUrl, 'https://auth.openai.com/authorize');
+      final completion = session.waitForCompletion();
+      process.sendRaw(
+        jsonEncode({
+          'method': 'account/login/completed',
+          'params': {'loginId': 'browser-1', 'success': true},
+        }),
+      );
+      expect(await completion, isTrue);
+      expect(process.closeStdinCalls, 1);
+      await process.dispose();
+    },
+  );
+
+  for (final beforeReply in [true, false]) {
+    test('retains early login confirmation beforeReply=$beforeReply', () async {
+      final profile = await _managedProfile(scratch);
+      final process = _FakeCodexProcess((process, request) {
+        if (request['method'] == 'initialize') {
+          process.respond(request, {});
+          return;
+        }
+        if (beforeReply) {
+          process.sendRaw(
+            jsonEncode({
+              'method': 'account/login/completed',
+              'params': {'loginId': 'fast', 'success': true},
+            }),
+          );
+        }
+        process.respond(request, {
+          'loginId': 'fast',
+          'authUrl': 'https://example.test/auth',
+        });
+      });
+      final client = CodexAppServerClient(processStarter: (_) async => process);
+      final session = await client.startDeviceAuth(profile, useBrowser: true);
+      if (!beforeReply) {
+        process.sendRaw(
+          jsonEncode({
+            'method': 'account/login/completed',
+            'params': {'loginId': 'fast', 'success': true},
+          }),
+        );
+      }
+      // Represents the interval between the RPC response and dialog mounting.
+      await Future<void>.delayed(Duration.zero);
+      process.sendRaw(
+        jsonEncode({
+          'method': 'account/login/completed',
+          'params': {'loginId': 'unrelated', 'success': false},
+        }),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        await session.waitForCompletion(
+          timeout: const Duration(milliseconds: 100),
+        ),
+        isTrue,
+      );
+      expect(process.closeStdinCalls, 1);
+      await process.dispose();
+    });
+  }
+
+  test(
+    'early rejected login remains rejected and cannot authenticate another session',
+    () async {
+      final profile = await _managedProfile(scratch);
+      final process = _FakeCodexProcess((process, request) {
+        if (request['method'] == 'initialize') {
+          process.respond(request, {});
+          return;
+        }
+        process.sendRaw(
+          jsonEncode({
+            'method': 'account/login/completed',
+            'params': {'loginId': 'rejected', 'success': false},
+          }),
+        );
+        process.respond(request, {
+          'loginId': 'rejected',
+          'authUrl': 'https://example.test/auth',
+        });
+      });
+      final session = await CodexAppServerClient(
+        processStarter: (_) async => process,
+      ).startDeviceAuth(profile, useBrowser: true);
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        await session.waitForCompletion(
+          timeout: const Duration(milliseconds: 100),
+        ),
+        isFalse,
+      );
+      await process.dispose();
+    },
+  );
+
+  test(
+    'concurrent close callers all wait for the owned writer to stop',
+    () async {
+      final profile = await _managedProfile(scratch);
+      final process = _FakeCodexProcess((process, request) {
+        process.respond(
+          request,
+          request['method'] == 'initialize'
+              ? {}
+              : {'loginId': 'close', 'authUrl': 'https://example.test/auth'},
+        );
+      });
+      final session = await CodexAppServerClient(
+        processStarter: (_) async => process,
+      ).startDeviceAuth(profile, useBrowser: true);
+      process.closeGate = Completer<void>();
+      var secondClosed = false;
+      final first = session.close();
+      final second = session.close().then((_) => secondClosed = true);
+      await Future<void>.delayed(Duration.zero);
+      expect(secondClosed, isFalse);
+      process.closeGate!.complete();
+      await Future.wait([first, second]);
+      expect(process.closeStdinCalls, 1);
+      await process.dispose();
+    },
+  );
+
+  test(
     'Device Auth relinks an existing profile without logout and cancels safely',
     () async {
       final profile = await _managedProfile(scratch);
@@ -231,6 +378,7 @@ final class _FakeCodexProcess implements CodexProcessHandle {
   final List<ProcessSignal> killSignals = [];
   bool stdinClosed = false;
   int closeStdinCalls = 0;
+  Completer<void>? closeGate;
 
   @override
   int get pid => 2468;
@@ -248,6 +396,7 @@ final class _FakeCodexProcess implements CodexProcessHandle {
   Future<void> closeStdin() async {
     closeStdinCalls++;
     stdinClosed = true;
+    if (closeGate != null) await closeGate!.future;
     if (exitOnStdinClose) completeExit(0);
   }
 

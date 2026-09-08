@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:nini_hub/features/heartbeat/domain/heartbeat_daily_schedule.dart';
 import 'package:nini_hub/core/database/app_database.dart';
 import 'package:nini_hub/features/settings/domain/app_preferences.dart';
 import 'package:nini_hub/features/settings/domain/settings_ports.dart';
@@ -20,6 +23,9 @@ final class DriftSettingsRepository implements SettingsRepository {
 
   @override
   Future<AppPreferences> load() async {
+    final schedule = _readSchedule(
+      await _database.setting('heartbeat_schedule'),
+    );
     final theme = await _database.setting(_themeKey);
     final accent = await _database.setting(_accentKey);
     final storedFontScale = await _database.setting(_fontScaleKey);
@@ -39,6 +45,7 @@ final class DriftSettingsRepository implements SettingsRepository {
         AppPreferences.defaults.fontScale;
 
     return AppPreferences(
+      heartbeatSchedule: schedule,
       theme: theme ?? AppPreferences.defaults.theme,
       accent: accent ?? AppPreferences.defaults.accent,
       fontScale: fontScale.clamp(.8, 1.2).toDouble(),
@@ -58,32 +65,58 @@ final class DriftSettingsRepository implements SettingsRepository {
 
   @override
   Future<void> save(AppPreferences preferences) async {
-    await Future.wait([
-      _database.saveSetting(_themeKey, preferences.theme),
-      _database.saveSetting(_accentKey, preferences.accent),
-      _database.saveSetting(_fontScaleKey, preferences.fontScale.toString()),
-      _database.saveSetting(_fontFamilyKey, preferences.fontFamily),
-      _database.saveSetting(
-        _concurrencyKey,
-        preferences.concurrency.toString(),
-      ),
-      _database.saveSetting(
-        _timeoutSecondsKey,
-        preferences.timeoutSeconds.toString(),
-      ),
-      _database.saveSetting(
-        _compactCardsKey,
-        preferences.compactCards.toString(),
-      ),
-      _database.saveSetting(
-        _weeklyKeepAliveEnabledKey,
-        preferences.weeklyKeepAliveEnabled.toString(),
-      ),
-      _database.saveSetting(
-        _keepTerminalOpenAfterExitKey,
-        preferences.keepTerminalOpenAfterExit.toString(),
-      ),
-      _database.saveSetting(_profilesRootPathKey, preferences.profilesRoot),
-    ]);
+    await _database.transaction(() async {
+      await Future.wait([
+        _database.saveSetting(
+          'heartbeat_schedule',
+          jsonEncode({
+            'version': 1,
+            'minutes': preferences.heartbeatSchedule.slots,
+            'weekdays': preferences.heartbeatSchedule.weekdays,
+            'intervalMinutes': preferences.heartbeatSchedule.intervalMinutes,
+          }),
+        ),
+        _database.saveSetting(_themeKey, preferences.theme),
+        _database.saveSetting(_accentKey, preferences.accent),
+        _database.saveSetting(_fontScaleKey, preferences.fontScale.toString()),
+        _database.saveSetting(_fontFamilyKey, preferences.fontFamily),
+        _database.saveSetting(
+          _concurrencyKey,
+          preferences.concurrency.toString(),
+        ),
+        _database.saveSetting(
+          _timeoutSecondsKey,
+          preferences.timeoutSeconds.toString(),
+        ),
+        _database.saveSetting(
+          _compactCardsKey,
+          preferences.compactCards.toString(),
+        ),
+        _database.saveSetting(
+          _weeklyKeepAliveEnabledKey,
+          preferences.weeklyKeepAliveEnabled.toString(),
+        ),
+        _database.saveSetting(
+          _keepTerminalOpenAfterExitKey,
+          preferences.keepTerminalOpenAfterExit.toString(),
+        ),
+        _database.saveSetting(_profilesRootPathKey, preferences.profilesRoot),
+      ]);
+    });
+  }
+
+  static HeartbeatDailySchedule _readSchedule(String? stored) {
+    if (stored == null) return HeartbeatDailySchedule.continuous;
+    try {
+      final value = jsonDecode(stored) as Map<String, dynamic>;
+      if (value['version'] != 1) return HeartbeatDailySchedule.continuous;
+      return HeartbeatDailySchedule(
+        minutes: (value['minutes'] as List).cast<int>(),
+        weekdays: (value['weekdays'] as List).cast<int>(),
+        intervalMinutes: value['intervalMinutes'] as int?,
+      ).normalized();
+    } catch (_) {
+      return HeartbeatDailySchedule.continuous;
+    }
   }
 }

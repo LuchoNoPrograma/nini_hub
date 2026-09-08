@@ -1,3 +1,5 @@
+import 'package:nini_hub/features/accounts/application/create_linked_account.dart';
+import 'package:nini_hub/features/profiles/data/nini_agents_profile_draft_store.dart';
 import 'dart:async';
 
 import 'package:file_selector/file_selector.dart';
@@ -148,29 +150,52 @@ final heartbeatUsageSnapshotPublisherProvider =
       final repository = DriftUsageSnapshotRepository(
         ref.watch(databaseProvider),
       );
-      return ({required profileId, required snapshot}) async {
-        await repository.saveSnapshot(profileId: profileId, snapshot: snapshot);
+      return ({required profileId, required snapshot, previousSnapshot}) async {
+        await repository.saveSnapshots(
+          profileId: profileId,
+          snapshots: [?previousSnapshot, snapshot],
+        );
         ref
             .read(usageControllerProvider.notifier)
             .projectPersistedSnapshot(profileId, snapshot);
+        await ref
+            .read(usageRefreshCoordinatorProvider)
+            .synchronizePersistedUsage();
       };
     });
+
+final heartbeatCompleteOperationProvider = Provider<CompleteHeartbeatOperation>(
+  (ref) => CompleteHeartbeatOperation(
+    scheduler: ref.watch(heartbeatSchedulerProvider),
+    publish: ref.watch(heartbeatUsageSnapshotPublisherProvider),
+  ),
+);
 
 final Provider<HeartbeatScheduledProbe> heartbeatScheduledProbeProvider =
     Provider<HeartbeatScheduledProbe>(
       (ref) => (profileId) async {
-        final result = await ref
-            .read(heartbeatSchedulerProvider)
-            .enqueueOperation<HeartbeatRunResult>(
-              profileId: profileId,
-              operation: () => ref.read(heartbeatProbeProvider)(profileId),
-            );
-        final snapshot = result?.latestUsageSnapshot;
-        if (snapshot == null) return;
-        await ref.read(heartbeatUsageSnapshotPublisherProvider)(
-          profileId: profileId,
-          snapshot: snapshot,
-        );
+        try {
+          await ref
+              .read(heartbeatSchedulerProvider)
+              .enqueueOperation<HeartbeatRunResult>(
+                profileId: profileId,
+                operation: () => ref.read(heartbeatCompleteOperationProvider)(
+                  profileId: profileId,
+                  requireRetained: true,
+                  operation: () => ref.read(heartbeatProbeProvider)(profileId),
+                ),
+              );
+        } catch (error) {
+          await ref
+              .read(processRunnerProvider)
+              .addInternalLog(
+                summary: 'Actualizar datos después del heartbeat',
+                status: 'error',
+                output: ProcessRunner.sanitizeOutput(error.toString()),
+                profileId: profileId,
+                command: 'heartbeat scheduled update',
+              );
+        }
       },
     );
 
@@ -194,9 +219,12 @@ final heartbeatRunnerProvider = Provider<HeartbeatRunner>((ref) {
     }
     return await scheduler.enqueueOperation<HeartbeatRunResult>(
           profileId: profileId,
-          operation: () => ref.read(runHeartbeatUseCaseProvider)(
+          operation: () => ref.read(heartbeatCompleteOperationProvider)(
             profileId: profileId,
-            expectedWindowMinutes: expectedWindowMinutes,
+            operation: () => ref.read(runHeartbeatUseCaseProvider)(
+              profileId: profileId,
+              expectedWindowMinutes: expectedWindowMinutes,
+            ),
           ),
         ) ??
         const HeartbeatRunResult(
@@ -210,13 +238,15 @@ final heartbeatUsageKeepAliveProvider = Provider<UsageKeepAliveScheduler>(
   (ref) => HeartbeatUsageKeepAliveScheduler(
     scheduler: ref.watch(heartbeatSchedulerProvider),
     runner: ref.watch(processRunnerProvider),
-    observe: ({required profile, required snapshot}) {
-      return ref.read(heartbeatObserveUsageProvider)(
-        profile: profile,
-        snapshot: snapshot,
-      );
-    },
-    publish: ref.watch(heartbeatUsageSnapshotPublisherProvider),
+    observe: ({required profile, required snapshot}) => ref.read(
+      heartbeatObserveUsageProvider,
+    )(profile: profile, snapshot: snapshot),
+    publish: ({required profileId, required snapshot, previousSnapshot}) =>
+        ref.read(heartbeatUsageSnapshotPublisherProvider)(
+          profileId: profileId,
+          snapshot: snapshot,
+          previousSnapshot: previousSnapshot,
+        ),
   ),
 );
 
@@ -229,14 +259,6 @@ heartbeatControllerProvider =
         ),
       ),
     );
-
-typedef HeartbeatPostRunRefresh = Future<void> Function(String profileId);
-
-final heartbeatPostRunRefreshProvider = Provider<HeartbeatPostRunRefresh>(
-  (ref) =>
-      (profileId) =>
-          ref.read(usageRefreshCoordinatorProvider).refreshOne(profileId),
-);
 
 final profileDiscoveryProvider = Provider<ProfileDiscoveryService>(
   (ref) => ProfileDiscoveryService(
@@ -298,6 +320,13 @@ accountsControllerProvider =
           ),
         );
         return AccountsControllerDependencies(
+          createLinkedAccount: CreateLinkedAccount(
+            drafts: NiniAgentsProfileDraftStore(
+              ref.watch(niniAgentsClientProvider),
+              ref.watch(profileDiscoveryProvider),
+            ),
+            gateway: ref.watch(accountDeviceAuthGatewayProvider),
+          ),
           loadAccounts: LoadAccounts(repository: accountRepository),
           updateAccount: UpdateAccount(
             accountRepository: accountRepository,
@@ -397,6 +426,9 @@ settingsControllerProvider =
         final repository = DriftSettingsRepository(ref.watch(databaseProvider));
         final runtime = DesktopSettingsRuntime(
           discovery: ref.watch(profileDiscoveryProvider),
+          heartbeatScheduleSetter: ref
+              .read(heartbeatSchedulerProvider)
+              .configureSchedule,
           requestTimeoutSetter: ref
               .read(codexClientRuntimeProvider)
               .setRequestTimeoutSeconds,

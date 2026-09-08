@@ -130,6 +130,8 @@ final class HeartbeatController extends Notifier<HeartbeatPresentationState> {
       'El heartbeat sólo está disponible para Codex.',
     HeartbeatProfileUnavailableFailure() =>
       'La cuenta debe estar disponible y vinculada.',
+    HeartbeatAppliedFailure(progress: HeartbeatAppliedProgress.usageRead) =>
+      'El heartbeat terminó, pero no se pudo guardar o mostrar la actualización de datos.',
     HeartbeatAppliedFailure() =>
       'El heartbeat se aplicó, pero no se pudo registrar la actividad.',
     _ => 'No se pudo completar el heartbeat.',

@@ -144,7 +144,6 @@ final class RefreshAllUsage {
           onFailure?.call(profile.id, error);
           firstFailure ??= error;
           failedProfileId ??= profile.id;
-          return;
         }
       }
     }

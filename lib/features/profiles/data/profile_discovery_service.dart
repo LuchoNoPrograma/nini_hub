@@ -22,6 +22,19 @@ class ProfileDiscoveryService implements ProfileDiscovery {
   final Uuid _uuid = const Uuid();
   Future<void> _discoveryTail = Future<void>.value();
 
+  final Set<String> _pendingProfileHomes = {};
+
+  void reservePendingProfile(String home) {
+    if (!_pendingProfileHomes.add(home)) {
+      throw const ProfileMutationRejectedFailure(
+        operation: ProfileOperation.create,
+        reason: ProfileMutationRejectionReason.alreadyExists,
+      );
+    }
+  }
+
+  void releasePendingProfile(String home) => _pendingProfileHomes.remove(home);
+
   String get userHome =>
       Platform.environment['HOME'] ??
       Platform.environment['USERPROFILE'] ??
@@ -156,6 +169,7 @@ class ProfileDiscoveryService implements ProfileDiscovery {
             );
       }
       for (final item in discovered) {
+        if (_pendingProfileHomes.contains(item.profileHome)) continue;
         final existingByPath =
             await (database.select(database.cliProfiles)
                   ..where((row) => row.profileHome.equals(item.profileHome)))

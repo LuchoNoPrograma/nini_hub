@@ -715,100 +715,95 @@ void main() {
     }
   });
 
-  testWidgets('create profile switches cleanly from ChatGPT to Claude', (
-    tester,
-  ) async {
-    await tester.binding.setSurfaceSize(const Size(900, 620));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    final database = AppDatabase(NativeDatabase.memory());
-    addTearDown(database.close);
+  testWidgets(
+    'create profile only offers tools with integrated authentication',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(900, 620));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final database = AppDatabase(NativeDatabase.memory());
+      addTearDown(database.close);
 
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [databaseProvider.overrideWithValue(database)],
-        child: MaterialApp(
-          theme: AppTheme.dark('cyan'),
-          home: Consumer(
-            builder: (context, ref, _) => Scaffold(
-              body: Center(
-                child: FilledButton(
-                  onPressed: () => showCreateProfileDialog(
-                    context,
-                    controller: ref.read(profilesControllerProvider.notifier),
-                    readState: () => ref.read(profilesControllerProvider),
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [databaseProvider.overrideWithValue(database)],
+          child: MaterialApp(
+            theme: AppTheme.dark('cyan'),
+            home: Consumer(
+              builder: (context, ref, _) => Scaffold(
+                body: Center(
+                  child: FilledButton(
+                    onPressed: () => showCreateProfileDialog(
+                      context,
+                      create: (_) async => null,
+                      readError: () => null,
+                    ),
+                    child: const Text('Abrir creación'),
                   ),
-                  child: const Text('Abrir creación'),
                 ),
               ),
             ),
           ),
         ),
-      ),
-    );
-    await tester.tap(find.text('Abrir creación'));
-    await tester.pumpAndSettle();
+      );
+      await tester.tap(find.text('Abrir creación'));
+      await tester.pumpAndSettle();
 
-    expect(find.text('Crear y vincular'), findsOneWidget);
-    expect(find.text('Acceso mediante Codex Device Auth'), findsOneWidget);
-    expect(find.textContaining('Configuración > Seguridad'), findsOneWidget);
-    expect(
-      find.textContaining('habilita el acceso mediante código de dispositivo'),
-      findsOneWidget,
-    );
-    final primaryButton = find.widgetWithText(FilledButton, 'Crear y vincular');
-    expect(tester.getSize(primaryButton).height, greaterThanOrEqualTo(38));
-    InputDecoration aliasDecoration() => tester
-        .widget<InputDecorator>(
-          find
-              .descendant(
-                of: find.byType(TextFormField).first,
-                matching: find.byType(InputDecorator),
-              )
-              .first,
-        )
-        .decoration;
-    expect(aliasDecoration().prefixText, 'codex-');
-    expect(find.byType(SegmentedButton<String>), findsNothing);
-    expect(find.text('Cómo empezar'), findsOneWidget);
-    expect(find.text('Compartir ajustes'), findsOneWidget);
-    expect(find.text('Independiente'), findsOneWidget);
-    expect(find.byType(RadioListTile<ProfileSetupMode>), findsNWidgets(2));
-    expect(
-      tester
-          .widget<RadioGroup<ProfileSetupMode>>(
-            find.byType(RadioGroup<ProfileSetupMode>),
+      expect(find.text('Crear y vincular'), findsOneWidget);
+      expect(find.text('Siguiente paso: vincular tu cuenta'), findsOneWidget);
+      expect(
+        find.textContaining(
+          'La cuenta se guardará solo al confirmar el acceso',
+        ),
+        findsOneWidget,
+      );
+      final primaryButton = find.widgetWithText(
+        FilledButton,
+        'Crear y vincular',
+      );
+      expect(tester.getSize(primaryButton).height, greaterThanOrEqualTo(38));
+      InputDecoration aliasDecoration() => tester
+          .widget<InputDecorator>(
+            find
+                .descendant(
+                  of: find.byType(TextFormField).first,
+                  matching: find.byType(InputDecorator),
+                )
+                .first,
           )
-          .groupValue,
-      ProfileSetupMode.shared,
-    );
+          .decoration;
+      expect(aliasDecoration().prefixText, 'codex-');
+      expect(find.byType(SegmentedButton<String>), findsNothing);
+      expect(find.text('Configuración del perfil'), findsOneWidget);
+      expect(find.text('Usar mis ajustes habituales'), findsOneWidget);
+      expect(find.text('Empezar con ajustes nuevos'), findsOneWidget);
+      expect(find.byType(RadioListTile<ProfileSetupMode>), findsNWidgets(2));
+      expect(
+        tester
+            .widget<RadioGroup<ProfileSetupMode>>(
+              find.byType(RadioGroup<ProfileSetupMode>),
+            )
+            .groupValue,
+        ProfileSetupMode.shared,
+      );
 
-    await tester.tap(find.text('Independiente'));
-    await tester.pumpAndSettle();
-    expect(
-      tester
-          .widget<RadioGroup<ProfileSetupMode>>(
-            find.byType(RadioGroup<ProfileSetupMode>),
-          )
-          .groupValue,
-      ProfileSetupMode.full,
-    );
+      await tester.tap(find.text('Empezar con ajustes nuevos'));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<RadioGroup<ProfileSetupMode>>(
+              find.byType(RadioGroup<ProfileSetupMode>),
+            )
+            .groupValue,
+        ProfileSetupMode.full,
+      );
 
-    await tester.tap(find.byType(DropdownButtonFormField<String>).first);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Claude · Claude Code').last);
-    await tester.pumpAndSettle();
-
-    expect(find.text('Crear en Claude'), findsOneWidget);
-    expect(find.text('Acceso de Claude Code'), findsOneWidget);
-    expect(
-      find.textContaining('vinculación automática todavía no está disponible'),
-      findsOneWidget,
-    );
-    expect(find.text('Acceso mediante Codex Device Auth'), findsNothing);
-    expect(find.text('multi-cli new claude-cli/alias'), findsOneWidget);
-    expect(aliasDecoration().prefixText, 'claude-cli-');
-    expect(tester.takeException(), isNull);
-  });
+      await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+      await tester.pumpAndSettle();
+      expect(find.text('Claude · Claude Code'), findsNothing);
+      expect(find.text('ChatGPT · Codex'), findsWidgets);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('empty state remains usable in a narrow surface', (tester) async {
     await tester.pumpWidget(
@@ -984,7 +979,7 @@ void main() {
       ),
     );
 
-    expect(find.text('CREDENCIAL EXPIRADA'), findsOneWidget);
+    expect(find.text('Credencial expirada'), findsOneWidget);
     expect(
       find.text('La credencial expiró; vuelve a iniciar sesión'),
       findsOneWidget,
@@ -1189,7 +1184,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('codex-ari'), findsOneWidget);
+    expect(find.text('Configuración propia'), findsOneWidget);
     expect(find.text('GPT-5.3-Codex-Spark · Ventana de 5 h'), findsOneWidget);
     expect(find.text('Codex · Límite semanal'), findsOneWidget);
     expect(find.text('GPT-5.3-Codex-Spark · Límite semanal'), findsOneWidget);
@@ -1211,7 +1206,7 @@ void main() {
       tester
           .widget<Icon>(
             find.descendant(
-              of: find.byTooltip('Editar perfil'),
+              of: find.byTooltip('Editar datos de la cuenta'),
               matching: find.byIcon(Icons.edit_outlined),
             ),
           )
@@ -1233,20 +1228,20 @@ void main() {
     final availableRect = tester.getRect(find.text('93% disponible'));
     final weeklyRect = tester.getRect(find.text('Codex · Límite semanal'));
     final weeklyResetRect = tester.getRect(
-      find.textContaining('Reinicia en').last,
+      find.byKey(const ValueKey('quota-reset-codex-primary')),
     );
-    expect(cardRect.right - availableRect.right, closeTo(11, 1));
-    expect(weeklyResetRect.left - weeklyRect.right, lessThanOrEqualTo(20));
+    expect(cardRect.right - availableRect.right, closeTo(8, 1));
+    expect(weeklyResetRect.top, closeTo(weeklyRect.top, 2));
     expect(tester.takeException(), isNull);
 
     await tester.tap(find.byTooltip('Más acciones'));
     await tester.pumpAndSettle();
     expect(find.text('Iniciar ciclo'), findsOneWidget);
-    expect(find.text('Renombrar alias físico'), findsOneWidget);
+    expect(find.text('Cambiar identificador'), findsOneWidget);
     expect(find.text('Eliminar perfil'), findsOneWidget);
     expect(
       DefaultTextStyle.of(
-        tester.element(find.text('Renombrar alias físico')),
+        tester.element(find.text('Cambiar identificador')),
       ).style.fontWeight,
       FontWeight.w400,
     );
@@ -1306,16 +1301,16 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('Editar perfil "Ari"'), findsOneWidget);
-    final accountTabScroll = tester.widget<ListView>(
+    expect(find.text('Datos de la cuenta'), findsOneWidget);
+    final accountTabScroll = tester.widget<SingleChildScrollView>(
       find
           .descendant(
-            of: find.byType(TabBarView),
-            matching: find.byType(ListView),
+            of: find.byType(Form),
+            matching: find.byType(SingleChildScrollView),
           )
           .first,
     );
-    expect(accountTabScroll.padding, const EdgeInsets.fromLTRB(0, 9, 0, 4));
+    expect(accountTabScroll.padding, const EdgeInsets.fromLTRB(20, 16, 20, 16));
     final subscriptionTabIcon = find
         .descendant(
           of: find.byType(TabBar),
@@ -1326,7 +1321,7 @@ void main() {
       IconTheme.of(tester.element(subscriptionTabIcon)).color,
       AppTheme.dark('cyan').colorScheme.onSurfaceVariant,
     );
-    await tester.tap(find.text('Renovación'));
+    await tester.tap(find.text('Suscripción'));
     await tester.pumpAndSettle();
     expect(find.text('Fecha de próxima renovación'), findsOneWidget);
     expect(find.text('Precio por renovación'), findsOneWidget);
@@ -1383,12 +1378,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('GPT-5.3-Codex-Spark · Ventana de 5 h'), findsOneWidget);
-    expect(find.textContaining('Límite semanal'), findsNothing);
+    expect(find.textContaining('Límite semanal'), findsNWidgets(2));
     expect(
       tester
           .widget<Text>(find.byKey(const ValueKey('quota-snapshot-age-ari')))
           .data,
-      contains('+2'),
+      isNot(contains('+2')),
     );
     expect(tester.takeException(), isNull);
 
@@ -1613,7 +1608,7 @@ void main() {
     for (final card in tester.widgetList<AccountCard>(
       find.byType(AccountCard),
     )) {
-      expect(tester.getSize(find.byWidget(card)).height, closeTo(252, .1));
+      expect(tester.getSize(find.byWidget(card)).height, closeTo(250, .1));
     }
     expect(find.text('Codex · Límite semanal'), findsOneWidget);
     expect(find.text('GPT-5.3-Codex-Spark · Límite semanal'), findsOneWidget);
@@ -1629,11 +1624,11 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(900, 620));
     await tester.pumpAndSettle();
 
-    expect(find.widgetWithText(ChoiceChip, 'Nombre'), findsOneWidget);
-    expect(find.widgetWithText(ChoiceChip, 'Disponibilidad'), findsOneWidget);
-    expect(find.widgetWithText(ChoiceChip, 'Renovación'), findsOneWidget);
-    expect(find.widgetWithText(ChoiceChip, 'Reinicio próximo'), findsOneWidget);
-    await tester.tap(find.widgetWithText(ChoiceChip, 'Renovación'));
+    final order = find.byType(DropdownButtonFormField<AccountSortMode>);
+    expect(order, findsOneWidget);
+    await tester.tap(order);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Renovación').last);
     await tester.pumpAndSettle();
     expect(
       accountsContainer.read(accountsControllerProvider).query.sort,
@@ -1842,7 +1837,6 @@ void main() {
 
     expect(find.text('Estadísticas de uso'), findsOneWidget);
     expect(find.text('Tokens en Agosto 2026'), findsOneWidget);
-    expect(find.text('HOY'), findsOneWidget);
     expect(find.text('Hoy'), findsAtLeastNWidgets(1));
     expect(find.byType(Dialog), findsNothing);
     expect(find.text(formatFullDate(DateTime(2026, 8, 13))), findsOneWidget);
@@ -1852,11 +1846,15 @@ void main() {
       find.byTooltip(formatTokenDetails(322242242)),
       findsAtLeastNWidgets(2),
     );
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('calendar-day-2026-8-13')),
+    );
+
     await tester.tap(find.byKey(const ValueKey('calendar-day-2026-8-13')));
     await tester.pumpAndSettle();
-    expect(find.text('Uso por cuenta'), findsOneWidget);
+    expect(find.text('Registros por cuenta'), findsOneWidget);
     expect(find.text('Ari Personal'), findsOneWidget);
-    expect(find.text('Cuota disponible'), findsOneWidget);
+    expect(find.text('Mínimo disponible del día'), findsOneWidget);
     expect(find.text('100% disponible'), findsOneWidget);
     expect(
       tester
@@ -1867,6 +1865,10 @@ void main() {
       1,
     );
     expect(find.byType(Dialog), findsNothing);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('calendar-day-2026-8-12')),
+    );
+
     await tester.tap(find.byKey(const ValueKey('calendar-day-2026-8-12')));
     await tester.pumpAndSettle();
     expect(find.text(formatFullDate(DateTime(2026, 8, 12))), findsOneWidget);
@@ -1875,6 +1877,7 @@ void main() {
     expect(find.byType(Dialog), findsNothing);
     final selectedDay = container.read(usageControllerProvider).selectedDay;
     final nextMonth = DateTime(selectedDay.year, selectedDay.month + 1);
+    await tester.ensureVisible(find.byTooltip('Mes siguiente'));
     await tester.tap(find.byTooltip('Mes siguiente'));
     await tester.pumpAndSettle();
     expect(find.text(formatMonth(nextMonth)), findsOneWidget);

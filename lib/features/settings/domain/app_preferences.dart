@@ -1,3 +1,5 @@
+import 'package:nini_hub/features/heartbeat/domain/heartbeat_daily_schedule.dart';
+
 final class AppPreferences {
   const AppPreferences({
     required this.theme,
@@ -10,6 +12,7 @@ final class AppPreferences {
     required this.weeklyKeepAliveEnabled,
     required this.keepTerminalOpenAfterExit,
     required this.profilesRoot,
+    this.heartbeatSchedule = HeartbeatDailySchedule.continuous,
   });
 
   static const defaults = AppPreferences(
@@ -35,6 +38,7 @@ final class AppPreferences {
   final bool weeklyKeepAliveEnabled;
   final bool keepTerminalOpenAfterExit;
   final String profilesRoot;
+  final HeartbeatDailySchedule heartbeatSchedule;
 
   AppPreferences normalizedForSave() => AppPreferences(
     theme: theme,
@@ -47,5 +51,6 @@ final class AppPreferences {
     weeklyKeepAliveEnabled: weeklyKeepAliveEnabled,
     keepTerminalOpenAfterExit: keepTerminalOpenAfterExit,
     profilesRoot: profilesRoot.trim(),
+    heartbeatSchedule: heartbeatSchedule.normalized(),
   );
 }

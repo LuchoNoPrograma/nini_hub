@@ -46,18 +46,17 @@ void main() {
     await tester.tap(find.text('Editar'));
     await tester.pumpAndSettle();
 
-    final emailField = find.ancestor(
-      of: find.text('Correo reconocido'),
-      matching: find.byType(TextFormField),
-    );
-    expect(emailField, findsOneWidget);
-    final editable = tester.widget<EditableText>(
-      find.descendant(of: emailField, matching: find.byType(EditableText)),
-    );
-    expect(editable.readOnly, isTrue);
-    expect(editable.controller.text, 'observed@example.com');
+    final email = find.byKey(const ValueKey('account-observed-email'));
+    expect(tester.widget<SelectableText>(email).data, 'observed@example.com');
     expect(
-      find.text('Codex lo actualiza al consultar esta cuenta.'),
+      find.ancestor(of: email, matching: find.byType(TextFormField)),
+      findsNothing,
+    );
+    expect(find.text('stale@example.com'), findsNothing);
+    expect(
+      find.text(
+        'Información de consulta; se actualiza al consultar la cuenta.',
+      ),
       findsOneWidget,
     );
   });

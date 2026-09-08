@@ -1,3 +1,4 @@
+import 'package:nini_hub/features/accounts/domain/account_device_auth.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -14,6 +15,7 @@ import 'package:nini_hub/features/accounts/presentation/controllers/accounts_con
 import 'package:nini_hub/features/accounts/presentation/state/accounts_state.dart';
 import 'package:nini_hub/features/heartbeat/domain/heartbeat_policy.dart';
 import 'package:nini_hub/features/profiles/domain/profile_provider.dart';
+import 'package:nini_hub/features/profiles/domain/profile.dart';
 import 'package:nini_hub/features/profiles/presentation/profile_dialogs.dart';
 import 'package:nini_hub/features/profiles/presentation/profile_provider_icon.dart';
 import 'package:nini_hub/features/usage/application/usage_account_projection.dart';
@@ -23,29 +25,32 @@ import 'package:nini_hub/features/workspaces/presentation/launch_agent_dialog.da
 
 Future<void> showCreateProfileFlow(BuildContext context, WidgetRef ref) async {
   if (_profilesBusy(context, ref)) return;
-  final created = await showCreateProfileDialog(
+  final controller = ref.read(accountsControllerProvider.notifier);
+  controller.clearFailure();
+  await showCreateProfileDialog(
     context,
-    controller: ref.read(profilesControllerProvider.notifier),
-    readState: () => ref.read(profilesControllerProvider),
+    readError: () => ref.read(accountsControllerProvider).errorMessage,
+    create: (command) async {
+      final method = await showAccountAuthMethodDialog(
+        context,
+        title: 'Elige cómo vincular el nuevo perfil',
+      );
+      if (method == null || !context.mounted) return null;
+      return controller.createLinkedAccount(
+        command,
+        method: method,
+        authenticate: (profile, session, method) async {
+          if (!context.mounted) return false;
+          return showPendingAccountAuthDialog(
+            context,
+            profile,
+            session,
+            method,
+          );
+        },
+      );
+    },
   );
-  if (created == null || !context.mounted) return;
-  if (!await _reloadAccounts(context, ref)) return;
-  if (!context.mounted) return;
-  final account = ref
-      .read(accountsControllerProvider)
-      .snapshot
-      .findById(created.id);
-  if (account == null) {
-    _showProfileFlowError(
-      context,
-      StateError('El perfil se creó, pero la cuenta no pudo actualizarse.'),
-    );
-    return;
-  }
-  final provider = profileProvider(created.toolKey);
-  if (provider.supportsDeviceAuth && !account.profile.hasAuthFile) {
-    await _showDeviceAuth(context, ref, account);
-  }
 }
 
 Future<void> _renameProfileFlow(
@@ -77,7 +82,7 @@ Future<void> _deleteProfileFlow(
     controller: ref.read(profilesControllerProvider.notifier),
     readState: () => ref.read(profilesControllerProvider),
     profileId: account.profile.id,
-    displayName: account.profile.displayName,
+    displayName: _profileTitle(account),
   );
   if (!deleted || !context.mounted) return;
   await _reloadAccounts(context, ref, removedProfileId: account.profile.id);
@@ -105,14 +110,27 @@ Future<bool> _reloadAccounts(
 Future<void> _showDeviceAuth(
   BuildContext context,
   WidgetRef ref,
-  Account account,
-) => showDeviceAuthDialog(
+  Account account, {
+  AccountAuthMethod? method,
+  bool isNewProfile = false,
+}) => showDeviceAuthDialog(
   context,
   account,
+  method: method,
+  isNewProfile: isNewProfile,
   start: (account) async {
     final session = await ref
         .read(accountsControllerProvider.notifier)
         .startDeviceAuth(account);
+    if (session != null) return session;
+    final state = ref.read(accountsControllerProvider);
+    throw state.failure ??
+        StateError(state.errorMessage ?? 'No se pudo iniciar la vinculación.');
+  },
+  startBrowser: (account) async {
+    final session = await ref
+        .read(accountsControllerProvider.notifier)
+        .startDeviceAuth(account, method: AccountAuthMethod.browser);
     if (session != null) return session;
     final state = ref.read(accountsControllerProvider);
     throw state.failure ??
@@ -199,10 +217,10 @@ LaunchProfileOption _launchProfileOption(Account account) {
   return LaunchProfileOption(
     id: account.profile.id,
     toolKey: account.profile.toolKey,
-    displayName: account.profile.displayName,
+    displayName: _profileTitle(account),
     subtitle: _launchProfileSubtitle(account, provider),
     canLaunch: _canLaunchAccount(account, provider),
-    availablePercent: account.lowestAvailablePercent,
+    availablePercent: account.operationalAvailablePercent,
   );
 }
 
@@ -211,6 +229,17 @@ bool _canLaunchAccount(Account account, [ProfileProvider? accountProvider]) {
   return account.profile.isAvailable &&
       (account.profile.hasAuthFile || !provider.supportsDeviceAuth);
 }
+
+String _profileTitle(Account account) =>
+    account.profile.source == ProfileSource.defaultProfile &&
+        const [
+          'main',
+          'principal',
+          'codex principal',
+          'codex main',
+        ].contains(account.profile.displayName.trim().toLowerCase())
+    ? 'Perfil principal'
+    : account.profile.displayName;
 
 String _launchProfileSubtitle(Account account, ProfileProvider provider) {
   if (account.isDeactivated) return 'Desactivada en este equipo';
@@ -266,9 +295,14 @@ class AccountsView extends ConsumerWidget {
         else
           account,
     ];
-    final ready = accounts.where((item) => item.isReady).length;
-    final attention = accounts.where((item) => item.needsAttention).length;
-    final unlinked = accounts.where((item) => item.isUnlinked).length;
+    final statusCounts = <AccountStatus, int>{};
+    for (final account in accounts) {
+      statusCounts.update(
+        account.status,
+        (count) => count + 1,
+        ifAbsent: () => 1,
+      );
+    }
     final recent = accounts
         .map((item) => item.currentCheck?.startedAt)
         .whereType<DateTime>()
@@ -283,48 +317,64 @@ class AccountsView extends ConsumerWidget {
     return CustomScrollView(
       slivers: [
         SliverPadding(
-          padding: const EdgeInsets.fromLTRB(18, 17, 18, 0),
+          padding: const EdgeInsets.fromLTRB(18, 12, 18, 10),
           sliver: SliverToBoxAdapter(
-            child: SectionTitle(
-              title: 'Perfiles de IA',
-              subtitle: 'ChatGPT, Claude y sus perfiles aislados de multi-cli.',
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  FilledButton.icon(
-                    onPressed: accounts.isEmpty || workspaceBusy
-                        ? null
-                        : () => _openLaunchAgentDialog(context, ref),
-                    icon: const Icon(Icons.terminal_rounded, size: 18),
-                    label: const Text('Lanzar agente'),
-                  ),
-                  const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    onPressed: profilesBusy
-                        ? null
-                        : () => showCreateProfileFlow(context, ref),
-                    icon: const Icon(Icons.add, size: 18),
-                    label: const Text('Nuevo perfil'),
-                  ),
-                ],
-              ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final title = Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Perfiles de IA',
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
+                    const SizedBox(height: 4),
+                    _SummaryBand(
+                      total: accounts.length,
+                      statusCounts: statusCounts,
+                      recent: recent,
+                    ),
+                  ],
+                );
+                final actions = Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    FilledButton.icon(
+                      onPressed: accounts.isEmpty || workspaceBusy
+                          ? null
+                          : () => _openLaunchAgentDialog(context, ref),
+                      icon: const Icon(Icons.terminal_rounded, size: 18),
+                      label: const Text('Lanzar agente'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: profilesBusy
+                          ? null
+                          : () => showCreateProfileFlow(context, ref),
+                      icon: const Icon(Icons.add, size: 18),
+                      label: const Text('Nuevo perfil'),
+                    ),
+                  ],
+                );
+                if (constraints.maxWidth < 850) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [title, const SizedBox(height: 8), actions],
+                  );
+                }
+                return Row(
+                  children: [
+                    Expanded(child: title),
+                    const SizedBox(width: 16),
+                    actions,
+                  ],
+                );
+              },
             ),
           ),
         ),
         SliverPadding(
-          padding: const EdgeInsets.fromLTRB(18, 14, 18, 0),
-          sliver: SliverToBoxAdapter(
-            child: _SummaryBand(
-              total: accounts.length,
-              ready: ready,
-              attention: attention,
-              unlinked: unlinked,
-              recent: recent,
-            ),
-          ),
-        ),
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(18, 12, 18, 12),
+          padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
           sliver: SliverToBoxAdapter(
             child: _AccountFilters(
               controller: accountsController,
@@ -332,6 +382,35 @@ class AccountsView extends ConsumerWidget {
             ),
           ),
         ),
+        if (accountsState.authRefreshingProfileIds.isNotEmpty)
+          const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(18, 0, 18, 12),
+              child: Text(
+                'Acceso confirmado. Actualizando cuotas en segundo plano…',
+              ),
+            ),
+          ),
+        for (final entry in accountsState.authRefreshFailures.entries)
+          if (accountsState.snapshot.findById(entry.key) case final account?)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
+                child: Wrap(
+                  spacing: 12,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text('${account.profile.displayName}: ${entry.value}'),
+                    TextButton(
+                      onPressed: accountsState.isBusy
+                          ? null
+                          : () => accountsController.refreshAuthUsage(account),
+                      child: const Text('Reintentar cuotas'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
         if (visibleAccounts.isEmpty)
           SliverFillRemaining(
             hasScrollBody: false,
@@ -343,7 +422,7 @@ class AccountsView extends ConsumerWidget {
                   ? 'No hay perfiles de IA'
                   : 'No hay coincidencias',
               message: accounts.isEmpty
-                  ? 'Crea una cuenta o redescubre el directorio de multi-cli.'
+                  ? 'Crea un perfil en Nini Hub y vincula tu cuenta para empezar.'
                   : 'Cambia la búsqueda o el filtro de estado.',
               action: accounts.isEmpty
                   ? FilledButton.icon(
@@ -371,7 +450,13 @@ class AccountsView extends ConsumerWidget {
                     : 1;
                 const spacing = 10.0;
                 final extent = (width - spacing * (columns - 1)) / columns;
-                final densityScale = cardLayout.fontScale.clamp(.9, 1.2);
+                final fontSize = Theme.of(
+                  context,
+                ).textTheme.bodyMedium!.fontSize!;
+                final systemScale =
+                    MediaQuery.textScalerOf(context).scale(fontSize) / fontSize;
+                final densityScale =
+                    cardLayout.fontScale.clamp(.8, 1.2) / .9 * systemScale;
                 final cardExtent = _accountCardExtent(
                   accounts: visibleAccounts,
                   compact: cardLayout.compactCards,
@@ -398,6 +483,9 @@ class AccountsView extends ConsumerWidget {
                             account: account,
                             quotaNow: quotaNow,
                             refreshing:
+                                accountsState.authRefreshingProfileIds.contains(
+                                  account.profile.id,
+                                ) ||
                                 heartbeatState.isRunningProfile(
                                   account.profile.id,
                                 ) ||
@@ -408,13 +496,23 @@ class AccountsView extends ConsumerWidget {
                                 .failureForProfile(account.profile.id)
                                 ?.message,
                             usageActionsDisabled:
+                                accountsState.authRefreshingProfileIds.contains(
+                                  account.profile.id,
+                                ) ||
                                 usageState.isRefreshingAll ||
                                 usageState.isSynchronizing,
                             compact: cardLayout.compactCards,
                             accountBusy:
+                                accountsState.authRefreshingProfileIds.contains(
+                                  account.profile.id,
+                                ) ||
                                 accountsState.operationProfileId ==
-                                account.profile.id,
-                            profileMutationBusy: profilesBusy,
+                                    account.profile.id,
+                            profileMutationBusy:
+                                profilesBusy ||
+                                accountsState.authRefreshingProfileIds.contains(
+                                  account.profile.id,
+                                ),
                             onEditAccount: () => showEditAccountDialog(
                               context,
                               accountsController,
@@ -442,9 +540,6 @@ class AccountsView extends ConsumerWidget {
                                       'No se pudo completar el heartbeat.',
                                 );
                               }
-                              await ref.read(heartbeatPostRunRefreshProvider)(
-                                profileId,
-                              );
                               if (!context.mounted) return;
                               final message = ref
                                   .read(heartbeatControllerProvider)
@@ -500,15 +595,12 @@ double _accountCardExtent({
     final count = account.visibleWindows.length;
     if (count > maximumWindowCount) maximumWindowCount = count;
   }
-  final shownWindowCount = compact
-      ? (maximumWindowCount == 0 ? 0 : 1)
-      : maximumWindowCount;
-  final baselineWindowCount = compact ? 1 : 2;
-  final additionalWindows = shownWindowCount > baselineWindowCount
-      ? shownWindowCount - baselineWindowCount
-      : 0;
-  final baseExtent = compact ? 213.0 : 246.0;
-  return (baseExtent + additionalWindows * 34) * densityScale;
+  // Compact mode reduces secondary details; it must never hide a limiting quota.
+  final baseExtent = compact ? 142.0 : 154.0;
+  // Buttons, padding and quota bars retain their size when only text shrinks.
+  final fixedExtent = 2 * 38 + 2 * (compact ? 7 : 8) + maximumWindowCount * 9;
+  final textExtent = baseExtent + maximumWindowCount * 32 - fixedExtent;
+  return fixedExtent + textExtent * densityScale;
 }
 
 int? _heartbeatWindowMinutes(Account account) {
@@ -542,176 +634,115 @@ int? _heartbeatWindowMinutes(Account account) {
 class _SummaryBand extends StatelessWidget {
   const _SummaryBand({
     required this.total,
-    required this.ready,
-    required this.attention,
-    required this.unlinked,
+    required this.statusCounts,
     required this.recent,
   });
 
   final int total;
-  final int ready;
-  final int attention;
-  final int unlinked;
+  final Map<AccountStatus, int> statusCounts;
   final DateTime? recent;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLow,
-        border: Border.symmetric(
-          horizontal: BorderSide(color: theme.colorScheme.outline),
+    return Wrap(
+      spacing: 12,
+      runSpacing: 4,
+      children: [
+        Text('$total perfiles', style: theme.textTheme.bodySmall),
+        for (final status in AccountStatus.values)
+          if ((statusCounts[status] ?? 0) > 0)
+            Text(
+              '${statusCounts[status]} ${_statusLabel(status, plural: statusCounts[status] != 1).toLowerCase()}',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: _statusColor(context, status),
+              ),
+            ),
+        Tooltip(
+          message: 'Última consulta: ${formatDateTime(recent)}',
+          child: Text(
+            relativeTime(recent),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
         ),
-      ),
-      child: Wrap(
-        spacing: 20,
-        runSpacing: 8,
-        children: [
-          MetricItem(
-            label: 'Perfiles',
-            value: '$total',
-            icon: Icons.layers_outlined,
-          ),
-          MetricItem(
-            label: 'Listos',
-            value: '$ready',
-            icon: Icons.check_circle_outline,
-            color: const Color(0xFF58E2AD),
-          ),
-          MetricItem(
-            label: 'Atención',
-            value: '$attention',
-            icon: Icons.warning_amber_rounded,
-            color: const Color(0xFFFFB84D),
-          ),
-          MetricItem(
-            label: 'Sin vincular',
-            value: '$unlinked',
-            icon: Icons.link_off,
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-          MetricItem(
-            label: 'Última consulta',
-            value: relativeTime(recent),
-            icon: Icons.schedule,
-          ),
-        ],
-      ),
+      ],
     );
   }
 }
 
 class _AccountFilters extends StatelessWidget {
   const _AccountFilters({required this.controller, required this.state});
-
   final AccountsController controller;
   final AccountsState state;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
-      final search = SizedBox(
-        width: constraints.maxWidth < 680 ? constraints.maxWidth : 280,
-        child: TextField(
-          onChanged: controller.setSearch,
-          decoration: const InputDecoration(
-            hintText: 'Buscar nombre, perfil o correo',
-            prefixIcon: Icon(Icons.search, size: 15),
-          ),
+      final search = TextFormField(
+        initialValue: state.query.search,
+        onChanged: controller.setSearch,
+        decoration: const InputDecoration(
+          hintText: 'Buscar perfil o correo',
+          prefixIcon: Icon(Icons.search, size: 18),
         ),
       );
       final filters = Wrap(
-        spacing: 6,
+        spacing: 5,
+        runSpacing: 4,
         children: [
-          _FilterItem(
-            label: 'Todos',
-            selected: state.query.status == AccountStatusFilter.all,
-            onTap: () => controller.setStatusFilter(AccountStatusFilter.all),
-          ),
-          _FilterItem(
-            label: 'Listos',
-            selected: state.query.status == AccountStatusFilter.ready,
-            onTap: () => controller.setStatusFilter(AccountStatusFilter.ready),
-          ),
-          _FilterItem(
-            label: 'Atención',
-            selected: state.query.status == AccountStatusFilter.attention,
-            onTap: () =>
-                controller.setStatusFilter(AccountStatusFilter.attention),
-          ),
-          _FilterItem(
-            label: 'Sin vincular',
-            selected: state.query.status == AccountStatusFilter.unlinked,
-            onTap: () =>
-                controller.setStatusFilter(AccountStatusFilter.unlinked),
-          ),
+          for (final filter in AccountStatusFilter.values)
+            _FilterItem(
+              label: filter.accountStatus == null
+                  ? 'Todos'
+                  : _statusLabel(filter.accountStatus!, plural: true),
+              color: filter.accountStatus == null
+                  ? Theme.of(context).colorScheme.onSurfaceVariant
+                  : _statusColor(context, filter.accountStatus!),
+              selected: state.query.status == filter,
+              onTap: () => controller.setStatusFilter(filter),
+            ),
         ],
       );
-      final sort = Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            'Ordenar por',
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
+      final sort = DropdownButtonFormField<AccountSortMode>(
+        initialValue: state.query.sort,
+        isExpanded: true,
+        decoration: const InputDecoration(
+          labelText: 'Ordenar por',
+          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        ),
+        items: const [
+          DropdownMenuItem(value: AccountSortMode.name, child: Text('Nombre')),
+          DropdownMenuItem(
+            value: AccountSortMode.availability,
+            child: Text('Disponibilidad'),
           ),
-          const SizedBox(width: 8),
-          _FilterItem(
-            label: 'Nombre',
-            icon: Icons.sort_by_alpha,
-            selected: state.query.sort == AccountSortMode.name,
-            onTap: () => controller.setSort(AccountSortMode.name),
+          DropdownMenuItem(
+            value: AccountSortMode.renewal,
+            child: Text('Renovación'),
           ),
-          const SizedBox(width: 6),
-          _FilterItem(
-            label: 'Disponibilidad',
-            icon: Icons.percent,
-            selected: state.query.sort == AccountSortMode.availability,
-            onTap: () => controller.setSort(AccountSortMode.availability),
-          ),
-          const SizedBox(width: 6),
-          _FilterItem(
-            label: 'Renovación',
-            icon: Icons.event_repeat,
-            selected: state.query.sort == AccountSortMode.renewal,
-            onTap: () => controller.setSort(AccountSortMode.renewal),
-          ),
-          const SizedBox(width: 6),
-          _FilterItem(
-            label: 'Reinicio próximo',
-            icon: Icons.update,
-            selected: state.query.sort == AccountSortMode.reset,
-            onTap: () => controller.setSort(AccountSortMode.reset),
+          DropdownMenuItem(
+            value: AccountSortMode.reset,
+            child: Text('Próximo reinicio'),
           ),
         ],
+        onChanged: (value) {
+          if (value != null) controller.setSort(value);
+        },
       );
-      if (constraints.maxWidth < 680) {
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            search,
-            const SizedBox(height: 10),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: filters,
-            ),
-            const SizedBox(height: 10),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: sort,
-            ),
-          ],
-        );
-      }
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [search, const Spacer(), filters]),
-          const SizedBox(height: 10),
-          SingleChildScrollView(scrollDirection: Axis.horizontal, child: sort),
+          Row(
+            children: [
+              Expanded(child: search),
+              const SizedBox(width: 10),
+              SizedBox(width: 180, child: sort),
+            ],
+          ),
+          const SizedBox(height: 8),
+          filters,
         ],
       );
     },
@@ -722,14 +753,14 @@ class _FilterItem extends StatelessWidget {
   const _FilterItem({
     required this.label,
     required this.selected,
+    required this.color,
     required this.onTap,
-    this.icon,
   });
 
   final String label;
   final bool selected;
+  final Color color;
   final VoidCallback onTap;
-  final IconData? icon;
 
   @override
   Widget build(BuildContext context) {
@@ -745,30 +776,18 @@ class _FilterItem extends StatelessWidget {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
       side: BorderSide(
         color: selected
-            ? theme.colorScheme.primary.withValues(alpha: .55)
+            ? color.withValues(alpha: .55)
             : theme.colorScheme.outline,
       ),
-      selectedColor: theme.colorScheme.primary.withValues(alpha: .1),
+      selectedColor: color.withValues(alpha: .1),
       backgroundColor: theme.colorScheme.surfaceContainerLow,
       label: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (icon != null) ...[
-            Icon(
-              icon,
-              size: 15,
-              color: selected
-                  ? theme.colorScheme.primary
-                  : theme.colorScheme.onSurfaceVariant,
-            ),
-            const SizedBox(width: 5),
-          ],
           Text(
             label,
             style: theme.textTheme.bodySmall?.copyWith(
-              color: selected
-                  ? theme.colorScheme.onSurface
-                  : theme.colorScheme.onSurfaceVariant,
+              color: color,
               fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
             ),
           ),
@@ -863,356 +882,395 @@ class _AccountCardState extends State<AccountCard> {
     final launchable = _canLaunchAccount(account, provider);
     final stateColor = _stateColor(context, account);
     final allWindows = account.visibleWindows;
-    final shownWindowCount = widget.compact && allWindows.isNotEmpty
-        ? 1
-        : allWindows.length;
+    final shownWindowCount = allWindows.length;
     final windows = allWindows.take(shownWindowCount).toList();
     final windowTitles = _quotaWindowTitles(
       allWindows,
     ).take(shownWindowCount).toList();
     final hiddenWindowCount = allWindows.length - shownWindowCount;
-    return MouseRegion(
-      onEnter: (_) => setState(() => hovered = true),
-      onExit: (_) => setState(() => hovered = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 170),
-        curve: Curves.easeOut,
-        decoration: BoxDecoration(
-          color: hovered
-              ? theme.colorScheme.surfaceContainer
-              : theme.colorScheme.surfaceContainerLow,
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(
+    return Theme(
+      data: theme,
+      child: MouseRegion(
+        onEnter: (_) => setState(() => hovered = true),
+        onExit: (_) => setState(() => hovered = false),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 170),
+          curve: Curves.easeOut,
+          decoration: BoxDecoration(
             color: hovered
-                ? theme.colorScheme.primary.withValues(alpha: .42)
-                : theme.colorScheme.outline,
+                ? theme.colorScheme.surfaceContainer
+                : theme.colorScheme.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(
+              color: hovered
+                  ? theme.colorScheme.primary.withValues(alpha: .42)
+                  : theme.colorScheme.outline,
+            ),
+            boxShadow: hovered
+                ? [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: .18),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ]
+                : const [],
           ),
-          boxShadow: hovered
-              ? [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: .18),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
+          padding: EdgeInsets.all(widget.compact ? 7 : 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  StatusDot(color: stateColor, size: 7),
+                  const SizedBox(width: 8),
+                  ProfileProviderIcon(
+                    toolKey: account.profile.toolKey,
+                    size: 24,
                   ),
-                ]
-              : const [],
-        ),
-        padding: const EdgeInsets.all(11),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                StatusDot(color: stateColor, size: 7),
-                const SizedBox(width: 8),
-                ProfileProviderIcon(toolKey: account.profile.toolKey, size: 28),
-                const SizedBox(width: 9),
-                Expanded(
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                _profileTitle(account),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.titleLarge,
+                              ),
+                            ),
+                            if (account.profile.isFavorite) ...[
+                              const SizedBox(width: 5),
+                              Icon(
+                                Icons.star,
+                                size: 13,
+                                color: theme.colorScheme.tertiary,
+                              ),
+                            ],
+                            const SizedBox(width: 7),
+                            _StateBadge(account: account, color: stateColor),
+                          ],
+                        ),
+                        ...[
+                          const SizedBox(height: 1),
+                          Tooltip(
+                            message:
+                                account.profile.commandName ??
+                                provider.executable,
+                            child: Row(
+                              children: [
+                                Text(
+                                  provider.displayName,
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    color: theme.colorScheme.primary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(width: 5),
+                                Text(
+                                  '·',
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                                const SizedBox(width: 5),
+                                Expanded(
+                                  child: Text(
+                                    account.profile.source ==
+                                            ProfileSource.defaultProfile
+                                        ? 'Sesión habitual'
+                                        : accountProfileConfigurationLabel(
+                                            account.profile,
+                                          ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.labelMedium
+                                        ?.copyWith(
+                                          color: theme
+                                              .colorScheme
+                                              .onSurfaceVariant,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  AppIconButton(
+                    icon: Icons.edit_outlined,
+                    tooltip: 'Editar datos de la cuenta',
+                    onPressed: widget.accountBusy
+                        ? null
+                        : () => unawaited(widget.onEditAccount()),
+                  ),
+                  const SizedBox(width: 2),
+                  SizedBox(
+                    width: 38,
+                    height: 38,
+                    child: PopupMenuButton<String>(
+                      tooltip: 'Más acciones',
+                      icon: Icon(
+                        Icons.more_vert,
+                        size: 18,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                      iconSize: 18,
+                      padding: EdgeInsets.zero,
+                      position: PopupMenuPosition.under,
+                      menuPadding: const EdgeInsets.symmetric(vertical: 4),
+                      constraints: const BoxConstraints.tightFor(width: 196),
+                      onSelected: (value) {
+                        if (value == 'device-auth') {
+                          unawaited(widget.onDeviceAuth(account));
+                        } else if (value == 'rename') {
+                          unawaited(widget.onRenameProfile(account));
+                        } else if (value == 'delete') {
+                          unawaited(widget.onDeleteProfile(account));
+                        } else if (value == 'heartbeat') {
+                          unawaited(_startHeartbeat());
+                        }
+                      },
+                      itemBuilder: (context) => [
+                        if (!account.isDeactivated &&
+                            account.profile.hasAuthFile &&
+                            provider.supportsDeviceAuth)
+                          PopupMenuItem(
+                            value: 'device-auth',
+                            enabled:
+                                account.profile.isAvailable &&
+                                !widget.accountBusy,
+                            height: 38,
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            child: const Row(
+                              children: [
+                                Icon(Icons.link, size: 15),
+                                SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Revincular cuenta',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        if (account.profile.toolKey == 'codex')
+                          PopupMenuItem(
+                            value: 'heartbeat',
+                            enabled:
+                                account.profile.isAvailable &&
+                                account.profile.hasAuthFile &&
+                                !widget.refreshing &&
+                                !widget.usageActionsDisabled,
+                            height: 38,
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            child: const Row(
+                              children: [
+                                Icon(Icons.monitor_heart_outlined, size: 15),
+                                SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Iniciar ciclo',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        PopupMenuItem(
+                          value: 'rename',
+                          enabled:
+                              !widget.profileMutationBusy &&
+                              account.profile.isManagedByMultiCli &&
+                              !account.isDeactivated,
+                          height: 38,
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: const Row(
+                            children: [
+                              Icon(Icons.drive_file_rename_outline, size: 15),
+                              SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Cambiar identificador',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: 'delete',
+                          enabled:
+                              !widget.profileMutationBusy &&
+                              account.profile.isManagedByMultiCli &&
+                              !account.isDeactivated,
+                          height: 38,
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.delete_outline,
+                                size: 15,
+                                color: theme.colorScheme.error,
+                              ),
+                              const SizedBox(width: 8),
+                              const Expanded(
+                                child: Text(
+                                  'Eliminar perfil',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              Expanded(
+                child: SingleChildScrollView(
+                  primary: false,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      if (account.isDeactivated ||
+                          account.currentCheck?.state !=
+                              AccountUsageState.success) ...[
+                        const SizedBox(height: 2),
+                        _StateLine(
+                          account: account,
+                          color: stateColor,
+                          showBadge: false,
+                        ),
+                      ],
+                      const SizedBox(height: 3),
                       Row(
                         children: [
-                          Flexible(
-                            child: Text(
-                              account.profile.displayName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.titleLarge,
+                          Expanded(
+                            child: _InlineInfo(
+                              icon: Icons.workspace_premium_outlined,
+                              value: account.displayPlan.isEmpty
+                                  ? 'No detectado'
+                                  : account.displayPlan,
                             ),
                           ),
-                          if (account.profile.isFavorite) ...[
-                            const SizedBox(width: 5),
-                            Icon(
-                              Icons.star,
-                              size: 13,
-                              color: theme.colorScheme.tertiary,
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _InlineInfo(
+                              icon: Icons.alternate_email,
+                              value: account.displayEmail.isEmpty
+                                  ? 'Sin correo observado'
+                                  : account.displayEmail,
                             ),
-                          ],
-                          const SizedBox(width: 7),
-                          _StateBadge(account: account, color: stateColor),
+                          ),
                         ],
                       ),
-                      const SizedBox(height: 1),
-                      Tooltip(
-                        message:
-                            account.profile.commandName ?? provider.executable,
-                        child: Row(
-                          children: [
-                            Text(
-                              provider.displayName,
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                color: theme.colorScheme.primary,
-                                fontWeight: FontWeight.w600,
-                              ),
+                      const SizedBox(height: 2),
+                      if (windows.isEmpty)
+                        _NoUsageData(account: account)
+                      else
+                        for (var index = 0; index < windows.length; index++)
+                          _QuotaBar(
+                            window: windows[index],
+                            blockingWindow: account.blockingWindowFor(
+                              windows[index],
                             ),
-                            const SizedBox(width: 5),
-                            Text(
-                              '·',
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
+                            historical: !account.hasCurrentQuota,
+                            title: windowTitles[index],
+                            now: quotaNow,
+                            resetConfidence: account.resetAnchorConfidence(
+                              windows[index],
                             ),
-                            const SizedBox(width: 5),
-                            Expanded(
-                              child: Text(
-                                account.profile.commandName ??
-                                    provider.executable,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.labelMedium?.copyWith(
-                                  color: theme.colorScheme.onSurfaceVariant,
-                                  fontFamily: 'monospace',
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                          ),
+                      if (provider.supportsUsage)
+                        _ResetCreditsLine(account: account, now: quotaNow),
                     ],
                   ),
                 ),
-                AppIconButton(
-                  icon: Icons.edit_outlined,
-                  tooltip: 'Editar perfil',
-                  onPressed: widget.accountBusy
-                      ? null
-                      : () => unawaited(widget.onEditAccount()),
-                ),
-                const SizedBox(width: 2),
-                SizedBox(
-                  width: 38,
-                  height: 38,
-                  child: PopupMenuButton<String>(
-                    tooltip: 'Más acciones',
-                    icon: Icon(
-                      Icons.more_vert,
-                      size: 18,
-                      color: theme.colorScheme.onSurfaceVariant,
+              ),
+              Row(
+                children: [
+                  Expanded(
+                    child:
+                        account.metadata?.nextRenewalOn == null &&
+                            account.costShares.isEmpty
+                        ? const SizedBox.shrink()
+                        : _BillingLine(account: account),
+                  ),
+                  if (!account.isDeactivated &&
+                      !account.profile.hasAuthFile &&
+                      provider.supportsDeviceAuth)
+                    AppIconButton(
+                      icon: Icons.link,
+                      tooltip: 'Vincular cuenta',
+                      onPressed: widget.accountBusy
+                          ? null
+                          : () => unawaited(widget.onDeviceAuth(account)),
                     ),
-                    iconSize: 18,
-                    padding: EdgeInsets.zero,
-                    position: PopupMenuPosition.under,
-                    menuPadding: const EdgeInsets.symmetric(vertical: 4),
-                    constraints: const BoxConstraints.tightFor(width: 196),
-                    onSelected: (value) {
-                      if (value == 'device-auth') {
-                        unawaited(widget.onDeviceAuth(account));
-                      } else if (value == 'rename') {
-                        unawaited(widget.onRenameProfile(account));
-                      } else if (value == 'delete') {
-                        unawaited(widget.onDeleteProfile(account));
-                      } else if (value == 'heartbeat') {
-                        unawaited(_startHeartbeat());
-                      }
-                    },
-                    itemBuilder: (context) => [
-                      if (!account.isDeactivated &&
-                          account.profile.hasAuthFile &&
-                          provider.supportsDeviceAuth)
-                        PopupMenuItem(
-                          value: 'device-auth',
-                          enabled:
-                              account.profile.isAvailable &&
-                              !widget.accountBusy,
-                          height: 38,
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          child: const Row(
-                            children: [
-                              Icon(Icons.link, size: 15),
-                              SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  'Revincular cuenta',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      if (account.profile.toolKey == 'codex')
-                        PopupMenuItem(
-                          value: 'heartbeat',
-                          enabled:
-                              account.profile.isAvailable &&
-                              account.profile.hasAuthFile &&
-                              !widget.refreshing &&
-                              !widget.usageActionsDisabled,
-                          height: 38,
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          child: const Row(
-                            children: [
-                              Icon(Icons.monitor_heart_outlined, size: 15),
-                              SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  'Iniciar ciclo',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      PopupMenuItem(
-                        value: 'rename',
-                        enabled:
-                            !widget.profileMutationBusy &&
-                            account.profile.isManagedByMultiCli &&
-                            !account.isDeactivated,
-                        height: 38,
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        child: const Row(
-                          children: [
-                            Icon(Icons.drive_file_rename_outline, size: 15),
-                            SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'Renombrar alias físico',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      PopupMenuItem(
-                        value: 'delete',
-                        enabled:
-                            !widget.profileMutationBusy &&
-                            account.profile.isManagedByMultiCli &&
-                            !account.isDeactivated,
-                        height: 38,
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.delete_outline,
-                              size: 15,
-                              color: theme.colorScheme.error,
-                            ),
-                            const SizedBox(width: 8),
-                            const Expanded(
-                              child: Text(
-                                'Eliminar perfil',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            if (account.isDeactivated ||
-                account.currentCheck?.state != AccountUsageState.success) ...[
-              const SizedBox(height: 5),
-              _StateLine(account: account, color: stateColor, showBadge: false),
-            ],
-            const SizedBox(height: 7),
-            Row(
-              children: [
-                Expanded(
-                  child: _InlineInfo(
-                    icon: Icons.workspace_premium_outlined,
-                    value: account.displayPlan.isEmpty
-                        ? 'No detectado'
-                        : account.displayPlan,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _InlineInfo(
-                    icon: Icons.alternate_email,
-                    value: account.displayEmail.isEmpty
-                        ? 'Sin correo observado'
-                        : account.displayEmail,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            if (windows.isEmpty)
-              _NoUsageData(account: account)
-            else
-              for (var index = 0; index < windows.length; index++)
-                _QuotaBar(
-                  window: windows[index],
-                  title: windowTitles[index],
-                  now: quotaNow,
-                  resetConfidence: account.resetAnchorConfidence(
-                    windows[index],
-                  ),
-                ),
-            const Spacer(),
-            Row(
-              children: [
-                Expanded(child: _BillingLine(account: account)),
-                if (!account.isDeactivated &&
-                    !account.profile.hasAuthFile &&
-                    provider.supportsDeviceAuth)
                   AppIconButton(
-                    icon: Icons.link,
-                    tooltip: 'Vincular cuenta',
-                    onPressed: widget.accountBusy
-                        ? null
-                        : () => unawaited(widget.onDeviceAuth(account)),
+                    icon: Icons.terminal_rounded,
+                    tooltip: 'Lanzar agente con ${account.profile.displayName}',
+                    color: launchable
+                        ? theme.colorScheme.primary
+                        : theme.disabledColor,
+                    onPressed: launchable
+                        ? () => widget.onLaunchAgent(account.profile.id)
+                        : null,
                   ),
-                AppIconButton(
-                  icon: Icons.terminal_rounded,
-                  tooltip: 'Lanzar agente con ${account.profile.displayName}',
-                  color: launchable
-                      ? theme.colorScheme.primary
-                      : theme.disabledColor,
-                  onPressed: launchable
-                      ? () => widget.onLaunchAgent(account.profile.id)
-                      : null,
-                ),
-                if (provider.supportsUsage &&
-                    account.currentCheck?.state == AccountUsageState.success)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    child: _QuotaSnapshotAge(
+                  if (provider.supportsUsage &&
+                      account.currentCheck?.state == AccountUsageState.success)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: _QuotaSnapshotAge(
+                        profileId: account.profile.id,
+                        checkedAt: account.currentCheck!.startedAt,
+                        hiddenWindowCount: hiddenWindowCount,
+                      ),
+                    ),
+                  if (provider.supportsUsage &&
+                      widget.usageRefreshStage != UsageProfileRefreshStage.idle)
+                    _UsageRefreshIndicator(
                       profileId: account.profile.id,
-                      checkedAt: account.currentCheck!.startedAt,
-                      hiddenWindowCount: hiddenWindowCount,
-                    ),
-                  ),
-                if (provider.supportsUsage &&
-                    widget.usageRefreshStage != UsageProfileRefreshStage.idle)
-                  _UsageRefreshIndicator(
-                    profileId: account.profile.id,
-                    stage: widget.usageRefreshStage,
-                    failureMessage: widget.usageFailureMessage,
-                  )
-                else if (widget.refreshing && provider.supportsUsage)
-                  const SizedBox(
-                    width: 38,
-                    height: 38,
-                    child: Center(
-                      child: SizedBox(
-                        width: 12,
-                        height: 12,
-                        child: CircularProgressIndicator(strokeWidth: 1.5),
+                      stage: widget.usageRefreshStage,
+                      failureMessage: widget.usageFailureMessage,
+                    )
+                  else if (widget.refreshing && provider.supportsUsage)
+                    const SizedBox(
+                      width: 38,
+                      height: 38,
+                      child: Center(
+                        child: SizedBox(
+                          width: 12,
+                          height: 12,
+                          child: CircularProgressIndicator(strokeWidth: 1.5),
+                        ),
                       ),
+                    )
+                  else if (provider.supportsUsage)
+                    AppIconButton(
+                      icon: Icons.refresh,
+                      tooltip: 'Consultar sólo esta cuenta',
+                      onPressed: widget.usageActionsDisabled
+                          ? null
+                          : () => _guard(widget.onRefresh(account)),
                     ),
-                  )
-                else if (provider.supportsUsage)
-                  AppIconButton(
-                    icon: Icons.refresh,
-                    tooltip: 'Consultar sólo esta cuenta',
-                    onPressed: widget.usageActionsDisabled
-                        ? null
-                        : () => _guard(widget.onRefresh(account)),
-                  ),
-              ],
-            ),
-          ],
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1478,130 +1536,204 @@ class _QuotaBar extends StatelessWidget {
     required this.title,
     required this.now,
     required this.resetConfidence,
+    this.blockingWindow,
+    this.historical = false,
   });
-
   final AccountQuotaWindow window;
+  final AccountQuotaWindow? blockingWindow;
   final String title;
   final DateTime now;
   final QuotaResetAnchorConfidence resetConfidence;
+  final bool historical;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final used = window.usedPercent?.clamp(0, 100).toDouble();
-    final remaining = used == null ? null : 100 - used;
-    final color = remaining == null
+    final remaining = window.remainingPercent;
+    final blocked = blockingWindow != null;
+    final color = historical || remaining == null
         ? theme.colorScheme.onSurfaceVariant
-        : remaining <= 10
+        : blocked || remaining <= 10
         ? theme.colorScheme.error
         : remaining <= 25
         ? theme.colorScheme.tertiary
         : theme.colorScheme.primary;
     final resetAt = window.resetsAt;
     final reset = resetAt == null
-        ? null
-        : switch (resetConfidence) {
-            QuotaResetAnchorConfidence.confirmed =>
-              'Reinicia en ${formatTimeRemaining(resetAt, from: now)}',
-            QuotaResetAnchorConfidence.estimated ||
-            QuotaResetAnchorConfidence.unavailable =>
-              'Estimado en ${formatTimeRemaining(resetAt, from: now)}',
-          };
-    final resetTooltip = resetAt == null
-        ? null
-        : switch (resetConfidence) {
-            QuotaResetAnchorConfidence.confirmed =>
-              'Ancla confirmada · ${formatDateTime(resetAt)}',
-            QuotaResetAnchorConfidence.estimated =>
-              'Hora estimada por Codex; el ancla aún no es estable · '
-                  '${formatDateTime(resetAt)}',
-            QuotaResetAnchorConfidence.unavailable =>
-              'Hora estimada por Codex · ${formatDateTime(resetAt)}',
-          };
+        ? 'Reinicio sin información'
+        : !resetAt.isAfter(now)
+        ? 'Reinicio pendiente de confirmar'
+        : resetConfidence == QuotaResetAnchorConfidence.confirmed
+        ? 'Reinicia en ${formatTimeRemaining(resetAt, from: now)}'
+        : 'Estimado en ${formatTimeRemaining(resetAt, from: now)}';
+    final blockingLabel = blockingWindow?.windowDurationMinutes == 10080
+        ? 'límite semanal'
+        : blockingWindow?.windowDurationMinutes == 300
+        ? 'límite de 5 horas'
+        : 'límite de ${formatQuotaWindowLabel(blockingWindow?.windowDurationMinutes, blockingWindow?.windowType ?? '')}';
+    final blockingStatus = 'Bloqueada por $blockingLabel';
+    final status = remaining == null
+        ? 'Sin porcentaje'
+        : '${remaining.toStringAsFixed(0)}% ${historical
+              ? 'registrado'
+              : blocked
+              ? 'restante'
+              : 'disponible'}';
+    final observed = remaining == null
+        ? 'Porcentaje no informado'
+        : '${remaining.toStringAsFixed(0)}% registrado en esta ventana';
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Row(
-                  children: [
-                    Flexible(
-                      child: Tooltip(
-                        message: title,
-                        child: Text(
-                          title,
-                          key: ValueKey(
-                            'quota-title-${window.limitId}-${window.windowType}',
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.labelMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
+      padding: const EdgeInsets.only(bottom: 3),
+      child: Semantics(
+        label: '$title. $status. ${blocked ? '$blockingStatus. ' : ''}$reset',
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: Tooltip(
+                    message: title,
+                    child: Text(
+                      title,
+                      key: ValueKey(
+                        'quota-title-${window.limitId}-${window.windowType}',
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                    if (reset != null) ...[
-                      const SizedBox(width: 8),
-                      Container(
-                        width: 1,
-                        height: 12,
-                        color: theme.colorScheme.outline,
-                      ),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        child: Tooltip(
-                          message: resetTooltip!,
-                          child: Text(
-                            reset,
-                            key: ValueKey(
-                              'quota-reset-${window.limitId}-'
-                              '${window.windowType}',
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Text(
-                remaining == null
-                    ? 'Sin porcentaje'
-                    : '${remaining.toStringAsFixed(0)}% disponible',
-                maxLines: 1,
-                textAlign: TextAlign.right,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: color,
-                  fontWeight: FontWeight.w700,
+                const SizedBox(width: 6),
+                Expanded(
+                  flex: 4,
+                  child: Tooltip(
+                    message:
+                        '${historical ? 'Último dato válido. ' : ''}$observed. '
+                        '${resetAt == null ? 'El proveedor no informó una fecha.' : formatDateTime(resetAt)}',
+                    child: Text(
+                      reset,
+                      key: ValueKey(
+                        'quota-reset-${window.limitId}-${window.windowType}',
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 5),
-          TweenAnimationBuilder<double>(
-            tween: Tween(
-              begin: 0,
-              end: remaining == null ? 0 : remaining / 100,
+                const SizedBox(width: 6),
+                Flexible(
+                  flex: 3,
+                  child: Tooltip(
+                    message: '$status · $observed',
+                    child: Text(
+                      status,
+                      textAlign: TextAlign.right,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: color,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
-            duration: const Duration(milliseconds: 620),
-            curve: Curves.easeOutCubic,
-            builder: (context, value, _) => LinearProgressIndicator(
-              value: value,
-              minHeight: 6,
-              borderRadius: BorderRadius.circular(3),
+            const SizedBox(height: 3),
+            LinearProgressIndicator(
+              key: ValueKey(
+                'quota-progress-${window.limitId}-${window.windowType}',
+              ),
+              value: remaining == null ? 0 : remaining / 100,
+              minHeight: 3,
+              borderRadius: BorderRadius.circular(2),
               color: color,
               backgroundColor: theme.colorScheme.surfaceContainerHighest,
             ),
+            if (blocked)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  blockingStatus,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: color,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ResetCreditsLine extends StatelessWidget {
+  const _ResetCreditsLine({required this.account, required this.now});
+  final Account account;
+  final DateTime now;
+
+  @override
+  Widget build(BuildContext context) {
+    final credits = account.resetCredits;
+    final expiry = credits?.nextExpiresAt;
+    // A passed expiry cannot tell us how many credits remain; request fresh data.
+    final historical =
+        account.currentCheck?.state != AccountUsageState.success ||
+        (expiry != null && !expiry.isAfter(now));
+    final count = credits?.availableCount;
+    final label = count == null
+        ? 'Resets: sin información'
+        : historical
+        ? 'Último registro: $count resets'
+        : count == 0
+        ? 'Sin resets'
+        : '$count ${count == 1 ? 'reset disponible' : 'resets disponibles'}';
+    final detail = expiry == null
+        ? 'Vencimiento no informado'
+        : 'Próximo vencimiento: ${formatDateTime(expiry)}';
+    return Tooltip(
+      message: '$label\n$detail',
+      child: Row(
+        children: [
+          Icon(
+            Icons.restart_alt,
+            size: 16,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
+          const SizedBox(width: 5),
+          Expanded(
+            child: Text(
+              label,
+              key: ValueKey('reset-credits-${account.profile.id}'),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelMedium,
+            ),
+          ),
+          if (expiry != null)
+            Flexible(
+              child: Text(
+                expiry.isAfter(now)
+                    ? 'Vence ${formatDate(expiry)}'
+                    : 'Consultar vencimiento',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -1700,48 +1832,42 @@ class _BillingLine extends StatelessWidget {
   }
 }
 
-Color _stateColor(BuildContext context, Account account) {
-  final provider = profileProvider(account.profile.toolKey);
-  if (account.isDeactivated) {
-    return Theme.of(context).colorScheme.onSurfaceVariant;
-  }
-  if (!account.profile.isAvailable) return Theme.of(context).colorScheme.error;
-  if (!account.profile.hasAuthFile) {
-    return Theme.of(context).colorScheme.onSurfaceVariant;
-  }
-  if (!provider.supportsUsage) return const Color(0xFF58E2AD);
-  return switch (account.currentCheck?.state) {
-    AccountUsageState.success => const Color(0xFF58E2AD),
-    AccountUsageState.partial => Theme.of(context).colorScheme.tertiary,
-    null => Theme.of(context).colorScheme.primary,
-    _ => Theme.of(context).colorScheme.error,
+Color _statusColor(BuildContext context, AccountStatus status) {
+  final theme = Theme.of(context);
+  return switch (status) {
+    AccountStatus.available =>
+      theme.brightness == Brightness.dark
+          ? const Color(0xFF58E2AD)
+          : const Color(0xFF006B4C),
+    AccountStatus.quotaExhausted ||
+    AccountStatus.unavailable => theme.colorScheme.error,
+    AccountStatus.authRequired ||
+    AccountStatus.quotaUnconfirmed ||
+    AccountStatus.queryError => theme.colorScheme.tertiary,
+    AccountStatus.deactivated ||
+    AccountStatus.unlinked ||
+    AccountStatus.unchecked => theme.colorScheme.onSurfaceVariant,
   };
 }
 
-String _stateLabel(Account account) {
-  final provider = profileProvider(account.profile.toolKey);
-  if (account.isDeactivated) return 'DESACTIVADA';
-  if (!account.profile.isAvailable) return 'NO DISPONIBLE';
-  if (!account.profile.hasAuthFile) return 'SIN VINCULAR';
-  if (!provider.supportsUsage) return 'LISTA';
-  if (account.currentIssue == AccountUsageIssue.credentialExpired) {
-    return 'CREDENCIAL EXPIRADA';
-  }
-  if (account.currentIssue == AccountUsageIssue.credentialInvalidated) {
-    return 'CREDENCIAL REVOCADA';
-  }
-  return switch (account.currentCheck?.state) {
-    AccountUsageState.success => 'ACTIVA',
-    AccountUsageState.partial => 'ATENCIÓN',
-    AccountUsageState.timeout => 'TIEMPO AGOTADO',
-    AccountUsageState.authRequired => 'REQUIERE ACCESO',
-    AccountUsageState.toolMissing => 'CLI AUSENTE',
-    AccountUsageState.profileMissing => 'PERFIL AUSENTE',
-    AccountUsageState.unavailable => 'NO DISPONIBLE',
-    AccountUsageState.error => 'ERROR',
-    null => 'SIN CONSULTAR',
-  };
-}
+String _statusLabel(AccountStatus status, {bool plural = false}) =>
+    switch (status) {
+      AccountStatus.available => plural ? 'Disponibles' : 'Disponible',
+      AccountStatus.quotaExhausted => 'Cuota agotada',
+      AccountStatus.authRequired =>
+        plural ? 'Requieren acceso' : 'Requiere acceso',
+      AccountStatus.deactivated => plural ? 'Desactivadas' : 'Desactivada',
+      AccountStatus.unlinked => 'Sin vincular',
+      AccountStatus.unchecked => 'Sin consultar',
+      AccountStatus.quotaUnconfirmed => 'Cuota sin confirmar',
+      AccountStatus.queryError => 'Error de consulta',
+      AccountStatus.unavailable => plural ? 'No disponibles' : 'No disponible',
+    };
+
+Color _stateColor(BuildContext context, Account account) =>
+    _statusColor(context, account.status);
+
+String _stateLabel(Account account) => _statusLabel(account.status);
 
 String _stateDetail(Account account) {
   final provider = profileProvider(account.profile.toolKey);
@@ -1751,12 +1877,16 @@ String _stateDetail(Account account) {
   }
   if (!account.profile.isAvailable) return 'La carpeta del perfil ya no existe';
   if (!account.profile.hasAuthFile) {
-    return 'Credencial administrada por multi-cli';
+    return 'Vincula tu cuenta para empezar a usar este perfil';
   }
   if (!provider.supportsUsage) {
     return '${provider.productName} disponible para abrir';
   }
-  if (check == null) return 'Aún no se consultó el app-server';
+  if (check == null) return 'Consulta la cuenta para conocer su disponibilidad';
+  if (account.hasWeeklyLimitReached) {
+    return 'Sin cuota semanal · espera el reinicio';
+  }
+  if (account.hasExhaustedQuota) return 'Se alcanzó un límite de uso';
   final issueDetail = switch (account.currentIssue) {
     AccountUsageIssue.network =>
       account.lastSuccessfulWindows.isNotEmpty

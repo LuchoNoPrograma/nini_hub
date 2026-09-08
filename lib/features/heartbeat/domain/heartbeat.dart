@@ -118,12 +118,14 @@ final class HeartbeatRunResult {
     required this.message,
     this.verifiedResetAt,
     this.latestUsageSnapshot,
+    this.previousUsageSnapshot,
   });
 
   final HeartbeatOutcome outcome;
   final String message;
   final DateTime? verifiedResetAt;
   final UsageSnapshot? latestUsageSnapshot;
+  final UsageSnapshot? previousUsageSnapshot;
 
   bool get commandSucceeded =>
       outcome == HeartbeatOutcome.verified ||
@@ -135,6 +137,7 @@ final class HeartbeatRunResult {
         message: message,
         verifiedResetAt: verifiedResetAt,
         latestUsageSnapshot: snapshot,
+        previousUsageSnapshot: previousUsageSnapshot,
       );
 }
 

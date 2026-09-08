@@ -46,6 +46,9 @@ final class UsageRefreshCoordinator {
     await _synchronize(includeAccounts: true);
   }
 
+  Future<void> synchronizePersistedUsage() =>
+      _synchronize(includeAccounts: true);
+
   Future<void> synchronizeCore() => _synchronize(includeAccounts: false);
 
   Future<void> _synchronize({required bool includeAccounts}) async {

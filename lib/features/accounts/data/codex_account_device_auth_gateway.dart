@@ -4,12 +4,18 @@ import 'package:nini_hub/providers/codex/codex_app_server_client.dart';
 import 'package:nini_hub/providers/codex/codex_client_runtime.dart';
 
 typedef AccountDeviceAuthStarter =
-    Future<AccountDeviceAuthSession> Function(Profile profile);
+    Future<AccountDeviceAuthSession> Function(
+      Profile profile, {
+      AccountAuthMethod method,
+    });
 
 final class CodexAccountDeviceAuthGateway implements AccountDeviceAuthGateway {
   CodexAccountDeviceAuthGateway(CodexClientRuntime runtime)
-    : _start = ((profile) async {
-        final session = await runtime.current.startDeviceAuth(profile);
+    : _start = ((profile, {method = AccountAuthMethod.deviceCode}) async {
+        final session = await runtime.current.startDeviceAuth(
+          profile,
+          useBrowser: method == AccountAuthMethod.browser,
+        );
         return _CodexAccountDeviceAuthSession(session);
       });
 
@@ -18,7 +24,10 @@ final class CodexAccountDeviceAuthGateway implements AccountDeviceAuthGateway {
   final AccountDeviceAuthStarter _start;
 
   @override
-  Future<AccountDeviceAuthSession> start(Profile profile) => _start(profile);
+  Future<AccountDeviceAuthSession> start(
+    Profile profile, {
+    AccountAuthMethod method = AccountAuthMethod.deviceCode,
+  }) => _start(profile, method: method);
 }
 
 final class _CodexAccountDeviceAuthSession implements AccountDeviceAuthSession {

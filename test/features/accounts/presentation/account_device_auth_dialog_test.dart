@@ -9,6 +9,109 @@ import 'package:nini_hub/features/accounts/presentation/account_dialogs.dart';
 import 'package:nini_hub/features/profiles/domain/profile.dart';
 
 void main() {
+  for (final method in AccountAuthMethod.values) {
+    testWidgets(
+      'preselected $method opens authentication without asking again',
+      (tester) async {
+        final session = _ControlledSession();
+        final started = <AccountAuthMethod>[];
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Builder(
+              builder: (context) => Scaffold(
+                body: TextButton(
+                  onPressed: () => unawaited(
+                    showDeviceAuthDialog(
+                      context,
+                      _account(),
+                      method: method,
+                      start: (_) async {
+                        started.add(AccountAuthMethod.deviceCode);
+                        return session;
+                      },
+                      startBrowser: (_) async {
+                        started.add(AccountAuthMethod.browser);
+                        return session;
+                      },
+                      complete: (_, _) async {},
+                    ),
+                  ),
+                  child: const Text('Abrir'),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('Abrir'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(started, [method]);
+        expect(find.text('Vincular con ChatGPT'), findsNothing);
+        expect(
+          find.text('Copiar código'),
+          method == AccountAuthMethod.deviceCode
+              ? findsOneWidget
+              : findsNothing,
+        );
+        session.completion.complete(true);
+        await tester.pumpAndSettle();
+        expect(find.byType(AlertDialog), findsNothing);
+      },
+    );
+  }
+
+  testWidgets(
+    'browser choice starts only browser auth and hides device instructions',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(900, 600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final session = _ControlledSession();
+      var browsers = 0;
+      var devices = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () => unawaited(
+                  showDeviceAuthDialog(
+                    context,
+                    _account(),
+                    start: (_) async {
+                      devices++;
+                      return session;
+                    },
+                    startBrowser: (_) async {
+                      browsers++;
+                      return session;
+                    },
+                    complete: (_, _) async {},
+                  ),
+                ),
+                child: const Text('Abrir'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Abrir'));
+      await tester.pumpAndSettle();
+      expect(browsers, 0);
+      expect(devices, 0);
+      await tester.tap(find.text('Continuar en el navegador'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(browsers, 1);
+      expect(devices, 0);
+      expect(find.text('Copiar código'), findsNothing);
+      expect(find.textContaining('habilita el acceso'), findsNothing);
+      expect(tester.takeException(), isNull);
+      session.completion.complete(true);
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+    },
+  );
+
   testWidgets('shows the domain session and closes after confirmed access', (
     tester,
   ) async {
@@ -49,6 +152,39 @@ void main() {
     expect(completed, [true]);
     expect(find.text('Vincular Account'), findsNothing);
   });
+
+  testWidgets(
+    'confirmed access with a local save failure can be closed without cancelling auth',
+    (tester) async {
+      final session = _ControlledSession();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () => showDeviceAuthDialog(
+                  context,
+                  _account(),
+                  start: (_) async => session,
+                  complete: (_, _) async => throw StateError('save failed'),
+                ),
+                child: const Text('Vincular'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Vincular'));
+      await tester.pump();
+      session.completion.complete(true);
+      await tester.pumpAndSettle();
+      expect(find.text('Cerrar'), findsOneWidget);
+      await tester.tap(find.text('Cerrar'));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('cancel delegates to the owned session and closes the dialog', (
     tester,

@@ -15,6 +15,27 @@ void main() {
 
   tearDown(() => database.close());
 
+  test('schedule survives a save and reload without changing schema', () async {
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+    final repo = DriftSettingsRepository(db);
+    await db.saveSetting(
+      'heartbeat_schedule',
+      '{"version":1,"minutes":[450,1020],"weekdays":[1,3,5],"intervalMinutes":null}',
+    );
+    final loaded = await repo.load();
+    await repo.save(loaded);
+    final restored = await repo.load();
+    expect(restored.heartbeatSchedule.slots, [450, 1020]);
+    expect(restored.heartbeatSchedule.weekdays, [1, 3, 5]);
+    expect(db.schemaVersion, 2);
+    await db.saveSetting(
+      'heartbeat_schedule',
+      '{"version":1,"minutes":[],"weekdays":[]}',
+    );
+    expect((await repo.load()).heartbeatSchedule.slots, [0, 420, 720, 1020]);
+  });
+
   test('loads legacy defaults when settings are absent', () async {
     final preferences = await repository.load();
 
@@ -126,7 +147,7 @@ void main() {
     expect(await database.setting('profiles_root_path'), '/new/profiles');
 
     final rows = await database.select(database.appSettings).get();
-    expect(rows, hasLength(10));
+    expect(rows, hasLength(11));
     final now = DateTime.now();
     expect(
       rows.every(

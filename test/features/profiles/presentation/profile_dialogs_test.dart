@@ -9,6 +9,48 @@ import 'package:nini_hub/features/profiles/presentation/profile_dialogs.dart';
 import 'package:nini_hub/features/profiles/presentation/state/profiles_state.dart';
 
 void main() {
+  testWidgets('cancel before creation preserves the form and creates nothing', (
+    tester,
+  ) async {
+    final fixture = _Fixture();
+    addTearDown(fixture.container.dispose);
+    var proceed = false;
+    final selectedTools = <String>[];
+    await tester.pumpWidget(
+      _Harness(
+        label: 'Abrir',
+        onPressed: (context) async {
+          await showCreateProfileDialog(
+            context,
+            create: (command) async {
+              selectedTools.add(command.toolKey);
+              expect(fixture.store.events, isEmpty);
+              return proceed ? fixture.controller.create(command) : null;
+            },
+            readError: () => fixture.readState().errorMessage,
+          );
+        },
+      ),
+    );
+    await tester.tap(find.text('Abrir'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField).first, 'team');
+    await tester.tap(find.text('Crear y vincular'));
+    await tester.pumpAndSettle();
+    expect(fixture.store.events, isEmpty);
+    expect(find.text('Nuevo perfil'), findsOneWidget);
+    expect(find.text('team'), findsOneWidget);
+    proceed = true;
+    await tester.tap(find.text('Crear y vincular'));
+    await tester.pumpAndSettle();
+    expect(selectedTools, ['codex', 'codex']);
+    expect(
+      fixture.store.events.first,
+      'lifecycle.create:codex:team:shared:false',
+    );
+    expect(find.text('Nuevo perfil'), findsNothing);
+  });
+
   testWidgets(
     'create dialog submits the application command and visible alias',
     (tester) async {
@@ -21,8 +63,8 @@ void main() {
           onPressed: (context) async {
             created = await showCreateProfileDialog(
               context,
-              controller: fixture.controller,
-              readState: fixture.readState,
+              create: fixture.controller.create,
+              readError: () => fixture.readState().errorMessage,
             );
           },
         ),
@@ -87,7 +129,7 @@ void main() {
       find.text('La cuenta está desactivada en este equipo.'),
       findsOneWidget,
     );
-    expect(find.text('Renombrar alias físico'), findsOneWidget);
+    expect(find.text('Cambiar identificador'), findsOneWidget);
     expect(fixture.store.events, isEmpty);
   });
 

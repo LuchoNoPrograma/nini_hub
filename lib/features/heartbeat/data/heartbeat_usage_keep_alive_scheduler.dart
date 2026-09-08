@@ -15,6 +15,7 @@ typedef HeartbeatUsageSnapshotPublisher =
     Future<void> Function({
       required String profileId,
       required UsageSnapshot snapshot,
+      UsageSnapshot? previousSnapshot,
     });
 
 final class HeartbeatUsageKeepAliveScheduler
@@ -37,17 +38,17 @@ final class HeartbeatUsageKeepAliveScheduler
     required UsageSnapshot snapshot,
   }) {
     if (profile.toolKey != 'codex') return false;
-    if (!scheduler.isCurrentPlannedTime) {
-      scheduler.scheduleNextPlanned(profile: profile);
-      return false;
-    }
     return scheduler.enqueueBackgroundOperation(
       profileId: profile.id,
       operation: () async {
         final result = await observe(profile: profile, snapshot: snapshot);
         final latestSnapshot = result.latestUsageSnapshot;
-        if (latestSnapshot == null) return;
-        await publish(profileId: profile.id, snapshot: latestSnapshot);
+        if (latestSnapshot == null || !scheduler.enabled) return;
+        await publish(
+          profileId: profile.id,
+          snapshot: latestSnapshot,
+          previousSnapshot: result.previousUsageSnapshot,
+        );
       },
       onError: (error, _) => runner.addInternalLog(
         summary: 'Revisar heartbeat de ${profile.displayName}',

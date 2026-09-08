@@ -13,6 +13,15 @@ final class DriftUsageSnapshotRepository implements UsageSnapshotRepository {
   final Uuid _uuid = const Uuid();
   final DateTime Function() _now;
 
+  Future<void> saveSnapshots({
+    required String profileId,
+    required Iterable<UsageSnapshot> snapshots,
+  }) => database.transaction(() async {
+    for (final snapshot in snapshots) {
+      await saveSnapshot(profileId: profileId, snapshot: snapshot);
+    }
+  });
+
   @override
   Future<void> saveSnapshot({
     required String profileId,

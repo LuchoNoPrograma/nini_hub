@@ -1,5 +1,7 @@
 import 'package:nini_hub/features/profiles/domain/profile.dart';
 
+enum AccountAuthMethod { browser, deviceCode }
+
 abstract interface class AccountDeviceAuthSession {
   String get verificationUrl;
 
@@ -13,7 +15,10 @@ abstract interface class AccountDeviceAuthSession {
 }
 
 abstract interface class AccountDeviceAuthGateway {
-  Future<AccountDeviceAuthSession> start(Profile profile);
+  Future<AccountDeviceAuthSession> start(
+    Profile profile, {
+    AccountAuthMethod method = AccountAuthMethod.deviceCode,
+  });
 }
 
 abstract interface class AccountDeviceAuthActivityRecorder {

@@ -1,3 +1,4 @@
+import 'package:nini_hub/features/profiles/data/nini_agents_profile_draft_store.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nini_hub/core/database/app_database.dart';
@@ -13,6 +14,8 @@ void main() {
   late AppDatabase database;
   late _StatefulNiniAgentsRunner runner;
   late NiniAgentsProfileLifecycle lifecycle;
+  late ProfileDiscoveryService discovery;
+  late NiniAgentsProfileDraftStore drafts;
   const root = '/synthetic/profiles';
 
   setUp(() async {
@@ -20,11 +23,117 @@ void main() {
     await database.saveSetting('profiles_root_path', root);
     runner = _StatefulNiniAgentsRunner(database);
     final client = NiniAgentsReadClient(runner);
-    final discovery = ProfileDiscoveryService(database, client);
+    discovery = ProfileDiscoveryService(database, client);
+    drafts = NiniAgentsProfileDraftStore(client, discovery);
     lifecycle = NiniAgentsProfileLifecycle(database, client, discovery);
   });
 
   tearDown(() => database.close());
+
+  test(
+    'pending authentication never inserts a SQLite account, even during discovery',
+    () async {
+      final draft = await drafts.prepare(
+        toolKey: 'codex',
+        name: ProfileName('team'),
+        displayName: 'Team',
+        setupMode: ProfileSetupMode.shared,
+      );
+      expect(await database.select(database.cliProfiles).get(), isEmpty);
+      final visible = await discovery.discover();
+      expect(visible.where((p) => p.profileName == 'team'), isEmpty);
+      await database.saveSetting('profiles_root_path', '/changed/root');
+      await draft.discard();
+      final deleted = runner.calls.last;
+      expect(deleted.arguments, [
+        '--json',
+        'delete',
+        'codex/team',
+        '--confirm',
+        'codex/team',
+      ]);
+      expect(deleted.environment, {'MULTICLI_HOME': root});
+      expect(runner.profiles, isEmpty);
+      expect(
+        (await database.select(database.cliProfiles).get()).where(
+          (p) => p.profileName == 'team',
+        ),
+        isEmpty,
+      );
+    },
+  );
+
+  test(
+    'publishing the authenticated draft persists its account and alias once',
+    () async {
+      final draft = await drafts.prepare(
+        toolKey: 'codex',
+        name: ProfileName('team'),
+        displayName: 'Mi cuenta',
+        setupMode: ProfileSetupMode.shared,
+      );
+      final profile = await draft.publish();
+      expect(profile.displayName, 'Mi cuenta');
+      expect(profile.hasAuthFile, isTrue);
+      expect(
+        (await database.select(database.cliProfiles).get())
+            .where((p) => p.profileName == 'team')
+            .length,
+        1,
+      );
+      await draft.discard();
+      expect(runner.calls.where((c) => c.arguments[1] == 'delete'), isEmpty);
+    },
+  );
+
+  test(
+    'draft conflict never deletes or overwrites an existing profile',
+    () async {
+      runner.profiles.add(const _Summary('codex', 'team', 'full'));
+      runner.failure = const _MutationFailure(
+        command: 'new',
+        code: 'profile_exists',
+        state: 'not_applied',
+      );
+      await expectLater(
+        drafts.prepare(
+          toolKey: 'codex',
+          name: ProfileName('team'),
+          displayName: '',
+          setupMode: ProfileSetupMode.full,
+        ),
+        throwsA(isA<ProfileMutationRejectedFailure>()),
+      );
+      expect(runner.profiles.length, 1);
+      expect(runner.calls.where((c) => c.arguments[1] == 'delete'), isEmpty);
+      runner.failure = null;
+      expect(
+        (await discovery.discover()).any((p) => p.profileName == 'team'),
+        isTrue,
+      );
+    },
+  );
+
+  test(
+    'lost delete response verifies absence before completing cleanup',
+    () async {
+      final draft = await drafts.prepare(
+        toolKey: 'codex',
+        name: ProfileName('team'),
+        displayName: '',
+        setupMode: ProfileSetupMode.full,
+      );
+      runner.failure = const _MutationFailure(
+        command: 'delete',
+        code: 'io_error',
+        state: 'partially_applied',
+        applyBeforeFailure: true,
+      );
+      await draft.discard();
+      expect(runner.calls.last.arguments[1], 'status');
+      expect(runner.profiles, isEmpty);
+    },
+  );
 
   test('maps setup modes and seed flag to Nini Agents JSON', () async {
     await lifecycle.create(

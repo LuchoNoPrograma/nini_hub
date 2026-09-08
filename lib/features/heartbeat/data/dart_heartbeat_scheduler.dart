@@ -17,14 +17,30 @@ final class DartHeartbeatScheduler implements HeartbeatScheduler {
     required this.onScheduledProbe,
     HeartbeatClock? clock,
     HeartbeatTimerFactory? timerFactory,
-    this.dailySchedule = HeartbeatDailySchedule.continuous,
-  }) : _clock = clock ?? const SystemHeartbeatClock(),
+    HeartbeatDailySchedule dailySchedule = HeartbeatDailySchedule.continuous,
+  }) : _dailySchedule = dailySchedule.normalized(),
+       _clock = clock ?? const SystemHeartbeatClock(),
        _timerFactory = timerFactory ?? _createTimer;
 
   final HeartbeatScheduledProbe onScheduledProbe;
   final HeartbeatClock _clock;
   final HeartbeatTimerFactory _timerFactory;
-  final HeartbeatDailySchedule dailySchedule;
+  HeartbeatDailySchedule _dailySchedule;
+  HeartbeatDailySchedule get dailySchedule => _dailySchedule;
+
+  void configureSchedule(HeartbeatDailySchedule value) {
+    _dailySchedule = value.normalized();
+    for (final timer in _probeTimers.values) {
+      timer.cancel();
+    }
+    _probeTimers.clear();
+    _probeDeadlines.clear();
+    _probeQueue.clear();
+    _queuedProbeProfiles.clear();
+    _initialProbeQueued.clear();
+    if (enabled) monitorProfileIds(_retainedProfiles.toList());
+  }
+
   final Queue<_QueuedHeartbeatOperation> _operationQueue = Queue();
   final Queue<String> _probeQueue = Queue();
   final Set<String> _queuedOperationProfiles = <String>{};
@@ -158,14 +174,25 @@ final class DartHeartbeatScheduler implements HeartbeatScheduler {
     final floor = requested == null || requested.isBefore(now)
         ? now
         : requested;
-    final deadline = dailySchedule.nextSlotAtOrAfter(floor.toLocal()).toUtc();
+    final requestedDeadline = dailySchedule
+        .nextSlotAtOrAfter(floor.toLocal())
+        .toUtc();
+    final recurringDeadline = dailySchedule
+        .nextSlotAfter(now.toLocal())
+        .toUtc();
+    final deadline = requestedDeadline.isAfter(recurringDeadline)
+        ? recurringDeadline
+        : requestedDeadline;
     final current = _probeDeadlines[profileId];
     if (current != null && !current.isAfter(deadline)) return;
     _scheduleProfileId(profileId, deadline);
   }
 
   void _scheduleProfileId(String profileId, DateTime at) {
-    if (!enabled) return;
+    if (!enabled ||
+        (_profilesConstrained && !_retainedProfiles.contains(profileId))) {
+      return;
+    }
     cancel(profileId);
     final deadline = at.toUtc();
     final delay = deadline.difference(_clock.nowUtc().toUtc());
@@ -231,6 +258,17 @@ final class DartHeartbeatScheduler implements HeartbeatScheduler {
           // Background failures are handled by the scheduled probe use case.
         } finally {
           _queuedProbeProfiles.remove(profileId);
+          if (enabled &&
+              (!_profilesConstrained ||
+                  _retainedProfiles.contains(profileId))) {
+            final next = dailySchedule
+                .nextSlotAfter(_clock.nowUtc().toLocal())
+                .toUtc();
+            final existing = _probeDeadlines[profileId];
+            if (existing == null || existing.isAfter(next)) {
+              _scheduleProfileId(profileId, next);
+            }
+          }
         }
       }
     } finally {

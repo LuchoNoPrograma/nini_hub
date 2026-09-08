@@ -94,9 +94,12 @@ final class ExecuteHeartbeat {
     );
     final verification = verificationResult.verification;
     if (!verification.verified) {
+      final refreshed = verificationResult.latestSnapshot?.status;
       final message =
-          'Comando enviado; Codex respondió, pero todavía no se pudo '
-          'confirmar el ciclo de ${_cycleDurationLabel(expectedWindowMinutes)}.';
+          refreshed == UsageRefreshStatus.success ||
+              refreshed == UsageRefreshStatus.partial
+          ? 'Heartbeat completado y datos consultados. OpenAI aún no confirma el reinicio del ciclo de ${_cycleDurationLabel(expectedWindowMinutes)}.'
+          : 'Heartbeat completado, pero falló la actualización de datos. Se reintentará automáticamente.';
       await repository.save(
         profileId: profile.id,
         state: HeartbeatState(
@@ -119,6 +122,7 @@ final class ExecuteHeartbeat {
         outcome: HeartbeatOutcome.unverified,
         message: message,
         latestUsageSnapshot: verificationResult.latestSnapshot,
+        previousUsageSnapshot: verificationResult.previousSnapshot,
       );
     }
 
@@ -156,6 +160,7 @@ final class ExecuteHeartbeat {
       message: message,
       verifiedResetAt: verifiedReset,
       latestUsageSnapshot: verificationResult.latestSnapshot,
+      previousUsageSnapshot: verificationResult.previousSnapshot,
     );
   }
 
@@ -196,6 +201,7 @@ final class ExecuteHeartbeat {
     DateTime now,
   ) async {
     UsageSnapshot? latestSnapshot;
+    UsageSnapshot? previousSnapshot;
     try {
       if (verificationDelay > Duration.zero) {
         await delay.wait(const Duration(seconds: 2));
@@ -206,6 +212,7 @@ final class ExecuteHeartbeat {
         await delay.wait(verificationDelay);
       }
       final second = await probe.probe(profile);
+      previousSnapshot = first;
       latestSnapshot = second;
       return _HeartbeatVerificationResult(
         verification: policy.verify(
@@ -216,11 +223,13 @@ final class ExecuteHeartbeat {
           now: now,
         ),
         latestSnapshot: latestSnapshot,
+        previousSnapshot: previousSnapshot,
       );
     } catch (_) {
       return _HeartbeatVerificationResult(
         verification: const HeartbeatVerification(verified: false),
         latestSnapshot: latestSnapshot,
+        previousSnapshot: previousSnapshot,
       );
     }
   }
@@ -346,16 +355,6 @@ final class ObserveHeartbeatUsage {
         quotaGuard: policy.longQuotaGuardFrom(snapshot, target: current),
         now: clock.nowUtc(),
       );
-      if (decision is ExecuteHeartbeatDecision &&
-          !scheduler.isPlannedTime(clock.nowUtc())) {
-        scheduler.scheduleNextPlanned(profile: profile);
-        return const HeartbeatRunResult(
-          outcome: HeartbeatOutcome.skipped,
-          message:
-              'La ventana está inactiva; se esperará al próximo horario '
-              'planificado.',
-        );
-      }
       return switch (decision) {
         SkipHeartbeatDecision() => _applySkip(profile, decision),
         ExecuteHeartbeatDecision() => execute(
@@ -496,6 +495,49 @@ final class RunHeartbeat {
   }
 }
 
+/// Keeps data publication inside the same queued operation as the heartbeat.
+final class CompleteHeartbeatOperation {
+  const CompleteHeartbeatOperation({
+    required this.scheduler,
+    required this.publish,
+  });
+
+  final HeartbeatScheduler scheduler;
+  final Future<void> Function({
+    required String profileId,
+    required UsageSnapshot snapshot,
+    UsageSnapshot? previousSnapshot,
+  })
+  publish;
+
+  Future<HeartbeatRunResult> call({
+    required String profileId,
+    required Future<HeartbeatRunResult> Function() operation,
+    bool requireRetained = false,
+  }) async {
+    final result = await operation();
+    final snapshot = result.latestUsageSnapshot;
+    if (snapshot != null &&
+        scheduler.enabled &&
+        (!requireRetained || scheduler.isRetained(profileId))) {
+      try {
+        await publish(
+          profileId: profileId,
+          snapshot: snapshot,
+          previousSnapshot: result.previousUsageSnapshot,
+        );
+      } catch (error) {
+        throw HeartbeatAppliedFailure(
+          profileId: profileId,
+          progress: HeartbeatAppliedProgress.usageRead,
+          cause: error,
+        );
+      }
+    }
+    return result;
+  }
+}
+
 final class ProbeHeartbeat {
   const ProbeHeartbeat({
     required this.profiles,
@@ -547,10 +589,12 @@ final class _HeartbeatVerificationResult {
   const _HeartbeatVerificationResult({
     required this.verification,
     required this.latestSnapshot,
+    this.previousSnapshot,
   });
 
   final HeartbeatVerification verification;
   final UsageSnapshot? latestSnapshot;
+  final UsageSnapshot? previousSnapshot;
 }
 
 Profile _findProfile(List<Profile> profiles, String profileId) {

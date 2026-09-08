@@ -165,6 +165,10 @@ void main() {
       expect(find.text('Ari Personal'), findsOneWidget);
       expect(find.byType(Dialog), findsNothing);
 
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('calendar-day-2026-8-12')),
+      );
+
       await tester.tap(find.byKey(const ValueKey('calendar-day-2026-8-12')));
       await tester.pumpAndSettle();
       expect(
@@ -174,11 +178,13 @@ void main() {
       expect(find.text('Sol Team'), findsOneWidget);
       expect(find.text('Ari Personal'), findsNothing);
 
+      await tester.ensureVisible(find.byTooltip('Mes siguiente'));
       await tester.tap(find.byTooltip('Mes siguiente'));
       await tester.pumpAndSettle();
       expect(find.text('Septiembre 2026'), findsOneWidget);
 
       for (final range in [7, 14, 30, 90]) {
+        await tester.ensureVisible(find.text('$range d'));
         await tester.tap(find.text('$range d'));
         await tester.pumpAndSettle();
         expect(
@@ -215,7 +221,7 @@ void main() {
       const Offset(0, -500),
     );
     await tester.pumpAndSettle();
-    expect(find.text('Tendencia de tokens'), findsOneWidget);
+    expect(find.text('Evolución de tokens'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }
@@ -482,8 +488,10 @@ final class _UnusedProfileRepository implements ProfileRepository {
 
 final class _UnusedDeviceAuthGateway implements AccountDeviceAuthGateway {
   @override
-  Future<AccountDeviceAuthSession> start(Profile profile) async =>
-      _UnusedDeviceAuthSession();
+  Future<AccountDeviceAuthSession> start(
+    Profile profile, {
+    AccountAuthMethod method = AccountAuthMethod.deviceCode,
+  }) async => _UnusedDeviceAuthSession();
 }
 
 final class _UnusedDeviceAuthSession implements AccountDeviceAuthSession {

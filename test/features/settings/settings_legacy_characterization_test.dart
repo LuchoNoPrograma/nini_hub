@@ -205,7 +205,7 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.textContaining('Todos los días a las 00:00, 07:00, 12:00 y 17:00'),
+      find.textContaining('En cada horario se actualizan las cuentas.'),
       findsOneWidget,
     );
     expect(find.text('Mantener abierta al finalizar'), findsOneWidget);
@@ -214,7 +214,12 @@ void main() {
     expect(find.textContaining('backoff'), findsNothing);
     expect(find.textContaining('app-server'), findsNothing);
     expect(
-      tester.widget<TextField>(find.byType(TextField)).controller?.text,
+      tester
+          .widget<TextField>(
+            find.widgetWithText(TextField, 'Directorio de perfiles'),
+          )
+          .controller
+          ?.text,
       '/configured/profiles',
     );
     expect(find.widgetWithText(FilledButton, 'Guardar'), findsOneWidget);
@@ -238,6 +243,7 @@ final class _SettingsFixture {
     final codexRuntime = CodexClientRuntime();
     final settingsRepository = DriftSettingsRepository(database);
     final settingsRuntime = DesktopSettingsRuntime(
+      heartbeatScheduleSetter: (_) {},
       discovery: discovery,
       requestTimeoutSetter: codexRuntime.setRequestTimeoutSeconds,
       weeklyKeepAliveEnabledSetter: scheduler.setEnabled,

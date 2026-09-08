@@ -42,7 +42,7 @@ void main() {
   });
 
   test(
-    'successful completion preserves discovery, monitor, usage, sync and account order',
+    'successful completion uses persisted profiles without repeating discovery',
     () async {
       final events = <String>[];
       final repository = _FakeAccountRepository(events, [_account()]);
@@ -72,7 +72,7 @@ void main() {
       expect(events, [
         'activity.completed:true',
         'authentication.persist:account',
-        'profiles.discover',
+        'accounts.load',
         'heartbeat.monitor:account',
         'usage.refresh:account',
         'usage.synchronize',
@@ -141,15 +141,17 @@ void main() {
   );
 
   test(
-    'completion exposes persisted authentication before discovery failure',
+    'completion exposes persisted authentication before snapshot failure',
     () async {
       final events = <String>[];
-      final cause = StateError('discovery failed');
+      final cause = StateError('snapshot failed');
       final useCase = CompleteAccountDeviceAuth(
         activity: _FakeActivity(events),
         authenticationStore: _FakeAuthenticationStore(events),
-        discovery: _FakeDiscovery(events, const [], failure: cause),
-        accountRepository: _FakeAccountRepository(events, [_account()]),
+        discovery: _FakeDiscovery(events, const []),
+        accountRepository: _FakeAccountRepository(events, [
+          _account(),
+        ], failure: cause),
         monitorHeartbeatProfiles: (_) {},
         refreshUsage: (_) async {},
         synchronizeUsageProjections: () async {},
@@ -170,7 +172,7 @@ void main() {
       expect(events, [
         'activity.completed:true',
         'authentication.persist:account',
-        'profiles.discover',
+        'accounts.load',
       ]);
     },
   );
@@ -211,7 +213,10 @@ final class _FakeGateway implements AccountDeviceAuthGateway {
   final Object? failure;
 
   @override
-  Future<AccountDeviceAuthSession> start(Profile profile) async {
+  Future<AccountDeviceAuthSession> start(
+    Profile profile, {
+    AccountAuthMethod method = AccountAuthMethod.deviceCode,
+  }) async {
     events.add('gateway.start:${profile.id}');
     final failure = this.failure;
     if (failure != null) throw failure;
@@ -267,23 +272,22 @@ final class _FakeAuthenticationStore implements AccountAuthenticationStore {
 }
 
 final class _FakeDiscovery implements ProfileDiscovery {
-  const _FakeDiscovery(this.events, this.profiles, {this.failure});
+  const _FakeDiscovery(this.events, this.profiles);
 
   final List<String> events;
   final List<Profile> profiles;
-  final Object? failure;
 
   @override
   Future<List<Profile>> discover() async {
     events.add('profiles.discover');
-    final failure = this.failure;
-    if (failure != null) throw failure;
     return profiles;
   }
 }
 
 final class _FakeAccountRepository implements AccountRepository {
-  const _FakeAccountRepository(this.events, this.accounts);
+  const _FakeAccountRepository(this.events, this.accounts, {this.failure});
+
+  final Object? failure;
 
   final List<String> events;
   final List<Account> accounts;
@@ -294,6 +298,7 @@ final class _FakeAccountRepository implements AccountRepository {
   @override
   Future<List<Account>> loadAll() async {
     events.add('accounts.load');
+    if (failure != null) throw failure!;
     return accounts;
   }
 

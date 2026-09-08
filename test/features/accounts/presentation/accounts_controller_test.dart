@@ -72,7 +72,7 @@ void main() {
 
     fixture.controller.selectAccount('beta');
     fixture.controller.setStatusFilter(AccountStatusFilter.ready);
-    expect(_visibleIds(fixture.state), ['alpha', 'epsilon']);
+    expect(_visibleIds(fixture.state), ['epsilon']);
     expect(fixture.state.selectedProfileId, 'beta');
     expect(fixture.state.selectedAccount?.profile.id, 'beta');
 
@@ -236,8 +236,112 @@ void main() {
       expect(fixture.state.accounts.single.profile.hasAuthFile, isTrue);
       expect(fixture.accounts.loadCalls, 2);
       expect(fixture.refreshedProfileIds, ['account']);
+      await Future<void>.delayed(Duration.zero);
       expect(fixture.projectionSyncs, 1);
+      expect(fixture.state.authRefreshingProfileIds, isEmpty);
       expect(fixture.state.operation, isNull);
+    },
+  );
+  test(
+    'confirmed access returns while quotas are blocked and other accounts remain usable',
+    () async {
+      final account = _account(hasAuthFile: false);
+      fixture.accounts.values = [account, _account(id: 'other')];
+      await fixture.controller.load();
+      fixture.refreshGate = Completer<void>();
+      expect(
+        await fixture.controller
+            .completeDeviceAuth(account, true)
+            .timeout(const Duration(seconds: 1)),
+        isTrue,
+      );
+      expect(fixture.state.isBusy, isFalse);
+      expect(fixture.state.authRefreshingProfileIds, {'account'});
+      expect(fixture.state.accounts.first.profile.hasAuthFile, isTrue);
+      expect(await fixture.controller.startDeviceAuth(account), isNull);
+      expect(
+        await fixture.controller.startDeviceAuth(fixture.state.accounts.last),
+        isNotNull,
+      );
+      fixture.controller.setSearch('other');
+      fixture.refreshGate!.complete();
+      await Future<void>.delayed(Duration.zero);
+      expect(fixture.state.authRefreshingProfileIds, isEmpty);
+      expect(fixture.state.query.search, 'other');
+    },
+  );
+
+  test(
+    'quota failure preserves authentication and retry clears its own error',
+    () async {
+      final account = _account(hasAuthFile: false);
+      fixture.accounts.values = [account];
+      await fixture.controller.load();
+      fixture.refreshGate = Completer<void>();
+      fixture.refreshFailure = StateError('private provider failure');
+      expect(
+        await fixture.controller.completeDeviceAuth(account, true),
+        isTrue,
+      );
+      fixture.refreshGate!.complete();
+      await Future<void>.delayed(Duration.zero);
+      expect(fixture.state.accounts.single.profile.hasAuthFile, isTrue);
+      expect(fixture.state.failure, isNull);
+      expect(
+        fixture.state.authRefreshFailures['account'],
+        contains('acceso está confirmado'),
+      );
+      expect(
+        fixture.state.authRefreshFailures['account'],
+        isNot(contains('private')),
+      );
+      fixture.refreshFailure = null;
+      fixture.refreshGate = null;
+      expect(
+        await fixture.controller.refreshAuthUsage(
+          fixture.state.accounts.single,
+        ),
+        isTrue,
+      );
+      expect(fixture.state.authRefreshFailures, isEmpty);
+    },
+  );
+
+  test(
+    'late quota snapshot cannot overwrite a newer load or local selection',
+    () async {
+      final account = _account();
+      fixture.accounts.values = [account];
+      await fixture.controller.load();
+      fixture.refreshGate = Completer<void>();
+      await fixture.controller.completeDeviceAuth(account, true);
+      final oldSnapshot = Completer<List<Account>>();
+      fixture.accounts.loadGate = oldSnapshot;
+      fixture.refreshGate!.complete();
+      await Future<void>.delayed(Duration.zero);
+      final newer = _account(displayName: 'Newer');
+      fixture.accounts.values = [newer, _account(id: 'other')];
+      await fixture.controller.load();
+      fixture.controller.selectAccount('other');
+      oldSnapshot.complete([account]);
+      await Future<void>.delayed(Duration.zero);
+      expect(fixture.state.accounts.first, same(newer));
+      expect(fixture.state.selectedProfileId, 'other');
+      expect(fixture.state.authRefreshingProfileIds, isEmpty);
+    },
+  );
+
+  test(
+    'disposing while quotas are pending leaves no late state write or unhandled error',
+    () async {
+      final account = _account();
+      fixture.accounts.values = [account];
+      fixture.refreshGate = Completer<void>();
+      await fixture.controller.completeDeviceAuth(account, true);
+      fixture.container.dispose();
+      fixture.refreshFailure = StateError('refresh failed after dispose');
+      fixture.refreshGate!.complete();
+      await Future<void>.delayed(Duration.zero);
     },
   );
 }
@@ -268,6 +372,8 @@ final class _Fixture {
           monitorHeartbeatProfiles: (_) {},
           refreshUsage: (profile) async {
             refreshedProfileIds.add(profile.id);
+            if (refreshGate != null) await refreshGate!.future;
+            if (refreshFailure != null) throw refreshFailure!;
           },
           synchronizeUsageProjections: () async => projectionSyncs++,
         ),
@@ -283,6 +389,8 @@ final class _Fixture {
   late final _MemoryAccountAuthenticationStore authenticationStore;
   final List<String> refreshedProfileIds = [];
   int projectionSyncs = 0;
+  Completer<void>? refreshGate;
+  Object? refreshFailure;
   late final NotifierProvider<AccountsController, AccountsState> provider;
   late final ProviderContainer container;
   late final AccountsController controller;
@@ -298,7 +406,10 @@ final class _FakeDeviceAuthGateway implements AccountDeviceAuthGateway {
   final AccountDeviceAuthSession session;
 
   @override
-  Future<AccountDeviceAuthSession> start(Profile profile) async => session;
+  Future<AccountDeviceAuthSession> start(
+    Profile profile, {
+    AccountAuthMethod method = AccountAuthMethod.deviceCode,
+  }) async => session;
 }
 
 final class _FakeDeviceAuthSession implements AccountDeviceAuthSession {

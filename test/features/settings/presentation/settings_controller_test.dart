@@ -1,3 +1,4 @@
+import 'package:nini_hub/features/heartbeat/domain/heartbeat_daily_schedule.dart';
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -163,6 +164,9 @@ final class _MemorySettingsRepository implements SettingsRepository {
 }
 
 final class _NoopSettingsRuntime implements SettingsRuntime {
+  @override
+  void setHeartbeatSchedule(HeartbeatDailySchedule schedule) {}
+
   Object? refreshFailure;
 
   @override

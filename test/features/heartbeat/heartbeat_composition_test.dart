@@ -1,3 +1,5 @@
+import 'package:nini_hub/features/heartbeat/application/heartbeat.dart';
+import 'package:nini_hub/features/profiles/data/drift_profile_repository.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,7 +13,7 @@ import 'package:nini_hub/features/profiles/domain/profile.dart';
 import 'package:nini_hub/features/usage/domain/usage.dart';
 
 void main() {
-  test('real composition observes Usage without running Codex', () async {
+  test('recovers Usage outside a slot without running Codex', () async {
     final database = AppDatabase(NativeDatabase.memory());
     final container = ProviderContainer(
       overrides: [
@@ -20,7 +22,7 @@ void main() {
           final scheduler = DartHeartbeatScheduler(
             onScheduledProbe: (profileId) =>
                 ref.read(heartbeatScheduledProbeProvider)(profileId),
-            clock: _Clock(DateTime(2026, 8, 23, 12).toUtc()),
+            clock: _Clock(DateTime(2026, 8, 23, 10).toUtc()),
           );
           ref.onDispose(scheduler.dispose);
           return scheduler;
@@ -76,8 +78,19 @@ void main() {
 
   test('real publisher persists and projects heartbeat Usage', () async {
     final database = AppDatabase(NativeDatabase.memory());
+    final scheduledProbe = _UsageProbe();
     final container = ProviderContainer(
-      overrides: [databaseProvider.overrideWithValue(database)],
+      overrides: [
+        databaseProvider.overrideWithValue(database),
+        heartbeatProbeProvider.overrideWith(
+          (ref) => ProbeHeartbeat(
+            profiles: DriftProfileRepository(database),
+            probe: scheduledProbe,
+            scheduler: ref.read(heartbeatSchedulerProvider),
+            observe: ref.read(heartbeatObserveUsageProvider),
+          ),
+        ),
+      ],
     );
     addTearDown(() async {
       container.dispose();
@@ -119,18 +132,34 @@ void main() {
       ],
     );
 
+    final previous = UsageSnapshot(
+      status: UsageRefreshStatus.success,
+      startedAt: observedAt.subtract(const Duration(seconds: 5)),
+      completedAt: observedAt.subtract(const Duration(seconds: 5)),
+      rateLimitsReadSucceeded: true,
+      windows: snapshot.windows,
+    );
     await container.read(heartbeatUsageSnapshotPublisherProvider)(
       profileId: 'stable-account-id',
       snapshot: snapshot,
+      previousSnapshot: previous,
     );
+    final account = container.read(accountsControllerProvider).accounts.single;
+    expect(
+      account.currentWindows.single.resetsAt?.toUtc(),
+      observedAt.add(const Duration(hours: 5)),
+    );
+    expect(account.previousSuccessfulCheck, isNotNull);
 
     final checks = await database.select(database.usageChecks).get();
     final windows = await database.select(database.quotaWindows).get();
-    expect(checks, hasLength(1));
-    expect(checks.single.profileId, 'stable-account-id');
-    expect(windows, hasLength(1));
+    expect(checks, hasLength(2));
+    expect(checks.map((check) => check.profileId).toSet(), {
+      'stable-account-id',
+    });
+    expect(windows, hasLength(2));
     expect(
-      windows.single.resetsAt?.toUtc(),
+      windows.last.resetsAt?.toUtc(),
       observedAt.add(const Duration(hours: 5)),
     );
     expect(
@@ -139,6 +168,37 @@ void main() {
           .latestSnapshotByProfile['stable-account-id'],
       same(snapshot),
     );
+    scheduledProbe.snapshot = UsageSnapshot(
+      status: UsageRefreshStatus.success,
+      startedAt: observedAt.add(const Duration(minutes: 30)),
+      completedAt: observedAt.add(const Duration(minutes: 30)),
+      rateLimitsReadSucceeded: true,
+      windows: [
+        UsageQuotaWindow(
+          limitId: 'codex',
+          windowType: 'primary',
+          usedPercent: 37,
+          windowDurationMinutes: 300,
+          resetsAt: observedAt.add(const Duration(hours: 5)),
+        ),
+      ],
+    );
+    container.read(heartbeatSchedulerProvider).retainProfiles([
+      'stable-account-id',
+    ]);
+    await container.read(heartbeatScheduledProbeProvider)('stable-account-id');
+    expect(scheduledProbe.calls, 1);
+    expect(
+      container
+          .read(accountsControllerProvider)
+          .accounts
+          .single
+          .currentWindows
+          .single
+          .usedPercent,
+      37,
+    );
+    expect(await database.select(database.usageChecks).get(), hasLength(3));
   });
 }
 
@@ -149,4 +209,14 @@ final class _Clock implements HeartbeatClock {
 
   @override
   DateTime nowUtc() => value;
+}
+
+final class _UsageProbe implements HeartbeatQuotaProbe {
+  late UsageSnapshot snapshot;
+  int calls = 0;
+  @override
+  Future<UsageSnapshot> probe(Profile profile) async {
+    calls++;
+    return snapshot;
+  }
 }

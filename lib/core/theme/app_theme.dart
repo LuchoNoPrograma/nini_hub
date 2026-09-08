@@ -54,12 +54,18 @@ class AppTheme {
     final dark = brightness == Brightness.dark;
     final scheme = ColorScheme(
       brightness: brightness,
-      primary: accent,
-      onPrimary: const Color(0xFF051014),
+      primary: dark
+          ? accent
+          : accent == mint
+          ? const Color(0xFF006B4C)
+          : accent == amber
+          ? const Color(0xFF855000)
+          : const Color(0xFF006878),
+      onPrimary: dark ? const Color(0xFF051014) : Colors.white,
       secondary: dark ? const Color(0xFF9EB2C3) : const Color(0xFF45606E),
       onSecondary: dark ? Colors.black : Colors.white,
-      error: const Color(0xFFFF6B6B),
-      onError: Colors.white,
+      error: dark ? const Color(0xFFFF8585) : const Color(0xFFB42332),
+      onError: dark ? const Color(0xFF240609) : Colors.white,
       surface: surface,
       onSurface: dark ? const Color(0xFFEAF2F5) : const Color(0xFF12212A),
       outline: border,
@@ -74,17 +80,18 @@ class AppTheme {
           ? const Color(0xFF202B35)
           : const Color(0xFFDCE5E8),
       onSurfaceVariant: dark
-          ? const Color(0xFF94A6B4)
-          : const Color(0xFF60737E),
+          ? const Color(0xFFB3C1CC)
+          : const Color(0xFF465A66),
       shadow: Colors.black,
       scrim: Colors.black,
       inverseSurface: dark ? Colors.white : const Color(0xFF172128),
       onInverseSurface: dark ? Colors.black : Colors.white,
       inversePrimary: accent,
-      tertiary: const Color(0xFFFFB84D),
-      onTertiary: const Color(0xFF211300),
+      tertiary: dark ? const Color(0xFFFFC46B) : const Color(0xFF855000),
+      onTertiary: dark ? const Color(0xFF211300) : Colors.white,
     );
     final scale = fontScale.clamp(.8, 1.2).toDouble();
+    // Scale every role proportionally, including the smallest labels.
     double size(double value) => value * scale;
     final resolvedFamily = switch (fontFamily) {
       'ubuntu' => 'Ubuntu',
@@ -103,6 +110,14 @@ class AppTheme {
       iconTheme: IconThemeData(size: 16, color: scheme.onSurfaceVariant),
       primaryIconTheme: IconThemeData(size: 16, color: scheme.onPrimary),
       textTheme: TextTheme(
+        displayLarge: TextStyle(
+          fontSize: size(32),
+          fontWeight: FontWeight.w600,
+        ),
+        displayMedium: TextStyle(
+          fontSize: size(28),
+          fontWeight: FontWeight.w600,
+        ),
         displaySmall: TextStyle(
           fontSize: size(26),
           fontWeight: FontWeight.w600,
@@ -150,7 +165,7 @@ class AppTheme {
         contentTextStyle: TextStyle(
           color: scheme.onSurface,
           fontSize: size(12),
-          height: 1.35,
+          height: 1.4,
         ),
         actionsPadding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -183,10 +198,10 @@ class AppTheme {
         ),
       ),
       tabBarTheme: TabBarThemeData(
-        indicatorColor: accent,
+        indicatorColor: scheme.primary,
         dividerColor: border,
         dividerHeight: 1,
-        labelColor: accent,
+        labelColor: scheme.primary,
         unselectedLabelColor: scheme.onSurfaceVariant,
         labelStyle: TextStyle(fontSize: size(12), fontWeight: FontWeight.w500),
         unselectedLabelStyle: TextStyle(
@@ -213,7 +228,12 @@ class AppTheme {
         filled: true,
         fillColor: elevated,
         isDense: true,
-        labelStyle: TextStyle(color: scheme.onSurfaceVariant),
+        labelStyle: TextStyle(
+          color: scheme.onSurfaceVariant,
+          fontSize: size(12),
+        ),
+        helperMaxLines: 3,
+        errorMaxLines: 3,
         hintStyle: TextStyle(color: scheme.onSurfaceVariant),
         prefixIconColor: scheme.onSurfaceVariant,
         suffixIconColor: scheme.onSurfaceVariant,
@@ -230,7 +250,7 @@ class AppTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(6),
-          borderSide: BorderSide(color: accent, width: 1.4),
+          borderSide: BorderSide(color: scheme.primary, width: 2),
         ),
       ),
       tooltipTheme: TooltipThemeData(
@@ -279,7 +299,7 @@ class AppTheme {
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-          foregroundColor: accent,
+          foregroundColor: scheme.primary,
           disabledForegroundColor: scheme.onSurfaceVariant.withValues(
             alpha: .45,
           ),

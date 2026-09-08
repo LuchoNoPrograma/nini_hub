@@ -28,6 +28,10 @@ class _UsageCalendarViewState extends ConsumerState<UsageCalendarView> {
 
   void _focusMonth(DateTime day) {
     setState(() => focusedDay = _day(day));
+    final selected = ref.read(usageControllerProvider).selectedDay;
+    if (selected.year != day.year || selected.month != day.month) {
+      ref.read(usageControllerProvider.notifier).selectDay(_day(day));
+    }
   }
 
   void _shiftMonth(int offset) {
@@ -85,17 +89,6 @@ class _UsageCalendarViewState extends ConsumerState<UsageCalendarView> {
       0,
       (sum, item) => sum + item.successfulChecks + item.failedChecks,
     );
-    final nextReset = calendar.values
-        .where(
-          (item) =>
-              item.resetCount > 0 && !item.day.isBefore(_day(DateTime.now())),
-        )
-        .map((item) => item.day)
-        .fold<DateTime?>(
-          null,
-          (current, value) =>
-              current == null || value.isBefore(current) ? value : current,
-        );
     return SingleChildScrollView(
       padding: const EdgeInsets.all(18),
       child: Column(
@@ -103,7 +96,8 @@ class _UsageCalendarViewState extends ConsumerState<UsageCalendarView> {
         children: [
           const SectionTitle(
             title: 'Estadísticas de uso',
-            subtitle: 'Compara el uso diario, las cuentas y su evolución.',
+            subtitle:
+                'Explora los tokens registrados y el seguimiento de tus cuentas.',
           ),
           if (state.isCalendarLoading)
             const LinearProgressIndicator(
@@ -118,6 +112,43 @@ class _UsageCalendarViewState extends ConsumerState<UsageCalendarView> {
               onDismiss: controller.clearCalendarFailure,
             ),
           const SizedBox(height: 14),
+          Text(
+            'Resumen del mes',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          SizedBox(
+            height: 36,
+            child: Row(
+              children: [
+                Expanded(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 180),
+                    child: Text(
+                      formatMonth(focusedDay),
+                      key: ValueKey('${focusedDay.year}-${focusedDay.month}'),
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                ),
+                TextButton(onPressed: _goToday, child: const Text('Hoy')),
+                const SizedBox(width: 2),
+                AppIconButton(
+                  icon: Icons.chevron_left,
+                  tooltip: 'Mes anterior',
+                  onPressed: () => _shiftMonth(-1),
+                ),
+                AppIconButton(
+                  icon: Icons.chevron_right,
+                  tooltip: 'Mes siguiente',
+                  onPressed: () => _shiftMonth(1),
+                ),
+              ],
+            ),
+          ),
+          Divider(
+            height: 1,
+            color: Theme.of(context).colorScheme.outlineVariant,
+          ),
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
@@ -138,26 +169,42 @@ class _UsageCalendarViewState extends ConsumerState<UsageCalendarView> {
                   icon: Icons.data_usage,
                 ),
                 MetricItem(
-                  label: 'Días con uso',
+                  label: 'Días con registros',
                   value: '$observedDays',
                   icon: Icons.calendar_view_month_outlined,
                   color: const Color(0xFF58E2AD),
                 ),
                 MetricItem(
-                  label: 'Consultas del mes',
+                  label: 'Comprobaciones de uso',
                   value: '$monthChecks',
                   icon: Icons.fact_check_outlined,
-                ),
-                MetricItem(
-                  label: 'Próximo reset',
-                  value: formatDate(nextReset),
-                  icon: Icons.restart_alt,
-                  color: Theme.of(context).colorScheme.tertiary,
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 8),
+          const Text(
+            'Las comprobaciones consultan el estado de las cuentas. Los días con registros también incluyen reinicios y renovaciones.',
+          ),
+          const SizedBox(height: 18),
+          _UsageTrend(
+                data: state.calendar.days,
+                anchorDay: selected,
+                onDaySelected: _selectDay,
+              )
+              .animate()
+              .fadeIn(duration: 300.ms, delay: 80.ms)
+              .moveY(begin: 8, end: 0),
+          const SizedBox(height: 20),
+          Text(
+            'Detalle por día',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Selecciona una fecha para ver los registros de cada cuenta.',
+          ),
+          const SizedBox(height: 12),
           LayoutBuilder(
             builder: (context, constraints) {
               final calendar = _CalendarPanel(
@@ -166,9 +213,6 @@ class _UsageCalendarViewState extends ConsumerState<UsageCalendarView> {
                 selectedDay: selected,
                 onSelected: _selectDay,
                 onPageChanged: _focusMonth,
-                onPreviousMonth: () => _shiftMonth(-1),
-                onNextMonth: () => _shiftMonth(1),
-                onToday: _goToday,
               );
               final inspector = _DayInspector(
                 day: selected,
@@ -176,7 +220,7 @@ class _UsageCalendarViewState extends ConsumerState<UsageCalendarView> {
               );
               if (constraints.maxWidth >= 840) {
                 return SizedBox(
-                  height: 350,
+                  height: 440,
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
@@ -189,22 +233,14 @@ class _UsageCalendarViewState extends ConsumerState<UsageCalendarView> {
               }
               return Column(
                 children: [
-                  SizedBox(height: 350, child: calendar),
+                  SizedBox(height: 440, child: calendar),
                   const SizedBox(height: 12),
-                  SizedBox(height: 350, child: inspector),
+                  SizedBox(height: 440, child: inspector),
                 ],
               );
             },
           ),
           const SizedBox(height: 14),
-          _UsageTrend(
-                data: state.calendar.days,
-                anchorDay: selected,
-                onDaySelected: _selectDay,
-              )
-              .animate()
-              .fadeIn(duration: 300.ms, delay: 80.ms)
-              .moveY(begin: 8, end: 0),
         ],
       ),
     );
@@ -266,9 +302,6 @@ class _CalendarPanel extends StatelessWidget {
     required this.selectedDay,
     required this.onSelected,
     required this.onPageChanged,
-    required this.onPreviousMonth,
-    required this.onNextMonth,
-    required this.onToday,
   });
 
   final Map<DateTime, UsageCalendarDay> data;
@@ -276,9 +309,6 @@ class _CalendarPanel extends StatelessWidget {
   final DateTime selectedDay;
   final ValueChanged<DateTime> onSelected;
   final ValueChanged<DateTime> onPageChanged;
-  final VoidCallback onPreviousMonth;
-  final VoidCallback onNextMonth;
-  final VoidCallback onToday;
 
   @override
   Widget build(BuildContext context) {
@@ -292,36 +322,16 @@ class _CalendarPanel extends StatelessWidget {
       ),
       child: Column(
         children: [
-          SizedBox(
-            height: 36,
-            child: Row(
-              children: [
-                Expanded(
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 180),
-                    child: Text(
-                      formatMonth(focusedDay),
-                      key: ValueKey('${focusedDay.year}-${focusedDay.month}'),
-                      style: theme.textTheme.titleMedium,
-                    ),
-                  ),
-                ),
-                TextButton(onPressed: onToday, child: const Text('Hoy')),
-                const SizedBox(width: 2),
-                AppIconButton(
-                  icon: Icons.chevron_left,
-                  tooltip: 'Mes anterior',
-                  onPressed: onPreviousMonth,
-                ),
-                AppIconButton(
-                  icon: Icons.chevron_right,
-                  tooltip: 'Mes siguiente',
-                  onPressed: onNextMonth,
-                ),
-              ],
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Text(
+                'Calendario · ${formatMonth(focusedDay)}',
+                style: theme.textTheme.titleMedium,
+              ),
             ),
           ),
-          Divider(height: 1, color: theme.colorScheme.outlineVariant),
           TableCalendar<UsageCalendarDay>(
             locale: 'es',
             firstDay: DateTime.utc(2023),
@@ -365,6 +375,33 @@ class _CalendarPanel extends StatelessWidget {
               ),
             ),
           ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 14,
+            runSpacing: 6,
+            children: [
+              _CalendarLegend(
+                color: theme.colorScheme.primary,
+                label: 'Tokens',
+              ),
+              _CalendarLegend(
+                color: theme.colorScheme.onSurfaceVariant,
+                label: 'Solo comprobaciones',
+              ),
+              const _CalendarLegend(
+                color: Color(0xFF58E2AD),
+                label: 'Reinicio previsto',
+              ),
+              _CalendarLegend(
+                color: theme.colorScheme.tertiary,
+                label: 'Renovación',
+              ),
+              _CalendarLegend(
+                color: theme.colorScheme.error,
+                label: 'Comprobación fallida',
+              ),
+            ],
+          ),
         ],
       ),
     ).animate().fadeIn(duration: 280.ms).moveX(begin: -8, end: 0);
@@ -400,6 +437,12 @@ class _CalendarCell extends StatelessWidget {
       formatFullDate(day),
       if (today) 'Hoy',
       if (tokens > 0) formatTokenDetails(tokens),
+      if ((data?.resetCount ?? 0) > 0) 'Reinicio previsto',
+      if ((data?.renewalCount ?? 0) > 0) 'Renovación',
+      if (alert) 'Comprobación fallida',
+      if (data == null) 'Sin registros',
+      if ((data?.successfulChecks ?? 0) > 0)
+        '${data!.successfulChecks} comprobaciones con datos',
     ].join('\n');
     return Tooltip(
       message: tooltip,
@@ -474,9 +517,15 @@ class _CalendarCell extends StatelessWidget {
                                 ? theme.colorScheme.onSurface
                                 : theme.colorScheme.primary,
                           ),
-                        if (!narrow && (data?.resetCount ?? 0) > 0)
+                        if (tokens == 0 &&
+                            (data?.successfulChecks ?? 0) > 0 &&
+                            (data?.resetCount ?? 0) == 0 &&
+                            (data?.renewalCount ?? 0) == 0 &&
+                            !alert)
+                          _Marker(color: theme.colorScheme.onSurfaceVariant),
+                        if ((data?.resetCount ?? 0) > 0)
                           const _Marker(color: Color(0xFF58E2AD)),
-                        if (!narrow && (data?.renewalCount ?? 0) > 0)
+                        if ((data?.renewalCount ?? 0) > 0)
                           _Marker(color: theme.colorScheme.tertiary),
                         if ((data?.failedChecks ?? 0) > 0)
                           _Marker(color: theme.colorScheme.error),
@@ -514,6 +563,23 @@ class _CalendarCell extends StatelessWidget {
       ),
     );
   }
+}
+
+class _CalendarLegend extends StatelessWidget {
+  const _CalendarLegend({required this.color, required this.label});
+
+  final Color color;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      _Marker(color: color),
+      const SizedBox(width: 3),
+      Text(label, style: Theme.of(context).textTheme.labelSmall),
+    ],
+  );
 }
 
 class _Marker extends StatelessWidget {
@@ -589,7 +655,7 @@ class _DayInspector extends StatelessWidget {
                         Text(
                           accounts.isEmpty
                               ? 'Sin actividad registrada'
-                              : '${accounts.length} ${accounts.length == 1 ? 'cuenta activa' : 'cuentas activas'}',
+                              : '${accounts.length} ${accounts.length == 1 ? 'cuenta con registros' : 'cuentas con registros'}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall?.copyWith(
@@ -618,9 +684,9 @@ class _DayInspector extends StatelessWidget {
                     caption: '${formatInteger(data?.tokens ?? 0)} exactos',
                     tooltip: formatTokenDetails(data?.tokens ?? 0),
                   ),
-                  _DayMetric(label: 'Consultas', value: '$checks'),
+                  _DayMetric(label: 'Comprobaciones', value: '$checks'),
                   _DayMetric(
-                    label: 'Correctas',
+                    label: 'Con datos',
                     value: '${data?.successfulChecks ?? 0}',
                   ),
                   _DayMetric(
@@ -662,7 +728,7 @@ class _DayInspector extends StatelessWidget {
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    'Uso por cuenta',
+                    'Registros por cuenta',
                     style: theme.textTheme.titleMedium,
                   ),
                 ),
@@ -771,9 +837,10 @@ class _AccountDayRow extends StatelessWidget {
     final theme = Theme.of(context);
     final checks = account.successfulChecks + account.failedChecks;
     final details = <String>[
-      if (checks > 0) '$checks ${checks == 1 ? 'consulta' : 'consultas'}',
+      if (checks > 0)
+        '$checks ${checks == 1 ? 'comprobación' : 'comprobaciones'}',
       if (account.resetCount > 0)
-        '${account.resetCount} ${account.resetCount == 1 ? 'reset' : 'resets'}',
+        '${account.resetCount} ${account.resetCount == 1 ? 'reinicio previsto' : 'reinicios previstos'}',
       if (account.renewalCount > 0)
         '${account.renewalCount} ${account.renewalCount == 1 ? 'renovación' : 'renovaciones'}',
     ];
@@ -811,7 +878,7 @@ class _AccountDayRow extends StatelessWidget {
                             ),
                           ),
                           Text(
-                            '${formatInteger(account.tokens)} exactos',
+                            '${formatInteger(account.tokens)} tokens',
                             style: theme.textTheme.labelSmall?.copyWith(
                               color: theme.colorScheme.onSurfaceVariant,
                             ),
@@ -889,7 +956,7 @@ class _AvailabilityBar extends StatelessWidget {
           children: [
             Expanded(
               child: Text(
-                'Cuota disponible',
+                'Mínimo disponible del día',
                 style: theme.textTheme.labelMedium?.copyWith(
                   fontWeight: FontWeight.w600,
                 ),
@@ -904,6 +971,11 @@ class _AvailabilityBar extends StatelessWidget {
               ),
             ),
           ],
+        ),
+        const SizedBox(height: 3),
+        Text(
+          'Menor porcentaje observado entre las cuotas de esta cuenta.',
+          style: theme.textTheme.bodySmall,
         ),
         const SizedBox(height: 5),
         TweenAnimationBuilder<double>(
@@ -1023,12 +1095,12 @@ class _UsageTrendState extends State<_UsageTrend> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Tendencia de tokens',
+                      'Evolución de tokens',
                       style: theme.textTheme.titleMedium,
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      '${formatDate(days.first)} – ${formatDate(days.last)}',
+                      '${formatDate(days.first)} – ${formatDate(days.last)} · hasta el día seleccionado',
                       style: theme.textTheme.labelSmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
@@ -1064,7 +1136,7 @@ class _UsageTrendState extends State<_UsageTrend> {
             alignment: Alignment.centerLeft,
             child: selectedDay == null
                 ? Text(
-                    'Total ${formatCompactInt(total)}  ·  Promedio ${formatCompactInt(total ~/ range)}  ·  $activeDays ${activeDays == 1 ? 'día con uso' : 'días con uso'}',
+                    '${formatCompactInt(total)} tokens registrados · ${formatCompactInt(total ~/ range)} por día · $activeDays días con tokens',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),

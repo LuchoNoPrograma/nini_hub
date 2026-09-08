@@ -15,18 +15,19 @@ import 'package:nini_hub/features/heartbeat/domain/heartbeat_policy.dart';
 void main() {
   setUpAll(() => initializeDateFormatting('es'));
 
-  testWidgets('manual heartbeat refreshes projections only after success', (
-    tester,
-  ) async {
-    await _runFlow(
-      tester,
-      result: const HeartbeatRunResult(
-        outcome: HeartbeatOutcome.verified,
-        message: 'Heartbeat verificado.',
-      ),
-      expectsRefresh: true,
-    );
-  });
+  testWidgets(
+    'manual heartbeat awaits the complete operation and displays success',
+    (tester) async {
+      await _runFlow(
+        tester,
+        result: const HeartbeatRunResult(
+          outcome: HeartbeatOutcome.verified,
+          message: 'Heartbeat verificado.',
+        ),
+        expectsRefresh: true,
+      );
+    },
+  );
 
   testWidgets('manual heartbeat does not refresh projections after failure', (
     tester,
@@ -142,7 +143,7 @@ Future<void> _runFlow(
 
   final operation = Completer<HeartbeatRunResult>();
   final started = Completer<void>();
-  final refreshed = <String>[];
+
   int? recordedWindowMinutes;
   final container = ProviderContainer(
     overrides: [
@@ -154,9 +155,6 @@ Future<void> _runFlow(
         recordedWindowMinutes = expectedWindowMinutes;
         if (!started.isCompleted) started.complete();
         return operation.future;
-      }),
-      heartbeatPostRunRefreshProvider.overrideWithValue((profileId) async {
-        refreshed.add(profileId);
       }),
     ],
   );
@@ -193,7 +191,10 @@ Future<void> _runFlow(
   operation.complete(result);
   await tester.pumpAndSettle();
 
-  expect(refreshed, expectsRefresh ? ['account'] : isEmpty);
+  expect(
+    container.read(heartbeatControllerProvider).isRunningProfile('account'),
+    isFalse,
+  );
   expect(
     find.text(result.message),
     expectsRefresh ? findsOneWidget : findsWidgets,

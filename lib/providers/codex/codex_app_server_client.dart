@@ -198,7 +198,10 @@ class CodexAppServerClient {
     }
   }
 
-  Future<CodexDeviceAuthSession> startDeviceAuth(Profile profile) async {
+  Future<CodexDeviceAuthSession> startDeviceAuth(
+    Profile profile, {
+    bool useBrowser = false,
+  }) async {
     if (!Directory(profile.profileHome).existsSync()) {
       throw const CodexAppServerFailure(
         kind: CodexAppServerFailureKind.profileMissing,
@@ -217,8 +220,8 @@ class CodexAppServerClient {
       );
       rpc = startedRpc;
       await startedRpc.initialize();
-      final result = await startedRpc.request('account/login/start', const {
-        'type': 'chatgptDeviceCode',
+      final result = await startedRpc.request('account/login/start', {
+        'type': useBrowser ? 'chatgpt' : 'chatgptDeviceCode',
       });
       final loginId = _firstString(
         [result],
@@ -597,19 +600,14 @@ class CodexDeviceAuthSession {
   final String verificationUrl;
   final String userCode;
   bool _closed = false;
+  Future<void>? _closeFuture;
 
   Future<bool> waitForCompletion({
     Duration timeout = const Duration(minutes: 10),
   }) async {
     try {
-      final notification = await _rpc.notifications
-          .firstWhere((item) {
-            if (item['method'] != 'account/login/completed') return false;
-            final params = item['params'];
-            if (params is! Map) return true;
-            final id = params['loginId'] ?? params['login_id'];
-            return id == null || id.toString() == loginId;
-          })
+      final notification = await _rpc
+          .waitForLoginCompletion(loginId)
           .timeout(timeout);
       final completion = parseCompletionNotification(notification);
       if (completion.success == true) return true;
@@ -664,10 +662,9 @@ class CodexDeviceAuthSession {
     }
   }
 
-  Future<void> close() async {
-    if (_closed) return;
+  Future<void> close() {
     _closed = true;
-    await _rpc.close();
+    return _closeFuture ??= _rpc.close();
   }
 }
 
@@ -705,7 +702,28 @@ class _CodexRpcProcess {
   String _stderr = '';
   CodexAppServerFailure? _terminalFailure;
 
-  Stream<Map<String, dynamic>> get notifications => _notifications.stream;
+  // A login may finish before the Flutter dialog subscribes. Retain only
+  // completion events (never the general notification stream) for this process.
+  final Map<String?, Map<String, dynamic>> _loginCompletions = {};
+
+  Future<Map<String, dynamic>> waitForLoginCompletion(String loginId) {
+    final cached = _loginCompletions[loginId] ?? _loginCompletions[null];
+    if (cached != null) return Future.value(cached);
+    final failure = _terminalFailure;
+    if (failure != null) return Future.error(failure);
+    return _notifications.stream.firstWhere((item) {
+      if (item['method'] != 'account/login/completed') return false;
+      final id = _completionLoginId(item);
+      return id == null || id == loginId;
+    });
+  }
+
+  static String? _completionLoginId(Map<String, dynamic> item) {
+    final params = item['params'];
+    return params is Map
+        ? (params['loginId'] ?? params['login_id'])?.toString()
+        : null;
+  }
 
   static Future<_CodexRpcProcess> start({
     required CodexProcessLaunch launch,
@@ -832,6 +850,9 @@ class _CodexRpcProcess {
       return;
     }
     if (message['method'] is String) {
+      if (message['method'] == 'account/login/completed') {
+        _loginCompletions[_completionLoginId(message)] = message;
+      }
       _notifications.add(message);
       return;
     }
@@ -925,6 +946,7 @@ class _CodexRpcProcess {
     await _stdoutSubscription.cancel();
     await _stderrSubscription.cancel();
     await _notifications.close();
+    _loginCompletions.clear();
   }
 
   Future<bool> _waitForExit(Duration timeout) async {

@@ -1,3 +1,4 @@
+import 'package:nini_hub/features/heartbeat/domain/heartbeat_daily_schedule.dart';
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -6,6 +7,51 @@ import 'package:nini_hub/features/heartbeat/domain/heartbeat_ports.dart';
 import 'package:nini_hub/features/profiles/domain/profile.dart';
 
 void main() {
+  test(
+    'changing the schedule cancels old timers and continues every configured slot',
+    () async {
+      final clock = _Clock(DateTime(2026, 9, 7, 8).toUtc());
+      final timers = _TimerFactory();
+      final probes = <String>[];
+      final scheduler = DartHeartbeatScheduler(
+        onScheduledProbe: (id) async => probes.add(id),
+        clock: clock,
+        timerFactory: timers.call,
+      );
+      addTearDown(scheduler.dispose);
+      scheduler.monitorProfileIds(['account']);
+      final old = timers.timers.single;
+      scheduler.configureSchedule(
+        const HeartbeatDailySchedule(minutes: [570, 630], weekdays: [1]),
+      );
+      expect(old.isActive, isFalse);
+      expect(
+        scheduler.nextProbeAt('account'),
+        DateTime(2026, 9, 7, 9, 30).toUtc(),
+      );
+      old.fire();
+      expect(probes, isEmpty);
+      clock.value = DateTime(2026, 9, 7, 9, 30).toUtc();
+      timers.timers.last.fire();
+      await scheduler.waitUntilIdle();
+      expect(probes, ['account']);
+      expect(
+        scheduler.nextProbeAt('account'),
+        DateTime(2026, 9, 7, 10, 30).toUtc(),
+      );
+      scheduler.scheduleNextPlanned(
+        profile: _profile('account'),
+        notBefore: DateTime(2026, 10, 1),
+      );
+      expect(
+        scheduler.nextProbeAt('account'),
+        DateTime(2026, 9, 7, 10, 30).toUtc(),
+      );
+      scheduler.enabled = false;
+      expect(timers.timers.where((timer) => timer.isActive), isEmpty);
+    },
+  );
+
   test('schedules one replaceable UTC timer per profile', () async {
     final clock = _Clock(DateTime.utc(2026, 8, 23, 10));
     final timers = _TimerFactory();
@@ -35,7 +81,7 @@ void main() {
     timers.timers.last.fire();
     await scheduler.waitUntilIdle();
     expect(probes, ['first']);
-    expect(scheduler.nextProbeAt('first'), isNull);
+    expect(scheduler.nextProbeAt('first'), isNotNull);
 
     scheduler.schedule(
       profile: _profile('first'),
@@ -83,7 +129,7 @@ void main() {
     expect(probes, ['first', 'second']);
 
     scheduler.monitorProfileIds(['first', 'second']);
-    expect(timers.timers, hasLength(3));
+    expect(timers.timers.where((timer) => timer.isActive), hasLength(2));
     timers.timers.last.fire();
     await scheduler.waitUntilIdle();
     expect(probes, ['first', 'second', 'second']);

@@ -40,7 +40,12 @@ void main() {
             message: 'No heartbeat required.',
           );
         },
-        publish: ({required profileId, required snapshot}) async {},
+        publish:
+            ({
+              required profileId,
+              required snapshot,
+              previousSnapshot,
+            }) async {},
       );
 
       expect(
@@ -124,9 +129,10 @@ void main() {
           message: 'No heartbeat required.',
         );
       },
-      publish: ({required profileId, required snapshot}) async {
-        published.add((profileId: profileId, snapshot: snapshot));
-      },
+      publish:
+          ({required profileId, required snapshot, previousSnapshot}) async {
+            published.add((profileId: profileId, snapshot: snapshot));
+          },
     );
 
     expect(
@@ -150,25 +156,29 @@ void main() {
     expect(published.single.snapshot, same(heartbeatSnapshot));
   });
 
-  test('defers usage observations outside the four daily slots', () async {
+  test('queues recovery one second after the grace boundary', () async {
     final database = AppDatabase(NativeDatabase.memory());
     final scheduler = DartHeartbeatScheduler(
       onScheduledProbe: (_) async {},
-      clock: _Clock(DateTime(2026, 8, 23, 10).toUtc()),
+      clock: _Clock(DateTime(2026, 8, 23, 7, 15, 1).toUtc()),
     );
     addTearDown(() async {
       scheduler.dispose();
       await database.close();
     });
+    final observed = <String>[];
     final adapter = HeartbeatUsageKeepAliveScheduler(
       scheduler: scheduler,
       runner: ProcessRunner(database),
-      observe: ({required profile, required snapshot}) async =>
-          const HeartbeatRunResult(
-            outcome: HeartbeatOutcome.skipped,
-            message: 'Not expected.',
-          ),
-      publish: ({required profileId, required snapshot}) async {},
+      observe: ({required profile, required snapshot}) async {
+        observed.add(profile.id);
+        return const HeartbeatRunResult(
+          outcome: HeartbeatOutcome.skipped,
+          message: 'No heartbeat required.',
+        );
+      },
+      publish:
+          ({required profileId, required snapshot, previousSnapshot}) async {},
     );
 
     expect(
@@ -176,12 +186,12 @@ void main() {
         profile: _profile('deferred'),
         snapshot: _snapshot(),
       ),
-      isFalse,
+      isTrue,
     );
-    expect(
-      scheduler.nextProbeAt('deferred'),
-      DateTime(2026, 8, 23, 12).toUtc(),
-    );
+    await scheduler.waitUntilIdle();
+
+    expect(observed, ['deferred']);
+    expect(scheduler.nextProbeAt('deferred'), isNull);
   });
 }
 
