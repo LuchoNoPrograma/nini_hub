@@ -79,7 +79,7 @@ class CodexAppServerClient {
         isWindows: isWindows ?? Platform.isWindows,
       );
       await rpc.initialize();
-      final account = await rpc.request('account/read', const {
+      final account = await _requestMetadata(rpc, 'account/read', const {
         'refreshToken': false,
       });
       if (!_hasAccount(account)) {
@@ -318,26 +318,60 @@ class CodexAppServerClient {
     errorMessage: message,
   );
 
+  // Retry only read operations. Each read shares one deadline across attempts,
+  // so an outage cannot multiply the configured timeout by the retry count.
   static Future<Map<String, dynamic>> _requestMetadata(
     _CodexRpcProcess rpc,
-    String method,
-  ) async {
-    try {
-      return await rpc.request(method);
-    } catch (error) {
-      if (!_isTransientMetadataError(error)) rethrow;
-      await Future<void>.delayed(const Duration(milliseconds: 400));
-      return rpc.request(method);
+    String method, [
+    Map<String, dynamic>? params,
+  ]) async {
+    final elapsed = Stopwatch()..start();
+    const delays = [500, 1000, 2000, 4000, 4000];
+    for (var attempt = 0; ; attempt++) {
+      final remaining = rpc.requestTimeout - elapsed.elapsed;
+      if (remaining <= Duration.zero) {
+        throw CodexAppServerFailure(
+          kind: CodexAppServerFailureKind.timeout,
+          code: 'TIMEOUT',
+          message: '$method agotó el tiempo de espera.',
+        );
+      }
+      try {
+        return await rpc.request(method, params, remaining);
+      } catch (error) {
+        if (!_isTransientMetadataError(error) || attempt >= delays.length) {
+          rethrow;
+        }
+        final delay = Duration(milliseconds: delays[attempt]);
+        if (rpc.requestTimeout - elapsed.elapsed <= delay) rethrow;
+        await Future<void>.delayed(delay);
+      }
     }
   }
 
   static bool _isTransientMetadataError(Object? error) {
-    final message = error?.toString().toLowerCase() ?? '';
+    if (error is! CodexAppServerFailure ||
+        error.kind != CodexAppServerFailureKind.rpc) {
+      return false;
+    }
+    final message = error.message.toLowerCase();
+    // Authentication and unsupported methods are permanent even if the
+    // provider wraps them in a generic network error message.
+    if (RegExp(
+      r'401|403|unauthorized|forbidden|auth|required|token|method not found|unsupported',
+    ).hasMatch(message)) {
+      return false;
+    }
     return message.contains('error sending request') ||
         message.contains('connection reset') ||
         message.contains('connection refused') ||
+        message.contains('connection closed') ||
+        message.contains('connection timed out') ||
         message.contains('temporary failure') ||
-        message.contains('failed host lookup');
+        message.contains('failed host lookup') ||
+        message.contains('network is unreachable') ||
+        message.contains('broken pipe') ||
+        message.contains('unexpected eof');
   }
 
   static String? _metadataFailureCode(Object? limits, Object? usage) {
@@ -756,6 +790,7 @@ class _CodexRpcProcess {
   Future<Map<String, dynamic>> request(
     String method, [
     Map<String, dynamic>? params,
+    Duration? timeoutOverride,
   ]) {
     final terminalFailure = _terminalFailure;
     if (_closed || terminalFailure != null) {
@@ -782,7 +817,7 @@ class _CodexRpcProcess {
       );
     }
     return completer.future.timeout(
-      requestTimeout,
+      timeoutOverride ?? requestTimeout,
       onTimeout: () {
         _pending.remove(id);
         throw CodexAppServerFailure(

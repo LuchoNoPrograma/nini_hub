@@ -51,6 +51,135 @@ void main() {
     },
   );
 
+  test(
+    'usage survives several seconds of outage without blocking timers',
+    () async {
+      final profile = await _managedProfile(scratch);
+      final attempts = <String, int>{};
+      var timerRan = false;
+      final process = _FakeCodexProcess((process, request) {
+        final method = request['method'] as String;
+        attempts[method] = (attempts[method] ?? 0) + 1;
+        if (method == 'account/rateLimits/read' && attempts[method]! <= 3) {
+          process.sendRaw(
+            jsonEncode({
+              'id': request['id'],
+              'error': {'message': 'connection reset by peer'},
+            }),
+          );
+          return;
+        }
+        _successfulResponder(process, request);
+      });
+      final timer = Timer(
+        const Duration(milliseconds: 50),
+        () => timerRan = true,
+      );
+      final result = await CodexAppServerClient(
+        processStarter: (_) async => process,
+      ).refresh(profile);
+
+      expect(result.state, UsageCheckState.success);
+      expect(attempts['account/rateLimits/read'], 4);
+      expect(attempts['account/usage/read'], 1);
+      expect(attempts['account/read'], 1);
+      expect(timerRan, isTrue);
+      expect(process.stdinClosed, isTrue);
+      timer.cancel();
+      await process.dispose();
+    },
+  );
+
+  test(
+    'persistent outage stays within the read budget and preserves partial data',
+    () async {
+      final profile = await _managedProfile(scratch);
+      var attempts = 0;
+      final process = _FakeCodexProcess((process, request) {
+        if (request['method'] == 'account/rateLimits/read') {
+          attempts++;
+          if (attempts == 1) {
+            process.sendRaw(
+              jsonEncode({
+                'id': request['id'],
+                'error': {'message': 'connection reset'},
+              }),
+            );
+          }
+          // The retry receives no reply: it must only use the remaining budget.
+          return;
+        }
+        _successfulResponder(process, request);
+      });
+      final elapsed = Stopwatch()..start();
+      final result = await CodexAppServerClient(
+        timeout: const Duration(milliseconds: 800),
+        processStarter: (_) async => process,
+      ).refresh(profile);
+
+      expect(attempts, 2);
+      expect(elapsed.elapsed, lessThan(const Duration(milliseconds: 1200)));
+      expect(result.state, UsageCheckState.partial);
+      expect(result.dailyUsage, isNotEmpty);
+      expect(process.stdinClosed, isTrue);
+      await process.dispose();
+    },
+  );
+
+  for (final message in [
+    'error sending request: 401 unauthorized',
+    'error sending request: token_expired',
+    'method not found',
+  ]) {
+    test('does not retry permanent metadata failure: $message', () async {
+      final profile = await _managedProfile(scratch);
+      var attempts = 0;
+      final process = _FakeCodexProcess((process, request) {
+        if (request['method'] == 'account/rateLimits/read') {
+          attempts++;
+          process.sendRaw(
+            jsonEncode({
+              'id': request['id'],
+              'error': {'message': message},
+            }),
+          );
+          return;
+        }
+        _successfulResponder(process, request);
+      });
+      final result = await CodexAppServerClient(
+        processStarter: (_) async => process,
+      ).refresh(profile);
+      expect(attempts, 1);
+      expect(result.state, isNot(UsageCheckState.success));
+      expect(process.stdinClosed, isTrue);
+      await process.dispose();
+    });
+  }
+
+  test('initial account read also recovers from a transient failure', () async {
+    final profile = await _managedProfile(scratch);
+    var attempts = 0;
+    final process = _FakeCodexProcess((process, request) {
+      if (request['method'] == 'account/read' && ++attempts == 1) {
+        process.sendRaw(
+          jsonEncode({
+            'id': request['id'],
+            'error': {'message': 'temporary failure in name resolution'},
+          }),
+        );
+        return;
+      }
+      _successfulResponder(process, request);
+    });
+    final result = await CodexAppServerClient(
+      processStarter: (_) async => process,
+    ).refresh(profile);
+    expect(result.state, UsageCheckState.success);
+    expect(attempts, 2);
+    await process.dispose();
+  });
+
   test('default profile keeps the native Codex app-server boundary', () async {
     final home = Directory('${scratch.path}/.codex')
       ..createSync(recursive: true);
