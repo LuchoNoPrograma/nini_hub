@@ -1350,11 +1350,16 @@ class _DeviceAuthDialogState extends State<_DeviceAuthDialog> {
   }
 
   Future<void> _copy(String value, String confirmation) async {
-    await Clipboard.setData(ClipboardData(text: value));
+    var message = confirmation;
+    try {
+      await Clipboard.setData(ClipboardData(text: value));
+    } catch (_) {
+      message = 'No se pudo copiar. Selecciona el texto y vuelve a intentarlo.';
+    }
     if (!mounted) return;
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(SnackBar(content: Text(confirmation)));
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _wait() async {
@@ -1435,12 +1440,30 @@ class _DeviceAuthDialogState extends State<_DeviceAuthDialog> {
             ),
             if (!widget.browser) ...[
               const SizedBox(height: 9),
-              SelectableText(
-                widget.session.userCode,
-                style: theme.textTheme.headlineLarge?.copyWith(
-                  fontFamily: 'monospace',
-                  color: theme.colorScheme.primary,
-                ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Flexible(
+                    child: SelectableText(
+                      widget.session.userCode,
+                      textAlign: TextAlign.center,
+                      textDirection: TextDirection.ltr,
+                      style: theme.textTheme.headlineLarge?.copyWith(
+                        fontFamily: 'DeviceCodeMono',
+                        fontWeight: FontWeight.w400,
+                        fontFeatures: const [FontFeature.disable('liga')],
+                        color: theme.colorScheme.primary,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    tooltip: 'Copiar código',
+                    onPressed: () =>
+                        _copy(widget.session.userCode, 'Código copiado.'),
+                    icon: const Icon(Icons.copy, size: 20),
+                  ),
+                ],
               ),
               const SizedBox(height: 12),
               Container(

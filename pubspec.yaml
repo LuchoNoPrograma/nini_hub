@@ -76,6 +76,12 @@ flutter:
     - assets/branding/nini-hub-icon.png
     - assets/branding/chatgpt-official.png
     - assets/branding/claude-official.png
+    - assets/fonts/OFL-JetBrainsMono.txt
+
+  fonts:
+    - family: DeviceCodeMono
+      fonts:
+        - asset: assets/fonts/JetBrainsMono-Regular.ttf
 
   # To add assets to your application, add an assets section, like this:
   # assets:

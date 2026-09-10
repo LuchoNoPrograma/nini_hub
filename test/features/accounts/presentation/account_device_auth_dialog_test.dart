@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nini_hub/core/theme/app_theme.dart';
 import 'package:nini_hub/features/accounts/domain/account.dart';
@@ -9,6 +10,93 @@ import 'package:nini_hub/features/accounts/presentation/account_dialogs.dart';
 import 'package:nini_hub/features/profiles/domain/profile.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  setUpAll(() async {
+    final loader = FontLoader('DeviceCodeMono')
+      ..addFont(rootBundle.load('assets/fonts/JetBrainsMono-Regular.ttf'));
+    await loader.load();
+  });
+  for (final fails in [false, true]) {
+    testWidgets('adjacent copy preserves ambiguous characters, failure=$fails', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(900, 600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      const code = 'O0-I1l-B8-S5';
+      final session = _ControlledSession(code: code);
+      final copied = <String>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'Clipboard.setData') {
+            if (fails) throw PlatformException(code: 'unavailable');
+            copied.add((call.arguments as Map)['text'] as String);
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(2)),
+            child: child!,
+          ),
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () => unawaited(
+                  showDeviceAuthDialog(
+                    context,
+                    _account(),
+                    method: AccountAuthMethod.deviceCode,
+                    start: (_) async => session,
+                    complete: (_, _) async {},
+                  ),
+                ),
+                child: const Text('Abrir'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Abrir'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(tester.takeException(), isNull);
+      final text = tester.widget<SelectableText>(
+        find.byWidgetPredicate(
+          (widget) => widget is SelectableText && widget.data == code,
+        ),
+      );
+      expect(text.style!.fontFamily, 'DeviceCodeMono');
+      final copy = find.byTooltip('Copiar código');
+      expect(copy, findsOneWidget);
+      await tester.ensureVisible(copy);
+      await tester.tap(copy);
+      await tester.pump();
+      expect(copied, fails ? isEmpty : [code]);
+      expect(
+        find.text(
+          fails
+              ? 'No se pudo copiar. Selecciona el texto y vuelve a intentarlo.'
+              : 'Código copiado.',
+        ),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+      session.completion.complete(true);
+      await tester.pumpAndSettle();
+    });
+  }
+
   for (final method in AccountAuthMethod.values) {
     testWidgets(
       'preselected $method opens authentication without asking again',
@@ -104,6 +192,7 @@ void main() {
       expect(browsers, 1);
       expect(devices, 0);
       expect(find.text('Copiar código'), findsNothing);
+      expect(find.byTooltip('Copiar código'), findsNothing);
       expect(find.textContaining('habilita el acceso'), findsNothing);
       expect(tester.takeException(), isNull);
       session.completion.complete(true);
@@ -260,12 +349,15 @@ void main() {
 }
 
 final class _ControlledSession implements AccountDeviceAuthSession {
+  _ControlledSession({this.code = 'ABCD-EFGH'});
+
+  final String code;
   final Completer<bool> completion = Completer<bool>();
   int cancelCalls = 0;
   int closeCalls = 0;
 
   @override
-  String get userCode => 'ABCD-EFGH';
+  String get userCode => code;
 
   @override
   String get verificationUrl => 'https://example.com/device';
