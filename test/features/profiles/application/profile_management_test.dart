@@ -278,28 +278,34 @@ void main() {
     expect(snapshot.profiles, [remaining]);
   });
 
-  test(
-    'delete rejects deactivated and main profiles before lifecycle',
-    () async {
-      final deactivated = _Fixture(
-        stored: _profile(kind: ProfileKind.deactivated),
-      );
-      await expectLater(
-        deactivated.delete(const DeleteProfileCommand('profile-id')),
-        throwsA(isA<ProfileDeactivatedFailure>()),
-      );
-      expect(deactivated.events, ['repository.find:profile-id']);
+  test('delete allows deactivated managed profiles and rediscovers', () async {
+    final fixture = _Fixture(
+      stored: _profile(kind: ProfileKind.deactivated),
+      discovered: [],
+    );
+    final snapshot = await fixture.delete(
+      const DeleteProfileCommand('profile-id'),
+    );
+    expect(fixture.events, [
+      'repository.find:profile-id',
+      'lifecycle.delete:profile-id',
+      'discovery.discover',
+    ]);
+    expect(snapshot.profiles, isEmpty);
+  });
 
-      final mainProfile = _Fixture(
-        stored: _profile(source: ProfileSource.defaultProfile),
+  for (final kind in [ProfileKind.full, ProfileKind.deactivated]) {
+    test('delete rejects main profiles before lifecycle: $kind', () async {
+      final fixture = _Fixture(
+        stored: _profile(source: ProfileSource.defaultProfile, kind: kind),
       );
       await expectLater(
-        mainProfile.delete(const DeleteProfileCommand('profile-id')),
+        fixture.delete(const DeleteProfileCommand('profile-id')),
         throwsA(isA<ProfileNotManagedFailure>()),
       );
-      expect(mainProfile.events, ['repository.find:profile-id']);
-    },
-  );
+      expect(fixture.events, ['repository.find:profile-id']);
+    });
+  }
 
   test('delete wraps a post-lifecycle failure without rollback', () async {
     final cause = StateError('rescan failed');

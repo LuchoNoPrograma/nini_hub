@@ -13,6 +13,7 @@ enum AccountStatusFilter {
   unlinked(AccountStatus.unlinked),
   unchecked(AccountStatus.unchecked),
   quotaUnconfirmed(AccountStatus.quotaUnconfirmed),
+  offline(AccountStatus.offline),
   queryError(AccountStatus.queryError),
   unavailable(AccountStatus.unavailable);
 

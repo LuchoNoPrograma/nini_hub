@@ -238,6 +238,54 @@ void main() {
     },
   );
 
+  for (final outcome in ['absent', 'present', 'status-failure']) {
+    test(
+      'delete missing profile confirms status before local cleanup: $outcome',
+      () async {
+        await database.into(database.cliProfiles).insert(_row());
+        await database
+            .into(database.profileMetadatas)
+            .insert(
+              ProfileMetadatasCompanion.insert(
+                profileId: 'profile-id',
+                updatedAt: DateTime.utc(2026, 9, 10),
+              ),
+            );
+        runner.failure = const _MutationFailure(
+          command: 'delete',
+          code: 'profile_not_found',
+          state: 'not_applied',
+        );
+        if (outcome == 'present') {
+          runner.profiles.add(const _Summary('codex', 'team', 'full'));
+        }
+        runner.failStatus = outcome == 'status-failure';
+        if (outcome == 'absent') {
+          await lifecycle.delete(_profile());
+        } else {
+          await expectLater(
+            lifecycle.delete(_profile()),
+            throwsA(isA<ProfileFailure>()),
+          );
+        }
+        expect(runner.calls.map((call) => call.arguments[1]), [
+          'delete',
+          'status',
+        ]);
+        expect(runner.calls.last.arguments, ['--json', 'status', 'codex']);
+        expect(runner.calls.last.environment, {'MULTICLI_HOME': root});
+        expect(
+          await database.select(database.cliProfiles).get(),
+          hasLength(outcome == 'absent' ? 0 : 1),
+        );
+        expect(
+          await database.select(database.profileMetadatas).get(),
+          hasLength(outcome == 'absent' ? 0 : 1),
+        );
+      },
+    );
+  }
+
   test('maps a not-applied conflict without changing SQLite', () async {
     final row = _row();
     await database.into(database.cliProfiles).insert(row);
@@ -412,6 +460,7 @@ final class _StatefulNiniAgentsRunner extends ProcessRunner {
   final List<_Summary> profiles = [];
   final List<_RunCall> calls = [];
   _MutationFailure? failure;
+  bool failStatus = false;
 
   @override
   Future<SafeProcessResult> run({
@@ -435,6 +484,9 @@ final class _StatefulNiniAgentsRunner extends ProcessRunner {
       ),
     );
     final command = arguments[1];
+    if (command == 'status' && failStatus) {
+      return _result(exitCode: 1, stdout: 'invalid response');
+    }
     final configuredFailure = failure;
     if (configuredFailure?.command == command) {
       if (configuredFailure!.applyBeforeFailure) {

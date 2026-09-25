@@ -46,6 +46,39 @@ void main() {
     }
   });
 
+  for (final kind in [ProfileKind.full, ProfileKind.deactivated]) {
+    for (final principal in [false, true]) {
+      for (final busy in [false, true]) {
+        testWidgets('delete menu: $kind / principal=$principal / busy=$busy', (
+          tester,
+        ) async {
+          final account = _account(kind: kind, principal: principal);
+          Account? deleted;
+          await tester.pumpWidget(
+            _card(
+              account,
+              profileMutationBusy: busy,
+              onDeleteProfile: (value) async {
+                deleted = value;
+              },
+            ),
+          );
+          await tester.tap(find.byTooltip('Más acciones'));
+          await tester.pumpAndSettle();
+          final item = find.widgetWithText(
+            PopupMenuItem<String>,
+            'Eliminar perfil',
+          );
+          final enabled = !principal && !busy;
+          expect(tester.widget<PopupMenuItem<String>>(item).enabled, enabled);
+          await tester.tap(find.text('Eliminar perfil'));
+          await tester.pumpAndSettle();
+          expect(deleted, enabled ? same(account) : isNull);
+        });
+      }
+    }
+  }
+
   for (final method in AccountAuthMethod.values) {
     for (final outcome in ['success', 'cancel', 'failure', 'unmount']) {
       testWidgets(
@@ -257,7 +290,8 @@ void main() {
       _account(id: 'unlinked', hasAuthFile: false),
       _account(id: 'unchecked', unchecked: true),
       _account(id: 'uncertain', unknownQuota: true),
-      _account(id: 'error', failed: true),
+      _account(id: 'offline', failed: true),
+      _account(id: 'error', failed: true, networkFailure: false),
       _account(id: 'missing', state: AccountUsageState.toolMissing),
     ]);
     addTearDown(fixture.close);
@@ -282,6 +316,7 @@ void main() {
       'Sin vincular': ('unlinked', 'Sin vincular'),
       'Sin consultar': ('unchecked', 'Sin consultar'),
       'Cuota sin confirmar': ('uncertain', 'Cuota sin confirmar'),
+      'Sin conexión': ('offline', 'Sin conexión'),
       'Error de consulta': ('error', 'Error de consulta'),
       'No disponibles': ('missing', 'No disponible'),
     }.entries) {
@@ -311,7 +346,10 @@ void main() {
       if (entry.value.$1 == 'exhausted') {
         expect(color, _theme().colorScheme.error);
       }
-      expect(find.text('1 ${entry.value.$2.toLowerCase()}'), findsOneWidget);
+      final summaryLabel = entry.value.$1 == 'error'
+          ? 'error de consulta'
+          : entry.value.$2.toLowerCase();
+      expect(find.text('1 $summaryLabel'), findsOneWidget);
       expect(tester.takeException(), isNull);
     }
   });
@@ -321,7 +359,8 @@ void main() {
   ) async {
     for (final entry in {
       _account(): 'Disponible',
-      _account(failed: true): 'Error de consulta',
+      _account(failed: true): 'Sin conexión',
+      _account(hasAuthFile: false, failed: true): 'Sin vincular',
       _account(partial: true): 'Disponible',
     }.entries) {
       await tester.pumpWidget(_card(entry.key));
@@ -1118,7 +1157,12 @@ double? _progress(WidgetTester tester, String limit, String type) => tester
     )
     .value;
 
-Widget _card(Account account, {bool compact = false}) => MaterialApp(
+Widget _card(
+  Account account, {
+  bool compact = false,
+  bool profileMutationBusy = false,
+  Future<void> Function(Account)? onDeleteProfile,
+}) => MaterialApp(
   theme: _theme(),
   home: Scaffold(
     body: Center(
@@ -1131,13 +1175,13 @@ Widget _card(Account account, {bool compact = false}) => MaterialApp(
           refreshing: false,
           compact: compact,
           accountBusy: false,
-          profileMutationBusy: false,
+          profileMutationBusy: profileMutationBusy,
           onEditAccount: () async {},
           onHeartbeat: (_) async {},
           onRefresh: (_) async {},
           onDeviceAuth: (_) async {},
           onRenameProfile: (_) async {},
-          onDeleteProfile: (_) async {},
+          onDeleteProfile: onDeleteProfile ?? (_) async {},
           onLaunchAgent: (_) {},
         ),
       ),
@@ -1153,6 +1197,7 @@ Account _account({
   bool extraLimit = false,
   bool expiredCredits = false,
   bool failed = false,
+  bool networkFailure = true,
   bool partial = false,
   bool principal = false,
   AccountUsageState? state,
@@ -1215,7 +1260,7 @@ Account _account({
         ? AccountUsageCheck(
             state: AccountUsageState.error,
             startedAt: _now.add(const Duration(minutes: 1)),
-            errorCode: 'NETWORK_ERROR',
+            errorCode: networkFailure ? 'NETWORK_ERROR' : 'CODEX_RPC_ERROR',
           )
         : partial
         ? AccountUsageCheck(

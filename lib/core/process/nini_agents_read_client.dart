@@ -132,6 +132,7 @@ final class NiniAgentsReadClient {
     this._runner, {
     this.executable = 'nini-agents',
     this.timeout = const Duration(seconds: 15),
+    this.profileReadTimeout = const Duration(seconds: 60),
     this.mutationTimeout = const Duration(minutes: 2),
   });
 
@@ -140,6 +141,8 @@ final class NiniAgentsReadClient {
   final ProcessRunner _runner;
   final String executable;
   final Duration timeout;
+  // Profile inventory includes recursive disk usage, unlike small queries.
+  final Duration profileReadTimeout;
   final Duration mutationTimeout;
 
   Future<NiniAgentsVersion> version() async {
@@ -340,6 +343,7 @@ final class NiniAgentsReadClient {
     final data = await _query(
       command: command,
       arguments: [?normalizedTool],
+      operationTimeout: profileReadTimeout,
       environment: normalizedRoot == null
           ? null
           : {'MULTICLI_HOME': normalizedRoot},

@@ -5,6 +5,7 @@ import 'package:nini_hub/features/heartbeat/domain/heartbeat_ports.dart';
 import 'package:nini_hub/features/profiles/domain/profile.dart';
 import 'package:nini_hub/features/profiles/domain/profile_ports.dart';
 import 'package:nini_hub/features/usage/domain/usage.dart';
+import 'package:nini_hub/features/usage/domain/usage_ports.dart';
 
 final class ExecuteHeartbeat {
   const ExecuteHeartbeat({
@@ -500,9 +501,11 @@ final class CompleteHeartbeatOperation {
   const CompleteHeartbeatOperation({
     required this.scheduler,
     required this.publish,
+    this.operationGate,
   });
 
   final HeartbeatScheduler scheduler;
+  final UsageOperationGate? operationGate;
   final Future<void> Function({
     required String profileId,
     required UsageSnapshot snapshot,
@@ -514,6 +517,25 @@ final class CompleteHeartbeatOperation {
     required String profileId,
     required Future<HeartbeatRunResult> Function() operation,
     bool requireRetained = false,
+  }) =>
+      operationGate?.run(
+        profileId,
+        () => _complete(
+          profileId: profileId,
+          operation: operation,
+          requireRetained: requireRetained,
+        ),
+      ) ??
+      _complete(
+        profileId: profileId,
+        operation: operation,
+        requireRetained: requireRetained,
+      );
+
+  Future<HeartbeatRunResult> _complete({
+    required String profileId,
+    required Future<HeartbeatRunResult> Function() operation,
+    required bool requireRetained,
   }) async {
     final result = await operation();
     final snapshot = result.latestUsageSnapshot;
@@ -544,12 +566,14 @@ final class ProbeHeartbeat {
     required this.probe,
     required this.scheduler,
     required this.observe,
+    this.recentSnapshot,
   });
 
   final ProfileRepository profiles;
   final HeartbeatQuotaProbe probe;
   final HeartbeatScheduler scheduler;
   final ObserveHeartbeatUsage observe;
+  final UsageSnapshot? Function(String profileId)? recentSnapshot;
 
   Future<HeartbeatRunResult> call(String profileId) async {
     if (!scheduler.enabled || !scheduler.isRetained(profileId)) {
@@ -559,7 +583,8 @@ final class ProbeHeartbeat {
     if (profile == null) throw HeartbeatProfileNotFoundFailure(profileId);
     _validateManualProfile(profile);
     try {
-      final snapshot = await probe.probe(profile);
+      final snapshot =
+          recentSnapshot?.call(profileId) ?? await probe.probe(profile);
       if (!scheduler.enabled || !scheduler.isRetained(profileId)) {
         return _disabledResult;
       }

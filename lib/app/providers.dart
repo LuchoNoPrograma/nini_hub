@@ -2,6 +2,10 @@ import 'package:nini_hub/features/accounts/application/create_linked_account.dar
 import 'package:nini_hub/features/profiles/data/nini_agents_profile_draft_store.dart';
 import 'dart:async';
 
+import 'package:nini_hub/features/usage/application/usage_auto_refresh.dart';
+import 'package:nini_hub/features/usage/data/dart_usage_auto_refresh_scheduler.dart';
+import 'package:nini_hub/features/usage/data/serial_usage_operation_gate.dart';
+
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:nini_hub/core/database/app_database.dart';
@@ -89,6 +93,89 @@ final accountDeviceAuthGatewayProvider = Provider<AccountDeviceAuthGateway>(
   (ref) => CodexAccountDeviceAuthGateway(ref.watch(codexClientRuntimeProvider)),
 );
 
+final usageOperationGateProvider = Provider<UsageOperationGate>(
+  (ref) => SerialUsageOperationGate(
+    concurrency: () =>
+        ref.read(settingsControllerProvider).preferences.concurrency,
+  ),
+);
+
+final Provider<UsageAutoRefresh>
+usageAutoRefreshProvider = Provider<UsageAutoRefresh>((ref) {
+  final database = ref.watch(databaseProvider);
+  final profiles = DriftProfileRepository(database);
+  final runner = ref.watch(processRunnerProvider);
+  late final UsageAutoRefresh service;
+  final refresh = RefreshProfileUsage(
+    provider: CodexUsageProvider.current(
+      () => ref.read(codexClientRuntimeProvider).current,
+    ),
+    repository: DriftUsageSnapshotRepository(database),
+    activity: ProcessUsageActivityRecorder(runner),
+    canPersist: (profile) => service.canPersist(profile),
+    keepAlive: ref.watch(heartbeatUsageKeepAliveProvider),
+  );
+  service = UsageAutoRefresh(
+    profiles: profiles,
+    gate: ref.watch(usageOperationGateProvider),
+    refresh: refresh.call,
+    now: () => DateTime.now().toUtc(),
+    isBlocked: () {
+      final accounts = ref.read(accountsControllerProvider);
+      return (accounts.isBusy && !accounts.isLoading) ||
+          accounts.authRefreshingProfileIds.isNotEmpty ||
+          ref.read(profilesControllerProvider).isBusy;
+    },
+    concurrency: ref.read(settingsControllerProvider).preferences.concurrency,
+    publish: (id, snapshot) => ref
+        .read(usageControllerProvider.notifier)
+        .projectPersistedSnapshot(id, snapshot),
+    synchronize: () =>
+        ref.read(usageRefreshCoordinatorProvider).synchronizePersistedUsage(),
+    onFailure: (id, error) => runner.addInternalLog(
+      summary: 'Actualizar cuotas pendientes',
+      status: 'error',
+      output: ProcessRunner.sanitizeOutput(error.toString()),
+      profileId: id,
+      command: 'usage automatic refresh',
+    ),
+  );
+  ref.onDispose(service.dispose);
+  ref.listen(accountsControllerProvider, (previous, state) {
+    if (state.isBusy &&
+        !state.isLoading &&
+        previous?.operation != state.operation) {
+      service.invalidatePendingReads();
+    }
+    if (state.isInitialized) service.replaceAccounts(state.accounts);
+  }, fireImmediately: true);
+  ref.listen(profilesControllerProvider, (previous, state) {
+    if (state.isBusy && previous?.operation != state.operation) {
+      service.invalidatePendingReads();
+    }
+  });
+  return service;
+});
+
+final usageAutoRefreshSchedulerProvider =
+    Provider<DartUsageAutoRefreshScheduler>((ref) {
+      final service = ref.watch(usageAutoRefreshProvider);
+      final scheduler = DartUsageAutoRefreshScheduler(
+        check: service.refreshDue,
+        nextAt: () => service.nextAt,
+      );
+      ref.onDispose(scheduler.dispose);
+      ref.listen(accountsControllerProvider, (_, _) => scheduler.reschedule());
+      ref.listen(
+        usageControllerProvider.select(
+          (state) => state.latestSnapshotByProfile,
+        ),
+        (_, _) => scheduler.reschedule(),
+      );
+      scheduler.start();
+      return scheduler;
+    });
+
 final heartbeatRepositoryProvider = Provider<DriftHeartbeatRepository>(
   (ref) => DriftHeartbeatRepository(ref.watch(databaseProvider)),
 );
@@ -142,6 +229,8 @@ final heartbeatProbeProvider = Provider<ProbeHeartbeat>(
     probe: ref.watch(heartbeatQuotaProbeProvider),
     scheduler: ref.watch(heartbeatSchedulerProvider),
     observe: ref.watch(heartbeatObserveUsageProvider),
+    recentSnapshot: (id) =>
+        ref.read(usageAutoRefreshProvider).recentSnapshot(id),
   ),
 );
 
@@ -151,10 +240,14 @@ final heartbeatUsageSnapshotPublisherProvider =
         ref.watch(databaseProvider),
       );
       return ({required profileId, required snapshot, previousSnapshot}) async {
-        await repository.saveSnapshots(
-          profileId: profileId,
-          snapshots: [?previousSnapshot, snapshot],
-        );
+        final automatic = ref.read(usageAutoRefreshProvider);
+        if (!automatic.hasObservedSnapshot(profileId, snapshot)) {
+          await repository.saveSnapshots(
+            profileId: profileId,
+            snapshots: [?previousSnapshot, snapshot],
+          );
+          automatic.observe(profileId, snapshot);
+        }
         ref
             .read(usageControllerProvider.notifier)
             .projectPersistedSnapshot(profileId, snapshot);
@@ -166,6 +259,7 @@ final heartbeatUsageSnapshotPublisherProvider =
 
 final heartbeatCompleteOperationProvider = Provider<CompleteHeartbeatOperation>(
   (ref) => CompleteHeartbeatOperation(
+    operationGate: ref.watch(usageOperationGateProvider),
     scheduler: ref.watch(heartbeatSchedulerProvider),
     publish: ref.watch(heartbeatUsageSnapshotPublisherProvider),
   ),
@@ -236,6 +330,7 @@ final heartbeatRunnerProvider = Provider<HeartbeatRunner>((ref) {
 
 final heartbeatUsageKeepAliveProvider = Provider<UsageKeepAliveScheduler>(
   (ref) => HeartbeatUsageKeepAliveScheduler(
+    operationGate: ref.watch(usageOperationGateProvider),
     scheduler: ref.watch(heartbeatSchedulerProvider),
     runner: ref.watch(processRunnerProvider),
     observe: ({required profile, required snapshot}) => ref.read(
@@ -311,6 +406,9 @@ accountsControllerProvider =
           ref.watch(processRunnerProvider),
         );
         final refreshAfterAuth = RefreshProfileUsage(
+          operationGate: ref.watch(usageOperationGateProvider),
+          onPersisted: (id, snapshot) =>
+              ref.read(usageAutoRefreshProvider).observe(id, snapshot),
           provider: CodexUsageProvider.current(
             () => ref.read(codexClientRuntimeProvider).current,
           ),
@@ -371,6 +469,11 @@ final NotifierProvider<UsageController, UsageState> usageControllerProvider =
       () => UsageController.composed((ref) {
         final database = ref.watch(databaseProvider);
         final refreshProfile = RefreshProfileUsage(
+          completedWhileWaiting: (id) =>
+              ref.read(usageAutoRefreshProvider).recentSnapshot(id),
+          operationGate: ref.watch(usageOperationGateProvider),
+          onPersisted: (id, snapshot) =>
+              ref.read(usageAutoRefreshProvider).observe(id, snapshot),
           provider: CodexUsageProvider.current(
             () => ref.read(codexClientRuntimeProvider).current,
           ),
@@ -545,6 +648,7 @@ final appStartupProvider = FutureProvider<void>((ref) async {
             )
             .map((profile) => profile.id),
       );
+  ref.read(usageAutoRefreshSchedulerProvider);
   final accountsState = ref.read(accountsControllerProvider);
   if (accountsState.isInitialized || accountsState.isBusy) return;
   unawaited(ref.read(accountsControllerProvider.notifier).load());

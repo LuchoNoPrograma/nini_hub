@@ -126,6 +126,26 @@ void main() {
     },
   );
 
+  test('daily usage without quota windows is incomplete', () async {
+    final profile = await _managedProfile(scratch);
+    final process = _FakeCodexProcess((process, request) {
+      if (request['method'] == 'account/rateLimits/read') {
+        process.respond(request, <String, Object?>{});
+        return;
+      }
+      _successfulResponder(process, request);
+    });
+    final result = await CodexAppServerClient(
+      processStarter: (_) async => process,
+    ).refresh(profile);
+    expect(result.state, UsageCheckState.partial);
+    expect(result.dailyUsage, isNotEmpty);
+    expect(result.windows, isEmpty);
+    expect(result.errorCode, 'PARTIAL_METADATA');
+    expect(result.errorMessage, contains('ventanas de cuota'));
+    await process.dispose();
+  });
+
   for (final message in [
     'error sending request: 401 unauthorized',
     'error sending request: token_expired',
@@ -179,6 +199,61 @@ void main() {
     expect(attempts, 2);
     await process.dispose();
   });
+
+  test(
+    'workspace routing outage retries account read on the same connection',
+    () async {
+      final profile = await _managedProfile(scratch);
+      var attempts = 0;
+      final process = _FakeCodexProcess((process, request) {
+        if (request['method'] == 'account/read' && ++attempts == 1) {
+          process.sendRaw(
+            jsonEncode({
+              'id': request['id'],
+              'error': {'message': 'workspace routing discovery failed'},
+            }),
+          );
+          return;
+        }
+        _successfulResponder(process, request);
+      });
+      final result = await CodexAppServerClient(
+        processStarter: (_) async => process,
+      ).refresh(profile);
+      expect(result.state, UsageCheckState.success);
+      expect(attempts, 2);
+      await process.dispose();
+    },
+  );
+
+  test(
+    'persistent workspace routing outage is classified as network',
+    () async {
+      final profile = await _managedProfile(scratch);
+      var attempts = 0;
+      final process = _FakeCodexProcess((process, request) {
+        if (request['method'] == 'account/read') {
+          attempts++;
+          process.sendRaw(
+            jsonEncode({
+              'id': request['id'],
+              'error': {'message': 'workspace routing discovery failed'},
+            }),
+          );
+          return;
+        }
+        _successfulResponder(process, request);
+      });
+      final result = await CodexAppServerClient(
+        timeout: const Duration(milliseconds: 800),
+        processStarter: (_) async => process,
+      ).refresh(profile);
+      expect(result.state, UsageCheckState.error);
+      expect(result.errorCode, 'NETWORK_ERROR');
+      expect(attempts, 2);
+      await process.dispose();
+    },
+  );
 
   test('default profile keeps the native Codex app-server boundary', () async {
     final home = Directory('${scratch.path}/.codex')

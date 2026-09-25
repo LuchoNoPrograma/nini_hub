@@ -27,17 +27,48 @@ final class RefreshProfileUsage {
     required this.repository,
     required this.activity,
     this.keepAlive,
+    this.operationGate,
+    this.onPersisted,
+    this.canPersist,
+    this.completedWhileWaiting,
+    this.now = DateTime.now,
   });
 
   final UsageProvider provider;
   final UsageSnapshotRepository repository;
   final UsageActivityRecorder activity;
   final UsageKeepAliveScheduler? keepAlive;
+  final UsageOperationGate? operationGate;
+  final void Function(String profileId, UsageSnapshot snapshot)? onPersisted;
+  final Future<bool> Function(Profile profile)? canPersist;
+  final UsageSnapshot? Function(String profileId)? completedWhileWaiting;
+  final DateTime Function() now;
 
-  Future<UsageSnapshot> call(Profile profile) async {
+  Future<UsageSnapshot> call(Profile profile) {
+    final requestedAt = now().toUtc();
+    Future<UsageSnapshot> read() {
+      _validate(profile);
+      final recent = completedWhileWaiting?.call(profile.id);
+      if (recent != null && !recent.completedAt.isBefore(requestedAt)) {
+        return Future.value(recent);
+      }
+      return _refresh(profile);
+    }
+
+    return operationGate?.run(profile.id, read) ?? read();
+  }
+
+  Future<UsageSnapshot> _refresh(Profile profile) async {
     _validate(profile);
     final snapshot = await provider.refresh(profile);
+    if (canPersist != null && !await canPersist!(profile)) {
+      throw UsageProfileUnavailableFailure(
+        profileId: profile.id,
+        reason: UsageProfileUnavailableReason.unavailable,
+      );
+    }
     await repository.saveSnapshot(profileId: profile.id, snapshot: snapshot);
+    onPersisted?.call(profile.id, snapshot);
 
     try {
       await activity.recordRefresh(profile: profile, snapshot: snapshot);

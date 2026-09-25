@@ -1,6 +1,7 @@
 import 'package:nini_hub/core/database/database_bootstrap.dart';
 import 'package:nini_hub/core/database/legacy_database_migrator.dart';
 import 'package:nini_hub/core/process/process_runner.dart';
+import 'package:nini_hub/features/profiles/domain/profile_failure.dart';
 
 enum AppStartupFailureKind {
   updateRequired,
@@ -19,6 +20,15 @@ final class AppStartupFailure {
   });
 
   factory AppStartupFailure.from(Object error) {
+    if (error is ProfileDiscoveryUnavailableFailure) {
+      return const AppStartupFailure(
+        kind: AppStartupFailureKind.unexpected,
+        title: 'No se pudieron cargar los perfiles',
+        message:
+            'Nini Agents no pudo completar la consulta de perfiles y herramientas. '
+            'Comprueba que esté instalado y disponible, y vuelve a intentarlo.',
+      );
+    }
     if (error case final LegacyDatabaseMigrationException failure) {
       return _fromLegacyDatabaseMigration(failure.kind);
     }

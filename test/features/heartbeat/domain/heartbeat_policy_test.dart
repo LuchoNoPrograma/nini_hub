@@ -268,9 +268,69 @@ void main() {
       expect(decision, isA<SkipHeartbeatDecision>());
       expect(
         (decision as SkipHeartbeatDecision).nextProbeAt,
-        now.add(const Duration(days: 2, seconds: 30)),
+        now.add(const Duration(days: 2, minutes: 1)),
       );
     });
+
+    test(
+      'missing weekly reset waits an hour even when the short cycle has use',
+      () {
+        final decision =
+            policy.decide(
+                  state: HeartbeatState(),
+                  current: _observation(
+                    now,
+                    usedPercent: 20,
+                    durationMinutes: HeartbeatPolicy.primaryMinutes,
+                    resetAt: now.add(const Duration(minutes: 5)),
+                  ),
+                  previous: null,
+                  quotaGuard: const HeartbeatQuotaGuard(exhausted: true),
+                  now: now,
+                )
+                as SkipHeartbeatDecision;
+        expect(decision.nextProbeAt, now.add(const Duration(hours: 1)));
+      },
+    );
+
+    for (final weeklyUsed in [16.0, 32.0, 61.0, 100.0, null]) {
+      test('group reached flag respects known weekly use: $weeklyUsed', () {
+        final snapshot = _snapshot(
+          now,
+          windows: [
+            _window(
+              windowType: 'primary',
+              durationMinutes: 300,
+              resetAt: now.subtract(const Duration(minutes: 2)),
+            ),
+            _window(
+              windowType: 'secondary',
+              durationMinutes: 10080,
+              usedPercent: weeklyUsed,
+              reachedType: 'rate_limit_reached',
+              resetAt: now.add(const Duration(days: 5)),
+            ),
+          ],
+        );
+        final target = policy.observationFrom(snapshot)!;
+        final guard = policy.longQuotaGuardFrom(snapshot, target: target);
+        final shouldBlock = weeklyUsed == null || weeklyUsed == 100;
+        expect(guard.exhausted, shouldBlock);
+        final decision = policy.decide(
+          state: HeartbeatState(),
+          current: target,
+          previous: null,
+          quotaGuard: guard,
+          now: now,
+        );
+        expect(
+          decision,
+          shouldBlock
+              ? isA<SkipHeartbeatDecision>()
+              : isA<ExecuteHeartbeatDecision>(),
+        );
+      });
+    }
 
     test('verifies a future reset anchor that remains stable', () {
       final reset = now.add(const Duration(days: 7));
@@ -303,6 +363,7 @@ void main() {
 
 HeartbeatObservation _observation(
   DateTime observedAt, {
+  double usedPercent = 0,
   String email = 'account@example.com',
   String limitId = 'codex',
   String windowType = 'rolling',
@@ -311,7 +372,7 @@ HeartbeatObservation _observation(
 }) => HeartbeatObservation(
   limitId: limitId,
   windowType: windowType,
-  usedPercent: 0,
+  usedPercent: usedPercent,
   windowDurationMinutes: durationMinutes,
   resetsAt: resetAt,
   observedAt: observedAt,
@@ -335,7 +396,8 @@ UsageQuotaWindow _window({
   String limitId = 'codex',
   String windowType = 'rolling',
   int durationMinutes = HeartbeatPolicy.weeklyMinutes,
-  double usedPercent = 0,
+  double? usedPercent = 0,
+  String? reachedType,
   DateTime? resetAt,
 }) => UsageQuotaWindow(
   limitId: limitId,
@@ -343,4 +405,5 @@ UsageQuotaWindow _window({
   usedPercent: usedPercent,
   windowDurationMinutes: durationMinutes,
   resetsAt: resetAt,
+  reachedType: reachedType,
 );

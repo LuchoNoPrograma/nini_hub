@@ -234,9 +234,6 @@ final class DeleteProfile {
     if (profile == null) {
       throw ProfileNotFoundFailure(command.profileId);
     }
-    if (profile.isDeactivated) {
-      throw ProfileDeactivatedFailure(command.profileId);
-    }
     if (!profile.isManagedByMultiCli) {
       throw ProfileNotManagedFailure(command.profileId);
     }

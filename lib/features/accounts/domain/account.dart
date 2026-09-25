@@ -11,6 +11,7 @@ enum AccountStatus {
   unlinked,
   unchecked,
   quotaUnconfirmed,
+  offline,
   queryError,
   unavailable,
 }
@@ -273,6 +274,7 @@ final class Account {
       return AccountUsageIssue.credentialExpired;
     }
     if (code == 'NETWORK_ERROR' ||
+        message.contains('workspace routing discovery failed') ||
         message.contains('error sending request') ||
         message.contains('connection reset') ||
         message.contains('connection refused') ||
@@ -430,6 +432,12 @@ final class Account {
       return AccountStatus.authRequired;
     }
     if (hasExhaustedQuota) return AccountStatus.quotaExhausted;
+    if ((currentCheck?.state == AccountUsageState.timeout ||
+            currentCheck?.state == AccountUsageState.error) &&
+        currentIssue == AccountUsageIssue.network &&
+        lastSuccessfulWindows.isNotEmpty) {
+      return AccountStatus.offline;
+    }
     return switch (currentCheck?.state) {
       null => AccountStatus.unchecked,
       AccountUsageState.success || AccountUsageState.partial =>

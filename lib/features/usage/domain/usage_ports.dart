@@ -1,6 +1,11 @@
 import 'package:nini_hub/features/profiles/domain/profile.dart';
 import 'package:nini_hub/features/usage/domain/usage.dart';
 
+/// Serializes an entire read/write operation, including heartbeat verification.
+abstract interface class UsageOperationGate {
+  Future<T> run<T>(String profileId, Future<T> Function() operation);
+}
+
 abstract interface class UsageProvider {
   Future<UsageSnapshot> refresh(Profile profile);
 }

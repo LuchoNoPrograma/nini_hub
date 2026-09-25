@@ -120,14 +120,13 @@ class CodexAppServerClient {
         [account, limits ?? const {}],
         const {'planType', 'plan_type', 'plan'},
       );
-      final hasAnyMetadata = windows.isNotEmpty || daily.isNotEmpty;
       final metadataFailureCode = _metadataFailureCode(limitsError, usageError);
       final authenticationFailed =
           metadataFailureCode == 'TOKEN_EXPIRED' ||
           metadataFailureCode == 'TOKEN_INVALIDATED' ||
           metadataFailureCode == 'AUTH_REQUIRED';
       final partial =
-          limitsError != null || usageError != null || !hasAnyMetadata;
+          limitsError != null || usageError != null || windows.isEmpty;
       return CodexRefreshResult(
         state: authenticationFailed
             ? UsageCheckState.authRequired
@@ -146,7 +145,7 @@ class CodexAppServerClient {
         nextCreditExpiry: credits.$2,
         errorCode: metadataFailureCode ?? (partial ? 'PARTIAL_METADATA' : null),
         errorMessage: partial
-            ? _joinErrors(limitsError, usageError, hasAnyMetadata)
+            ? _joinErrors(limitsError, usageError, windows.isNotEmpty)
             : null,
       );
     } on TimeoutException {
@@ -183,7 +182,11 @@ class CodexAppServerClient {
       return _failure(
         auth ? UsageCheckState.authRequired : UsageCheckState.error,
         started,
-        auth ? 'AUTH_REQUIRED' : error.code,
+        auth
+            ? 'AUTH_REQUIRED'
+            : _isTransientMetadataError(error)
+            ? 'NETWORK_ERROR'
+            : error.code,
         _sanitize(error.message),
       );
     } catch (error) {
@@ -363,6 +366,7 @@ class CodexAppServerClient {
       return false;
     }
     return message.contains('error sending request') ||
+        message.contains('workspace routing discovery failed') ||
         message.contains('connection reset') ||
         message.contains('connection refused') ||
         message.contains('connection closed') ||
@@ -544,7 +548,11 @@ class CodexAppServerClient {
     return (count, expiries.firstOrNull);
   }
 
-  static String _joinErrors(Object? limits, Object? usage, bool hasMetadata) {
+  static String _joinErrors(
+    Object? limits,
+    Object? usage,
+    bool hasQuotaWindows,
+  ) {
     final messages = <String>[];
     if (limits != null) {
       messages.add('Límites: ${_sanitize(limits.toString())}');
@@ -552,10 +560,8 @@ class CodexAppServerClient {
     if (usage != null) {
       messages.add('Uso diario: ${_sanitize(usage.toString())}');
     }
-    if (!hasMetadata && messages.isEmpty) {
-      messages.add(
-        'Codex confirmó la cuenta, pero no expuso límites ni uso diario.',
-      );
+    if (!hasQuotaWindows) {
+      messages.add('Codex no devolvió ventanas de cuota.');
     }
     return messages.join(' · ');
   }

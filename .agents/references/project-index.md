@@ -116,6 +116,25 @@ concretas. No trasladar reglas o queries hacia ese archivo.
 - Provider -> snapshot SQLite -> Activity -> KeepAlive -> Activity/calendario ->
   Accounts.
 - `UsageRefreshCoordinator` serializa la sincronizacion transversal.
+- `UsageAutoRefresh` (Application de Usage) reconstruye vencimientos desde
+  Accounts y observa las lecturas persistidas de manual, autenticacion y
+  Heartbeat. Consulta por ID al reinicio + 1 minuto y encola la evaluacion de
+  KeepAlive si Heartbeat esta habilitado, respetando su policy y el gate;
+  agrupa la publicacion local y conserva pendientes ante lecturas incompletas.
+- `UsageResetRefreshPolicy` aplaza ventanas cortas bloqueadas por un limite
+  semanal agotado del mismo limitId; el porcentaje propio de la ventana prima
+  sobre `reachedType`, que Codex informa para todo el grupo. Heartbeat conserva
+  la misma precedencia en su guard de cuota larga. Sin fecha consulta cada hora. Los
+  vencimientos aun no resueltos usan reintentos de 5/15/60 minutos; auth y
+  perfiles ausentes pausan la automatizacion.
+- `usageAutoRefreshSchedulerProvider` inicia un unico
+  `DartUsageAutoRefreshScheduler` durante startup, independiente de la pagina
+  visible y del interruptor de Heartbeat. Su comprobacion local cada 30 segundos
+  recupera vencimientos atrasados; no consulta la red si no hay trabajo debido.
+- `UsageOperationGate` / `SerialUsageOperationGate` serializan operaciones por
+  perfil y comparten el limite global de concurrencia entre Usage y Heartbeat.
+  Las dos muestras posteriores al heartbeat siguen siendo lecturas distintas;
+  solo se reutilizan lecturas ya persistidas para evitar consultas coincidentes.
 - Evitar reload global y queries por cuenta dentro de loops.
 - Accounts conserva la lectura visible y la exitosa inmediatamente anterior.
   `DriftAccountRepository` recupera hasta dos exitos por perfil en la misma

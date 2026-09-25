@@ -4,12 +4,71 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:nini_hub/features/profiles/domain/profile.dart';
 import 'package:nini_hub/features/profiles/domain/profile_ports.dart';
 import 'package:nini_hub/features/usage/application/usage_refresh.dart';
+import 'package:nini_hub/features/usage/data/serial_usage_operation_gate.dart';
 import 'package:nini_hub/features/usage/domain/usage.dart';
 import 'package:nini_hub/features/usage/domain/usage_failure.dart';
 import 'package:nini_hub/features/usage/domain/usage_ports.dart';
 
 void main() {
   group('single profile refresh', () {
+    test(
+      'a manual request reuses the read completed while it waited',
+      () async {
+        final fixture = _Fixture(profiles: [_profile()]);
+        final gate = SerialUsageOperationGate();
+        final snapshot = _snapshot();
+        var now = snapshot.completedAt.subtract(const Duration(seconds: 1));
+        UsageSnapshot? completed;
+        final release = Completer<void>();
+        final automatic = gate.run('primary', () async {
+          await release.future;
+          completed = snapshot;
+        });
+        final refresh = RefreshProfileUsage(
+          provider: fixture.provider,
+          repository: fixture.repository,
+          activity: fixture.activity,
+          keepAlive: fixture.keepAlive,
+          operationGate: gate,
+          completedWhileWaiting: (_) => completed,
+          now: () => now,
+        );
+        final manual = refresh(_profile());
+        release.complete();
+        await automatic;
+        expect(await manual, same(snapshot));
+        expect(fixture.events, isEmpty);
+        // A later deliberate manual refresh still makes a fresh request.
+        now = snapshot.completedAt.add(const Duration(seconds: 1));
+        await refresh(_profile());
+        expect(fixture.events, [
+          'provider:primary',
+          'persist:primary',
+          'activity:primary',
+          'keep-alive:primary',
+        ]);
+      },
+    );
+
+    test(
+      'profile removed during a read cannot persist or schedule heartbeat',
+      () async {
+        final fixture = _Fixture(profiles: [_profile()]);
+        final refresh = RefreshProfileUsage(
+          provider: fixture.provider,
+          repository: fixture.repository,
+          activity: fixture.activity,
+          keepAlive: fixture.keepAlive,
+          canPersist: (_) async => false,
+        );
+        await expectLater(
+          refresh(_profile()),
+          throwsA(isA<UsageProfileUnavailableFailure>()),
+        );
+        expect(fixture.events, ['provider:primary']);
+      },
+    );
+
     test(
       'discovers and executes provider, persistence, activity, keep alive',
       () async {

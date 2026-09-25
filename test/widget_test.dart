@@ -27,6 +27,7 @@ import 'package:nini_hub/features/profiles/data/drift_agent_profile_repository.d
 import 'package:nini_hub/features/profiles/data/profile_discovery_service.dart';
 import 'package:nini_hub/features/profiles/domain/agent_profile.dart';
 import 'package:nini_hub/features/profiles/domain/profile.dart';
+import 'package:nini_hub/features/profiles/domain/profile_failure.dart';
 import 'package:nini_hub/features/profiles/domain/profile_ports.dart';
 import 'package:nini_hub/features/profiles/domain/profile_provider.dart';
 import 'package:nini_hub/features/profiles/presentation/profile_dialogs.dart';
@@ -371,6 +372,16 @@ void main() {
     expect(failure.message, contains('conexión rechazada'));
     expect(failure.message, contains('[REDACTADO]'));
     expect(failure.message, isNot(contains('secret-token')));
+  });
+
+  test('profile discovery startup failures show actionable text', () {
+    final failure = AppStartupFailure.from(
+      const ProfileDiscoveryUnavailableFailure(),
+    );
+    expect(failure.title, 'No se pudieron cargar los perfiles');
+    expect(failure.message, contains('Nini Agents'));
+    expect(failure.message, contains('vuelve a intentarlo'));
+    expect(failure.message, isNot(contains('Instance of')));
   });
 
   test('usage check storage values round-trip', () {

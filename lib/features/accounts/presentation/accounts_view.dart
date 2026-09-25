@@ -1113,8 +1113,7 @@ class _AccountCardState extends State<AccountCard> {
                           value: 'delete',
                           enabled:
                               !widget.profileMutationBusy &&
-                              account.profile.isManagedByMultiCli &&
-                              !account.isDeactivated,
+                              account.profile.isManagedByMultiCli,
                           height: 38,
                           padding: const EdgeInsets.symmetric(horizontal: 12),
                           child: Row(
@@ -1843,6 +1842,7 @@ Color _statusColor(BuildContext context, AccountStatus status) {
     AccountStatus.unavailable => theme.colorScheme.error,
     AccountStatus.authRequired ||
     AccountStatus.quotaUnconfirmed ||
+    AccountStatus.offline ||
     AccountStatus.queryError => theme.colorScheme.tertiary,
     AccountStatus.deactivated ||
     AccountStatus.unlinked ||
@@ -1860,6 +1860,7 @@ String _statusLabel(AccountStatus status, {bool plural = false}) =>
       AccountStatus.unlinked => 'Sin vincular',
       AccountStatus.unchecked => 'Sin consultar',
       AccountStatus.quotaUnconfirmed => 'Cuota sin confirmar',
+      AccountStatus.offline => 'Sin conexión',
       AccountStatus.queryError => 'Error de consulta',
       AccountStatus.unavailable => plural ? 'No disponibles' : 'No disponible',
     };
@@ -1867,7 +1868,13 @@ String _statusLabel(AccountStatus status, {bool plural = false}) =>
 Color _stateColor(BuildContext context, Account account) =>
     _statusColor(context, account.status);
 
-String _stateLabel(Account account) => _statusLabel(account.status);
+String _stateLabel(Account account) => switch (account.currentIssue) {
+  AccountUsageIssue.credentialExpired => 'Credencial expirada',
+  AccountUsageIssue.credentialInvalidated => 'Credencial revocada',
+  AccountUsageIssue.network when account.status == AccountStatus.queryError =>
+    'Sin conexión',
+  _ => _statusLabel(account.status),
+};
 
 String _stateDetail(Account account) {
   final provider = profileProvider(account.profile.toolKey);
@@ -1889,8 +1896,10 @@ String _stateDetail(Account account) {
   if (account.hasExhaustedQuota) return 'Se alcanzó un límite de uso';
   final issueDetail = switch (account.currentIssue) {
     AccountUsageIssue.network =>
-      account.lastSuccessfulWindows.isNotEmpty
-          ? 'Falló la conexión; se muestra el último dato válido'
+      account.currentWindows.isNotEmpty
+          ? 'Cuotas actualizadas; falló otra consulta de Codex'
+          : account.lastSuccessfulWindows.isNotEmpty
+          ? 'Sin conexión; se muestra el último dato válido y se reintentará'
           : 'No se pudo conectar con ChatGPT',
     AccountUsageIssue.credentialExpired =>
       'La credencial expiró; vuelve a iniciar sesión',

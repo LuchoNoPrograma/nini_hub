@@ -17,6 +17,34 @@ void main() {
 
   tearDown(() => database.close());
 
+  for (final command in ['list', 'status']) {
+    test(
+      '$command allows slow disk inventory and respects its timeout',
+      () async {
+        runner.result = _result(
+          stdout: _success(command, '{"profiles":[],"count":0}'),
+        );
+        if (command == 'list') {
+          await client.list();
+        } else {
+          await client.status();
+        }
+        expect(runner.calls.last.timeout, const Duration(seconds: 60));
+
+        final configured = NiniAgentsReadClient(
+          runner,
+          profileReadTimeout: const Duration(seconds: 45),
+        );
+        if (command == 'list') {
+          await configured.list();
+        } else {
+          await configured.status();
+        }
+        expect(runner.calls.last.timeout, const Duration(seconds: 45));
+      },
+    );
+  }
+
   test(
     'reads version through the canonical executable and JSON prefix',
     () async {

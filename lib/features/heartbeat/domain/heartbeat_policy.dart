@@ -1,6 +1,7 @@
 import 'package:nini_hub/features/heartbeat/domain/heartbeat.dart';
 import 'package:nini_hub/features/usage/domain/quota_reset_anchor_policy.dart';
 import 'package:nini_hub/features/usage/domain/usage.dart';
+import 'package:nini_hub/features/usage/domain/usage_reset_refresh_policy.dart';
 
 sealed class HeartbeatDecision {
   const HeartbeatDecision(this.state);
@@ -139,7 +140,10 @@ final class HeartbeatPolicy {
         continue;
       }
       final reached = window.reachedType?.trim().isNotEmpty ?? false;
-      if ((window.usedPercent ?? 0) < 99 && !reached) continue;
+      // Codex repeats the group's reached flag on both windows. Prefer the
+      // long window's own percentage when it is available.
+      final used = window.usedPercent;
+      if (used != null ? used < 99 : !reached) continue;
       exhausted = true;
       final reset = window.resetsAt?.toUtc();
       if (reset != null &&
@@ -220,6 +224,30 @@ final class HeartbeatPolicy {
             retryAfter: state.retryAfter,
             retryCount: state.retryCount,
           );
+    if (quotaGuard.exhausted) {
+      final reset = quotaGuard.resetsAt;
+      final nextProbe = reset != null && reset.isAfter(currentTime)
+          ? reset.add(UsageResetRefreshPolicy.resetMargin)
+          : currentTime.add(UsageResetRefreshPolicy.unknownResetDelay);
+      return SkipHeartbeatDecision(
+        state: _observedState(
+          retainedState,
+          current,
+          status: HeartbeatStatus.active,
+          message:
+              'El límite largo de Codex está agotado; no se enviará un '
+              'heartbeat.',
+          clearRetry: true,
+        ),
+        result: const HeartbeatRunResult(
+          outcome: HeartbeatOutcome.skipped,
+          message: 'El límite largo está agotado; se esperará a su reinicio.',
+        ),
+        nextProbeAt: nextProbe,
+        usePlannedTime: reset != null && reset.isAfter(currentTime),
+      );
+    }
+
     final used = current.usedPercent;
     final reset = current.resetsAt;
     if (used == null || used > virginUsageThreshold) {
@@ -243,30 +271,6 @@ final class HeartbeatPolicy {
         ),
         nextProbeAt: nextProbe,
         usePlannedTime: nextProbe != null,
-      );
-    }
-
-    if (quotaGuard.exhausted) {
-      final reset = quotaGuard.resetsAt;
-      final nextProbe = reset != null && reset.isAfter(currentTime)
-          ? reset.add(resetProbeMargin)
-          : currentTime.add(ambiguousProbeDelay);
-      return SkipHeartbeatDecision(
-        state: _observedState(
-          retainedState,
-          current,
-          status: HeartbeatStatus.active,
-          message:
-              'El límite largo de Codex está agotado; no se enviará un '
-              'heartbeat.',
-          clearRetry: true,
-        ),
-        result: const HeartbeatRunResult(
-          outcome: HeartbeatOutcome.skipped,
-          message: 'El límite largo está agotado; se esperará a su reinicio.',
-        ),
-        nextProbeAt: nextProbe,
-        usePlannedTime: reset != null && reset.isAfter(currentTime),
       );
     }
 

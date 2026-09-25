@@ -108,14 +108,38 @@ final class NiniAgentsProfileLifecycle implements ProfileLifecycle {
         profilesRoot: root,
       );
     } on NiniAgentsReadFailure catch (failure) {
-      await _throwMappedFailure(
-        failure: failure,
-        operation: ProfileOperation.delete,
-        provider: provider,
-        profile: profile,
-        profileName: profile.profileName,
-        root: root,
-      );
+      var confirmedAbsent = false;
+      if (failure.code == 'profile_not_found' && !_mayHaveApplied(failure)) {
+        try {
+          final status = await _client.status(
+            tool: provider.multiCliTool,
+            profilesRoot: root,
+          );
+          confirmedAbsent = !_contains(
+            status,
+            provider.multiCliTool,
+            profile.profileName,
+          );
+        } on NiniAgentsReadFailure {
+          // A failed read is not a partially applied deletion. Keep local data.
+          throw ProfileMutationRejectedFailure(
+            operation: ProfileOperation.delete,
+            reason: ProfileMutationRejectionReason.inconsistentResponse,
+            profileId: profile.id,
+            profileName: profile.profileName,
+          );
+        }
+      }
+      if (!confirmedAbsent) {
+        await _throwMappedFailure(
+          failure: failure,
+          operation: ProfileOperation.delete,
+          provider: provider,
+          profile: profile,
+          profileName: profile.profileName,
+          root: root,
+        );
+      }
     }
 
     try {

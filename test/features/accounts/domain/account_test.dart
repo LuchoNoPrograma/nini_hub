@@ -73,6 +73,10 @@ void main() {
     for (final state in [AccountUsageState.error, AccountUsageState.timeout]) {
       expect(sample(state).status, AccountStatus.queryError);
     }
+    expect(
+      sample(AccountUsageState.error, code: 'NETWORK_ERROR').status,
+      AccountStatus.offline,
+    );
     for (final state in [
       AccountUsageState.toolMissing,
       AccountUsageState.profileMissing,
@@ -140,6 +144,25 @@ void main() {
     expect(account.isReady, isFalse);
     expect(account.needsAttention, isTrue);
     expect(account.isUnlinked, isFalse);
+  });
+
+  test('workspace routing outage is reported as a network issue', () {
+    final account = Account(
+      profile: _profile(),
+      metadata: null,
+      costShares: const [],
+      currentCheck: AccountUsageCheck(
+        state: AccountUsageState.error,
+        startedAt: DateTime.utc(2026, 9, 22),
+        errorCode: 'CODEX_RPC_ERROR',
+        errorMessage: 'workspace routing discovery failed',
+      ),
+      currentWindows: const [],
+      lastSuccessfulCheck: null,
+      lastSuccessfulWindows: const [],
+      resetCredits: null,
+    );
+    expect(account.currentIssue, AccountUsageIssue.network);
   });
 
   test('usable current windows take precedence and clamp availability', () {

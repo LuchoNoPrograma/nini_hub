@@ -25,12 +25,14 @@ final class HeartbeatUsageKeepAliveScheduler
     required this.runner,
     required this.observe,
     required this.publish,
+    this.operationGate,
   });
 
   final DartHeartbeatScheduler scheduler;
   final ProcessRunner runner;
   final HeartbeatUsageObservation observe;
   final HeartbeatUsageSnapshotPublisher publish;
+  final UsageOperationGate? operationGate;
 
   @override
   bool scheduleIfEligible({
@@ -40,16 +42,9 @@ final class HeartbeatUsageKeepAliveScheduler
     if (profile.toolKey != 'codex') return false;
     return scheduler.enqueueBackgroundOperation(
       profileId: profile.id,
-      operation: () async {
-        final result = await observe(profile: profile, snapshot: snapshot);
-        final latestSnapshot = result.latestUsageSnapshot;
-        if (latestSnapshot == null || !scheduler.enabled) return;
-        await publish(
-          profileId: profile.id,
-          snapshot: latestSnapshot,
-          previousSnapshot: result.previousUsageSnapshot,
-        );
-      },
+      operation: () =>
+          operationGate?.run(profile.id, () => _observe(profile, snapshot)) ??
+          _observe(profile, snapshot),
       onError: (error, _) => runner.addInternalLog(
         summary: 'Revisar heartbeat de ${profile.displayName}',
         status: 'error',
@@ -57,6 +52,18 @@ final class HeartbeatUsageKeepAliveScheduler
         profileId: profile.id,
         command: 'heartbeat automatic observation',
       ),
+    );
+  }
+
+  Future<void> _observe(Profile profile, UsageSnapshot snapshot) async {
+    if (!scheduler.enabled) return;
+    final result = await observe(profile: profile, snapshot: snapshot);
+    final latestSnapshot = result.latestUsageSnapshot;
+    if (latestSnapshot == null || !scheduler.enabled) return;
+    await publish(
+      profileId: profile.id,
+      snapshot: latestSnapshot,
+      previousSnapshot: result.previousUsageSnapshot,
     );
   }
 }
