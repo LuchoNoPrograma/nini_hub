@@ -1326,15 +1326,47 @@ class _DeviceAuthDialogState extends State<_DeviceAuthDialog> {
   bool waiting = true;
   bool confirmed = false;
   bool closing = false;
+  bool submittingCode = false;
   String? error;
+  final authorizationCode = TextEditingController();
+
+  AccountAuthorizationCodeSession? get _codeSession {
+    final session = widget.session;
+    return session is AccountAuthorizationCodeSession ? session : null;
+  }
+
+  String get _productName =>
+      profileProviderOrNull(widget.account.profile.toolKey)?.productName ??
+      'Codex';
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(_openBrowser());
-    });
+    // Code sessions open the official page themselves; a second tab would
+    // start a competing sign-in.
+    if (_codeSession == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(_openBrowser());
+      });
+    }
     unawaited(_wait());
+  }
+
+  Future<void> _submitCode() async {
+    final session = _codeSession;
+    if (session == null || submittingCode || confirmed || closing) return;
+    setState(() {
+      submittingCode = true;
+      error = null;
+    });
+    try {
+      await session.submitAuthorizationCode(authorizationCode.text);
+      authorizationCode.clear();
+    } catch (exception) {
+      if (mounted) setState(() => error = _cleanError(exception));
+    } finally {
+      if (mounted) setState(() => submittingCode = false);
+    }
   }
 
   Future<void> _openBrowser() async {
@@ -1372,11 +1404,14 @@ class _DeviceAuthDialogState extends State<_DeviceAuthDialog> {
       if (success) {
         Navigator.pop(context, widget.externallyOwnedSession ? true : null);
       } else if (widget.externallyOwnedSession) {
-        Navigator.pop(context, StateError('Codex no confirmó el acceso.'));
+        Navigator.pop(
+          context,
+          StateError('$_productName no confirmó el acceso.'),
+        );
       } else {
         setState(() {
           waiting = false;
-          error = 'Codex no confirmó el acceso.';
+          error = '$_productName no confirmó el acceso.';
         });
       }
     } catch (exception) {
@@ -1394,6 +1429,7 @@ class _DeviceAuthDialogState extends State<_DeviceAuthDialog> {
 
   @override
   void dispose() {
+    authorizationCode.dispose();
     widget.onDisposed?.call();
     if (!widget.externallyOwnedSession) unawaited(widget.session.close());
     super.dispose();
@@ -1507,7 +1543,7 @@ class _DeviceAuthDialogState extends State<_DeviceAuthDialog> {
               ),
               const SizedBox(height: 12),
             ],
-            if (widget.browser)
+            if (widget.browser && _codeSession == null)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 12),
                 child: Text(
@@ -1515,6 +1551,40 @@ class _DeviceAuthDialogState extends State<_DeviceAuthDialog> {
                   textAlign: TextAlign.center,
                 ),
               ),
+            if (_codeSession != null) ...[
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Text(
+                  'Inicia sesión en la página oficial de Claude con la cuenta que quieres vincular. '
+                  'Esta ventana se actualizará automáticamente al terminar; si la página te muestra un código, pégalo aquí.',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: authorizationCode,
+                      enabled: !confirmed && !submittingCode,
+                      decoration: const InputDecoration(
+                        labelText: 'Código de autorización',
+                        isDense: true,
+                      ),
+                      style: const TextStyle(fontFamily: 'monospace'),
+                      onSubmitted: (_) => unawaited(_submitCode()),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton.tonal(
+                    onPressed: confirmed || submittingCode
+                        ? null
+                        : () => unawaited(_submitCode()),
+                    child: const Text('Enviar código'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+            ],
             Align(
               alignment: Alignment.centerLeft,
               child: Text(
@@ -1586,7 +1656,7 @@ class _DeviceAuthDialogState extends State<_DeviceAuthDialog> {
                     child: Text(
                       confirmed
                           ? 'Acceso confirmado. Guardando la vinculación…'
-                          : 'Esperando confirmación de Codex…',
+                          : 'Esperando confirmación de $_productName…',
                     ),
                   ),
                 ],

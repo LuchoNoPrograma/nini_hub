@@ -66,7 +66,13 @@ void main() {
         toolKey: 'claude-cli',
         hasAuthFile: false,
       ),
-      _account(id: 'epsilon', displayName: 'Epsilon', toolKey: 'claude-cli'),
+      _account(
+        id: 'epsilon',
+        displayName: 'Epsilon',
+        toolKey: 'claude-cli',
+        state: AccountUsageState.success,
+        usedPercent: 10,
+      ),
     ];
     expect(await fixture.controller.load(), isTrue);
 

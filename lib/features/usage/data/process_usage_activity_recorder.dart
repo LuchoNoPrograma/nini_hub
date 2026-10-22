@@ -20,6 +20,8 @@ final class ProcessUsageActivityRecorder implements UsageActivityRecorder {
         '${snapshot.windows.length} ventanas y '
             '${snapshot.dailyUsage.length} días de uso.',
     profileId: profile.id,
-    command: 'codex app-server metadata',
+    command: profile.toolKey == 'claude-cli'
+        ? 'GET api.anthropic.com/api/oauth/usage'
+        : 'codex app-server metadata',
   );
 }

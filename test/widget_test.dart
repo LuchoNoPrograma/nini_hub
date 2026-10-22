@@ -76,7 +76,8 @@ void main() {
     expect(claude.profileSpec('work'), 'claude-cli/work');
     expect(claude.commandName('work'), 'claude-cli-work');
     expect(claude.credentialFiles, contains('.credentials.json'));
-    expect(claude.supportsUsage, isFalse);
+    expect(claude.supportsUsage, isTrue);
+    expect(claude.supportsResetCredits, isFalse);
     expect(claude.showsDefaultProfile, isFalse);
     expect(claude.showsProfileSource('default'), isFalse);
     expect(claude.showsProfileSource('multicli'), isTrue);
@@ -810,7 +811,7 @@ void main() {
 
       await tester.tap(find.byType(DropdownButtonFormField<String>).first);
       await tester.pumpAndSettle();
-      expect(find.text('Claude · Claude Code'), findsNothing);
+      expect(find.text('Claude · Claude Code'), findsWidgets);
       expect(find.text('ChatGPT · Codex'), findsWidgets);
       expect(tester.takeException(), isNull);
     },

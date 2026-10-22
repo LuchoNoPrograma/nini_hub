@@ -138,14 +138,14 @@ void main() {
     });
 
     test('unsupported provider is a typed precondition failure', () async {
-      final fixture = _Fixture(profiles: [_profile(toolKey: 'claude-cli')]);
+      final fixture = _Fixture(profiles: [_profile(toolKey: 'cursor')]);
 
       await expectLater(
         fixture.refresh('primary'),
         throwsA(
           isA<UsageUnsupportedProviderFailure>()
               .having((failure) => failure.profileId, 'profileId', 'primary')
-              .having((failure) => failure.toolKey, 'toolKey', 'claude-cli'),
+              .having((failure) => failure.toolKey, 'toolKey', 'cursor'),
         ),
       );
       expect(fixture.events, ['discover']);
@@ -237,7 +237,7 @@ void main() {
           for (var index = 0; index < 8; index++)
             _profile(id: 'profile-$index'),
           _profile(id: 'unavailable', isAvailable: false),
-          _profile(id: 'unsupported', toolKey: 'claude-cli'),
+          _profile(id: 'unsupported', toolKey: 'cursor'),
         ];
         final provider = _GatedProvider(_snapshot());
         final fixture = _Fixture(profiles: profiles, provider: provider);
@@ -365,7 +365,7 @@ void main() {
       final fixture = _Fixture(
         profiles: [
           _profile(id: 'unavailable', isAvailable: false),
-          _profile(id: 'unsupported', toolKey: 'claude-cli'),
+          _profile(id: 'unsupported', toolKey: 'cursor'),
         ],
       );
 

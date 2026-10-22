@@ -58,7 +58,12 @@ void main() {
         toolKey: 'claude-cli',
         hasAuthFile: false,
       ),
-      _account(id: 'epsilon', displayName: 'Epsilon', toolKey: 'claude-cli'),
+      _account(
+        id: 'epsilon',
+        displayName: 'Epsilon',
+        toolKey: 'claude-cli',
+        usedPercent: 10,
+      ),
     ]);
 
     expect(_ids(snapshot.visible(const AccountQuery())), [

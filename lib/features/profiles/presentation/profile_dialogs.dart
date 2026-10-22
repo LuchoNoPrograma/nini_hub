@@ -176,7 +176,7 @@ class _CreateProfileDialogState extends State<_CreateProfileDialog> {
                   decoration: const InputDecoration(
                     labelText: 'Herramienta',
                     helperText:
-                        'El alta con vinculación está disponible para Codex.',
+                        'El alta con vinculación está disponible para Codex y Claude Code.',
                   ),
                   items: supportedProfileProviders
                       .where((item) => item.supportsDeviceAuth)
@@ -300,14 +300,16 @@ class _CreateProfileDialogState extends State<_CreateProfileDialog> {
                             Text(
                               provider.supportsDeviceAuth
                                   ? 'Siguiente paso: vincular tu cuenta'
-                                  : 'Acceso de Claude Code',
+                                  : 'Acceso de ${provider.productName}',
                               style: Theme.of(context).textTheme.labelLarge,
                             ),
                             const SizedBox(height: 3),
                             Text(
-                              provider.supportsDeviceAuth
+                              !provider.supportsDeviceAuth
+                                  ? 'La vinculación automática todavía no está disponible para ${provider.productName}. Después de crear el perfil, ábrelo y completa el acceso desde ${provider.productName}.'
+                                  : provider.supportsAuthMethodChoice
                                   ? 'Elige navegador o código de dispositivo. La cuenta se guardará solo al confirmar el acceso; si cancelas o falla, descartaremos el perfil provisional.'
-                                  : 'La vinculación automática todavía no está disponible para Claude. Después de crear el perfil, ábrelo y completa el acceso desde Claude Code.',
+                                  : 'Se abrirá la página oficial de ${provider.productName} en tu navegador. La cuenta se guardará solo al confirmar el acceso; si cancelas o falla, descartaremos el perfil provisional.',
                               style: Theme.of(context).textTheme.bodySmall
                                   ?.copyWith(
                                     color: Theme.of(

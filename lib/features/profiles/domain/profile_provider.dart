@@ -12,6 +12,8 @@ class ProfileProvider {
     required this.supportsUsage,
     required this.supportsDeviceAuth,
     required this.showsDefaultProfile,
+    this.supportsAuthMethodChoice = false,
+    this.supportsResetCredits = false,
     this.launchArguments = const [],
   });
 
@@ -27,6 +29,12 @@ class ProfileProvider {
   final bool supportsUsage;
   final bool supportsDeviceAuth;
   final bool showsDefaultProfile;
+
+  /// Whether linking lets the user pick between browser and device code.
+  final bool supportsAuthMethodChoice;
+
+  /// Whether usage reports purchasable quota resets (a Codex-only concept).
+  final bool supportsResetCredits;
   final List<String> launchArguments;
 
   String profileSpec(String name) => '$multiCliTool/$name';
@@ -51,6 +59,8 @@ const supportedProfileProviders = <ProfileProvider>[
     supportsUsage: true,
     supportsDeviceAuth: true,
     showsDefaultProfile: true,
+    supportsAuthMethodChoice: true,
+    supportsResetCredits: true,
     launchArguments: ['-c', 'tui.terminal_title=[]'],
   ),
   ProfileProvider(
@@ -63,8 +73,8 @@ const supportedProfileProviders = <ProfileProvider>[
     executable: 'claude',
     iconAssetPath: 'assets/branding/claude-official.png',
     credentialFiles: ['.credentials.json'],
-    supportsUsage: false,
-    supportsDeviceAuth: false,
+    supportsUsage: true,
+    supportsDeviceAuth: true,
     showsDefaultProfile: false,
   ),
 ];
