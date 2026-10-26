@@ -105,7 +105,7 @@ void main() {
     await expectLater(
       f.create(
         const CreateProfileCommand(
-          toolKey: 'claude-cli',
+          toolKey: 'cursor',
           name: 'team',
           displayName: '',
         ),

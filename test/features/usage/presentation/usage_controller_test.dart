@@ -152,7 +152,7 @@ void main() {
             isAvailable: false,
             kind: ProfileKind.deactivated,
           ),
-          _profile('unsupported', toolKey: 'claude-cli'),
+          _profile('unsupported', toolKey: 'cursor'),
           _profile('applied'),
         ],
       );

@@ -13,10 +13,12 @@ import 'package:nini_hub/core/process/nini_agents_read_client.dart';
 import 'package:nini_hub/core/process/process_runner.dart';
 import 'package:nini_hub/features/accounts/application/account_device_auth.dart';
 import 'package:nini_hub/features/accounts/application/account_management.dart';
+import 'package:nini_hub/features/accounts/data/claude_account_device_auth_gateway.dart';
 import 'package:nini_hub/features/accounts/data/codex_account_device_auth_gateway.dart';
 import 'package:nini_hub/features/accounts/data/drift_account_authentication_store.dart';
 import 'package:nini_hub/features/accounts/data/drift_account_repository.dart';
 import 'package:nini_hub/features/accounts/data/process_account_device_auth_activity_recorder.dart';
+import 'package:nini_hub/features/accounts/data/provider_account_device_auth_gateway.dart';
 import 'package:nini_hub/features/accounts/domain/account_device_auth.dart';
 import 'package:nini_hub/features/accounts/presentation/controllers/accounts_controller.dart';
 import 'package:nini_hub/features/accounts/presentation/state/accounts_state.dart';
@@ -50,10 +52,12 @@ import 'package:nini_hub/features/settings/presentation/controllers/settings_con
 import 'package:nini_hub/features/settings/presentation/state/settings_state.dart';
 import 'package:nini_hub/features/usage/application/usage_calendar.dart';
 import 'package:nini_hub/features/usage/application/usage_refresh.dart';
+import 'package:nini_hub/features/usage/data/claude_usage_provider.dart';
 import 'package:nini_hub/features/usage/data/codex_usage_provider.dart';
 import 'package:nini_hub/features/usage/data/drift_usage_calendar_repository.dart';
 import 'package:nini_hub/features/usage/data/drift_usage_snapshot_repository.dart';
 import 'package:nini_hub/features/usage/data/process_usage_activity_recorder.dart';
+import 'package:nini_hub/features/usage/data/tool_usage_provider.dart';
 import 'package:nini_hub/features/usage/domain/usage_ports.dart';
 import 'package:nini_hub/features/usage/presentation/controllers/usage_controller.dart';
 import 'package:nini_hub/features/usage/presentation/controllers/usage_refresh_coordinator.dart';
@@ -66,6 +70,8 @@ import 'package:nini_hub/features/workspaces/data/drift_workspace_selection_stor
 import 'package:nini_hub/features/workspaces/data/nini_agents_agent_launcher.dart';
 import 'package:nini_hub/features/workspaces/presentation/controllers/workspace_controller.dart';
 import 'package:nini_hub/features/workspaces/presentation/state/workspace_state.dart';
+import 'package:nini_hub/providers/claude/claude_auth_login_client.dart';
+import 'package:nini_hub/providers/claude/claude_usage_client.dart';
 import 'package:nini_hub/providers/codex/codex_client_runtime.dart';
 
 typedef WorkspaceDirectoryPicker =
@@ -90,7 +96,21 @@ final codexClientRuntimeProvider = Provider<CodexClientRuntime>(
 );
 
 final accountDeviceAuthGatewayProvider = Provider<AccountDeviceAuthGateway>(
-  (ref) => CodexAccountDeviceAuthGateway(ref.watch(codexClientRuntimeProvider)),
+  (ref) => ProviderAccountDeviceAuthGateway({
+    'codex': CodexAccountDeviceAuthGateway(
+      ref.watch(codexClientRuntimeProvider),
+    ),
+    'claude-cli': ClaudeAccountDeviceAuthGateway(const ClaudeAuthLoginClient()),
+  }),
+);
+
+final usageProviderProvider = Provider<UsageProvider>(
+  (ref) => ToolUsageProvider({
+    'codex': CodexUsageProvider.current(
+      () => ref.read(codexClientRuntimeProvider).current,
+    ),
+    'claude-cli': const ClaudeUsageProvider(ClaudeUsageClient()),
+  }),
 );
 
 final usageOperationGateProvider = Provider<UsageOperationGate>(
@@ -107,9 +127,7 @@ usageAutoRefreshProvider = Provider<UsageAutoRefresh>((ref) {
   final runner = ref.watch(processRunnerProvider);
   late final UsageAutoRefresh service;
   final refresh = RefreshProfileUsage(
-    provider: CodexUsageProvider.current(
-      () => ref.read(codexClientRuntimeProvider).current,
-    ),
+    provider: ref.watch(usageProviderProvider),
     repository: DriftUsageSnapshotRepository(database),
     activity: ProcessUsageActivityRecorder(runner),
     canPersist: (profile) => service.canPersist(profile),
@@ -409,9 +427,7 @@ accountsControllerProvider =
           operationGate: ref.watch(usageOperationGateProvider),
           onPersisted: (id, snapshot) =>
               ref.read(usageAutoRefreshProvider).observe(id, snapshot),
-          provider: CodexUsageProvider.current(
-            () => ref.read(codexClientRuntimeProvider).current,
-          ),
+          provider: ref.watch(usageProviderProvider),
           repository: DriftUsageSnapshotRepository(database),
           activity: ProcessUsageActivityRecorder(
             ref.watch(processRunnerProvider),
@@ -474,9 +490,7 @@ final NotifierProvider<UsageController, UsageState> usageControllerProvider =
           operationGate: ref.watch(usageOperationGateProvider),
           onPersisted: (id, snapshot) =>
               ref.read(usageAutoRefreshProvider).observe(id, snapshot),
-          provider: CodexUsageProvider.current(
-            () => ref.read(codexClientRuntimeProvider).current,
-          ),
+          provider: ref.watch(usageProviderProvider),
           repository: DriftUsageSnapshotRepository(database),
           activity: ProcessUsageActivityRecorder(
             ref.watch(processRunnerProvider),

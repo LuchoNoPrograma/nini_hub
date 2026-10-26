@@ -14,6 +14,13 @@ abstract interface class AccountDeviceAuthSession {
   Future<void> close();
 }
 
+/// A session whose provider opens the sign-in page itself and may answer with
+/// an authorization code that the user pastes back into the app.
+abstract interface class AccountAuthorizationCodeSession
+    implements AccountDeviceAuthSession {
+  Future<void> submitAuthorizationCode(String code);
+}
+
 abstract interface class AccountDeviceAuthGateway {
   Future<AccountDeviceAuthSession> start(
     Profile profile, {

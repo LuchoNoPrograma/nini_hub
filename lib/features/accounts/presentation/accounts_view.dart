@@ -31,10 +31,14 @@ Future<void> showCreateProfileFlow(BuildContext context, WidgetRef ref) async {
     context,
     readError: () => ref.read(accountsControllerProvider).errorMessage,
     create: (command) async {
-      final method = await showAccountAuthMethodDialog(
-        context,
-        title: 'Elige cómo vincular el nuevo perfil',
-      );
+      final method =
+          profileProviderOrNull(command.toolKey)?.supportsAuthMethodChoice ==
+              false
+          ? AccountAuthMethod.browser
+          : await showAccountAuthMethodDialog(
+              context,
+              title: 'Elige cómo vincular el nuevo perfil',
+            );
       if (method == null || !context.mounted) return null;
       return controller.createLinkedAccount(
         command,
@@ -116,7 +120,14 @@ Future<void> _showDeviceAuth(
 }) => showDeviceAuthDialog(
   context,
   account,
-  method: method,
+  method:
+      method ??
+      (profileProviderOrNull(
+                account.profile.toolKey,
+              )?.supportsAuthMethodChoice ==
+              false
+          ? AccountAuthMethod.browser
+          : null),
   isNewProfile: isNewProfile,
   start: (account) async {
     final session = await ref
@@ -1040,7 +1051,6 @@ class _AccountCardState extends State<AccountCard> {
                       },
                       itemBuilder: (context) => [
                         if (!account.isDeactivated &&
-                            account.profile.hasAuthFile &&
                             provider.supportsDeviceAuth)
                           PopupMenuItem(
                             value: 'device-auth',
@@ -1049,13 +1059,15 @@ class _AccountCardState extends State<AccountCard> {
                                 !widget.accountBusy,
                             height: 38,
                             padding: const EdgeInsets.symmetric(horizontal: 12),
-                            child: const Row(
+                            child: Row(
                               children: [
-                                Icon(Icons.link, size: 15),
-                                SizedBox(width: 8),
+                                const Icon(Icons.link, size: 15),
+                                const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
-                                    'Revincular cuenta',
+                                    account.profile.hasAuthFile
+                                        ? 'Revincular cuenta'
+                                        : 'Vincular cuenta',
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                   ),
@@ -1194,7 +1206,7 @@ class _AccountCardState extends State<AccountCard> {
                               windows[index],
                             ),
                           ),
-                      if (provider.supportsUsage)
+                      if (provider.supportsResetCredits)
                         _ResetCreditsLine(account: account, now: quotaNow),
                     ],
                   ),
@@ -1866,9 +1878,15 @@ String _statusLabel(AccountStatus status, {bool plural = false}) =>
     };
 
 Color _stateColor(BuildContext context, Account account) =>
-    _statusColor(context, account.status);
+    account.currentIssue == AccountUsageIssue.sessionPaused &&
+        account.status == AccountStatus.quotaUnconfirmed
+    ? Theme.of(context).colorScheme.onSurfaceVariant
+    : _statusColor(context, account.status);
 
 String _stateLabel(Account account) => switch (account.currentIssue) {
+  AccountUsageIssue.sessionPaused
+      when account.status == AccountStatus.quotaUnconfirmed =>
+    'Sesión en pausa',
   AccountUsageIssue.credentialExpired => 'Credencial expirada',
   AccountUsageIssue.credentialInvalidated => 'Credencial revocada',
   AccountUsageIssue.network when account.status == AccountStatus.queryError =>
@@ -1901,6 +1919,10 @@ String _stateDetail(Account account) {
           : account.lastSuccessfulWindows.isNotEmpty
           ? 'Sin conexión; se muestra el último dato válido y se reintentará'
           : 'No se pudo conectar con ChatGPT',
+    AccountUsageIssue.sessionPaused =>
+      account.lastSuccessfulWindows.isNotEmpty
+          ? 'Se renueva al abrir el perfil; se muestra el último dato válido'
+          : 'Se renueva al abrir el perfil',
     AccountUsageIssue.credentialExpired =>
       'La credencial expiró; vuelve a iniciar sesión',
     AccountUsageIssue.credentialInvalidated =>

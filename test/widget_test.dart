@@ -74,9 +74,10 @@ void main() {
     expect(chatGpt.showsProfileSource('default'), isTrue);
     expect(chatGpt.iconAssetPath, contains('chatgpt-official.png'));
     expect(claude.profileSpec('work'), 'claude-cli/work');
-    expect(claude.commandName('work'), 'claude-cli-work');
+    expect(claude.commandName('work'), 'claude-work');
     expect(claude.credentialFiles, contains('.credentials.json'));
-    expect(claude.supportsUsage, isFalse);
+    expect(claude.supportsUsage, isTrue);
+    expect(claude.supportsResetCredits, isFalse);
     expect(claude.showsDefaultProfile, isFalse);
     expect(claude.showsProfileSource('default'), isFalse);
     expect(claude.showsProfileSource('multicli'), isTrue);
@@ -153,7 +154,7 @@ void main() {
 
     expect(team.commandName, 'codex-team');
     expect(team.hasAuthFile, isTrue);
-    expect(research.commandName, 'claude-cli-research');
+    expect(research.commandName, 'claude-research');
     expect(research.hasAuthFile, isTrue);
     expect(
       profiles.where(
@@ -810,7 +811,7 @@ void main() {
 
       await tester.tap(find.byType(DropdownButtonFormField<String>).first);
       await tester.pumpAndSettle();
-      expect(find.text('Claude · Claude Code'), findsNothing);
+      expect(find.text('Claude · Claude Code'), findsWidgets);
       expect(find.text('ChatGPT · Codex'), findsWidgets);
       expect(tester.takeException(), isNull);
     },

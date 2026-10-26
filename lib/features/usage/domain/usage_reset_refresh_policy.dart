@@ -4,7 +4,15 @@ abstract final class UsageResetRefreshPolicy {
   static const resetMargin = Duration(minutes: 1);
   static const unknownResetDelay = Duration(hours: 1);
 
-  static bool pauses(UsageRefreshStatus status) => switch (status) {
+  /// An expired access token whose session the provider renews on its own
+  /// keeps polling the local credential instead of waiting for the user.
+  static bool awaitsProviderRenewal(String? errorCode) =>
+      errorCode?.toUpperCase() == 'TOKEN_REFRESHABLE';
+
+  static bool pauses(UsageRefreshStatus status, {String? errorCode}) =>
+      !awaitsProviderRenewal(errorCode) && _pausingStatus(status);
+
+  static bool _pausingStatus(UsageRefreshStatus status) => switch (status) {
     UsageRefreshStatus.authRequired ||
     UsageRefreshStatus.profileMissing ||
     UsageRefreshStatus.toolMissing ||

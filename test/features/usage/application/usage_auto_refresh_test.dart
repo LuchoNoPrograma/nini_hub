@@ -124,6 +124,25 @@ void main() {
     },
   );
 
+  test('a token the provider renews keeps polling before the reset', () {
+    final f = _Fixture();
+    f.now = f.reset.subtract(const Duration(hours: 1));
+    UsageSnapshot paused() => UsageSnapshot(
+      status: UsageRefreshStatus.unavailable,
+      startedAt: f.now,
+      completedAt: f.now,
+      errorCode: 'TOKEN_REFRESHABLE',
+    );
+    f.service.observe('a', paused());
+    expect(f.service.nextAt, f.now.add(const Duration(minutes: 5)));
+    f.now = f.service.nextAt!;
+    f.service.observe('a', paused());
+    expect(f.service.nextAt, f.now.add(const Duration(minutes: 15)));
+    f.now = f.service.nextAt!;
+    f.service.observe('a', f.result());
+    expect(f.service.nextAt, f.now.add(const Duration(hours: 5, minutes: 1)));
+  });
+
   test('network failure before reset retries without losing the reset', () {
     final f = _Fixture();
     f.now = f.reset.subtract(const Duration(hours: 1));

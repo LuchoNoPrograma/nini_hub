@@ -5,6 +5,7 @@ import 'package:nini_hub/features/accounts/domain/account_failure.dart';
 import 'package:nini_hub/features/accounts/domain/account_repository.dart';
 import 'package:nini_hub/features/profiles/domain/profile.dart';
 import 'package:nini_hub/features/profiles/domain/profile_ports.dart';
+import 'package:nini_hub/features/profiles/domain/profile_provider.dart';
 
 typedef AccountHeartbeatProfileMonitor =
     void Function(Iterable<Profile> profiles);
@@ -100,7 +101,9 @@ final class CompleteAccountDeviceAuth {
   Future<AccountSnapshot> refreshConfirmed(Account account) async {
     var progress = AccountDeviceAuthProgress.profilesSynchronized;
     try {
-      if (account.profile.isAvailable) {
+      if (account.profile.isAvailable &&
+          profileProviderOrNull(account.profile.toolKey)?.supportsUsage ==
+              true) {
         await refreshUsage(account.profile);
         progress = AccountDeviceAuthProgress.usageRefreshed;
         await synchronizeUsageProjections();

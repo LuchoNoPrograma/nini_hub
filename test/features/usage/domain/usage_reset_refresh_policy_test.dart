@@ -119,5 +119,12 @@ void main() {
       isTrue,
     );
     expect(UsageResetRefreshPolicy.pauses(UsageRefreshStatus.timeout), isFalse);
+    expect(
+      UsageResetRefreshPolicy.pauses(
+        UsageRefreshStatus.unavailable,
+        errorCode: 'TOKEN_REFRESHABLE',
+      ),
+      isFalse,
+    );
   });
 }
