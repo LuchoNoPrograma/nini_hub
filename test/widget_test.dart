@@ -74,7 +74,7 @@ void main() {
     expect(chatGpt.showsProfileSource('default'), isTrue);
     expect(chatGpt.iconAssetPath, contains('chatgpt-official.png'));
     expect(claude.profileSpec('work'), 'claude-cli/work');
-    expect(claude.commandName('work'), 'claude-cli-work');
+    expect(claude.commandName('work'), 'claude-work');
     expect(claude.credentialFiles, contains('.credentials.json'));
     expect(claude.supportsUsage, isTrue);
     expect(claude.supportsResetCredits, isFalse);
@@ -154,7 +154,7 @@ void main() {
 
     expect(team.commandName, 'codex-team');
     expect(team.hasAuthFile, isTrue);
-    expect(research.commandName, 'claude-cli-research');
+    expect(research.commandName, 'claude-research');
     expect(research.hasAuthFile, isTrue);
     expect(
       profiles.where(

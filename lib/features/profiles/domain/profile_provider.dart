@@ -68,7 +68,7 @@ const supportedProfileProviders = <ProfileProvider>[
     displayName: 'Claude',
     productName: 'Claude Code',
     multiCliTool: 'claude-cli',
-    commandPrefix: 'claude-cli-',
+    commandPrefix: 'claude-',
     defaultHomeName: '.claude',
     executable: 'claude',
     iconAssetPath: 'assets/branding/claude-official.png',
