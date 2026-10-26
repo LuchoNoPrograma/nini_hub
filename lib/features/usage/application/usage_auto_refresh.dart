@@ -309,7 +309,10 @@ final class _TrackedUsage {
     startedAt = snapshot.startedAt;
     checkedAt = snapshot.completedAt;
     this.snapshot = fromStorage ? null : snapshot;
-    paused = UsageResetRefreshPolicy.pauses(snapshot.status);
+    paused = UsageResetRefreshPolicy.pauses(
+      snapshot.status,
+      errorCode: snapshot.errorCode,
+    );
     if (snapshot.windows.isNotEmpty &&
         (snapshot.status == UsageRefreshStatus.success ||
             snapshot.rateLimitsReadSucceeded)) {
@@ -335,6 +338,7 @@ final class _TrackedUsage {
     final incomplete =
         snapshot.status == UsageRefreshStatus.timeout ||
         snapshot.status == UsageRefreshStatus.error ||
+        UsageResetRefreshPolicy.awaitsProviderRenewal(snapshot.errorCode) ||
         ((snapshot.status == UsageRefreshStatus.success ||
                 snapshot.status == UsageRefreshStatus.partial) &&
             (!snapshot.rateLimitsReadSucceeded || snapshot.windows.isEmpty));

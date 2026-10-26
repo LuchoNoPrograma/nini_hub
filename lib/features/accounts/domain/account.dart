@@ -29,6 +29,9 @@ enum AccountUsageState {
 
 enum AccountUsageIssue {
   network,
+
+  /// The access token expired but the provider renews it on the next launch.
+  sessionPaused,
   credentialExpired,
   credentialInvalidated,
   partialMetadata,
@@ -263,6 +266,7 @@ final class Account {
     if (check == null) return null;
     final code = check.errorCode?.toUpperCase();
     final message = check.errorMessage?.toLowerCase() ?? '';
+    if (code == 'TOKEN_REFRESHABLE') return AccountUsageIssue.sessionPaused;
     if (code == 'TOKEN_INVALIDATED' ||
         message.contains('token_invalidated') ||
         message.contains('token has been invalidated')) {
@@ -432,6 +436,10 @@ final class Account {
       return AccountStatus.authRequired;
     }
     if (hasExhaustedQuota) return AccountStatus.quotaExhausted;
+    // The session still works; only the quota cannot be confirmed until then.
+    if (currentIssue == AccountUsageIssue.sessionPaused) {
+      return AccountStatus.quotaUnconfirmed;
+    }
     if ((currentCheck?.state == AccountUsageState.timeout ||
             currentCheck?.state == AccountUsageState.error) &&
         currentIssue == AccountUsageIssue.network &&

@@ -1878,9 +1878,15 @@ String _statusLabel(AccountStatus status, {bool plural = false}) =>
     };
 
 Color _stateColor(BuildContext context, Account account) =>
-    _statusColor(context, account.status);
+    account.currentIssue == AccountUsageIssue.sessionPaused &&
+        account.status == AccountStatus.quotaUnconfirmed
+    ? Theme.of(context).colorScheme.onSurfaceVariant
+    : _statusColor(context, account.status);
 
 String _stateLabel(Account account) => switch (account.currentIssue) {
+  AccountUsageIssue.sessionPaused
+      when account.status == AccountStatus.quotaUnconfirmed =>
+    'Sesión en pausa',
   AccountUsageIssue.credentialExpired => 'Credencial expirada',
   AccountUsageIssue.credentialInvalidated => 'Credencial revocada',
   AccountUsageIssue.network when account.status == AccountStatus.queryError =>
@@ -1913,6 +1919,10 @@ String _stateDetail(Account account) {
           : account.lastSuccessfulWindows.isNotEmpty
           ? 'Sin conexión; se muestra el último dato válido y se reintentará'
           : 'No se pudo conectar con ChatGPT',
+    AccountUsageIssue.sessionPaused =>
+      account.lastSuccessfulWindows.isNotEmpty
+          ? 'Se renueva al abrir el perfil; se muestra el último dato válido'
+          : 'Se renueva al abrir el perfil',
     AccountUsageIssue.credentialExpired =>
       'La credencial expiró; vuelve a iniciar sesión',
     AccountUsageIssue.credentialInvalidated =>

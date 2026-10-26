@@ -59,12 +59,13 @@ void main() {
   void writeCredentials({
     required DateTime expiresAt,
     String? subscriptionType = 'pro',
+    String? refreshToken = 'refresh',
   }) {
     File(p.join(home.path, 'auth', '.credentials.json')).writeAsStringSync(
       jsonEncode({
         'claudeAiOauth': {
           'accessToken': 'secret-token',
-          'refreshToken': 'refresh',
+          'refreshToken': ?refreshToken,
           'expiresAt': expiresAt.millisecondsSinceEpoch,
           'subscriptionType': ?subscriptionType,
         },
@@ -125,8 +126,28 @@ void main() {
     expect(snapshot.planType, 'max');
   });
 
-  test('expired tokens are reported without calling Claude', () async {
+  test('renewable expired tokens wait for Claude Code without calling Claude', () async {
     writeCredentials(expiresAt: _now.subtract(const Duration(minutes: 1)));
+    var calls = 0;
+
+    final snapshot = await ClaudeUsageClient(
+      now: () => _now,
+      httpGet: (_, _, _) async {
+        calls++;
+        return const ClaudeHttpResponse(200, '{}');
+      },
+    ).refresh(profile);
+
+    expect(calls, 0);
+    expect(snapshot.status, UsageRefreshStatus.unavailable);
+    expect(snapshot.errorCode, 'TOKEN_REFRESHABLE');
+  });
+
+  test('expired tokens without a refresh token are reported without calling Claude', () async {
+    writeCredentials(
+      expiresAt: _now.subtract(const Duration(minutes: 1)),
+      refreshToken: null,
+    );
     var calls = 0;
 
     final snapshot = await ClaudeUsageClient(

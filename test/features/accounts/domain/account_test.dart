@@ -70,6 +70,12 @@ void main() {
         AccountStatus.authRequired,
       );
     }
+    final paused = sample(
+      AccountUsageState.unavailable,
+      code: 'TOKEN_REFRESHABLE',
+    );
+    expect(paused.status, AccountStatus.quotaUnconfirmed);
+    expect(paused.currentIssue, AccountUsageIssue.sessionPaused);
     for (final state in [AccountUsageState.error, AccountUsageState.timeout]) {
       expect(sample(state).status, AccountStatus.queryError);
     }

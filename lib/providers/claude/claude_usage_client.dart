@@ -71,6 +71,17 @@ class ClaudeUsageClient {
       );
     }
     final expiresAt = credentials.expiresAt;
+    if (expiresAt != null &&
+        !expiresAt.isAfter(_now()) &&
+        credentials.hasRefreshToken) {
+      // The session is still valid: Claude Code renews the access token the
+      // next time the profile opens, and usage resumes from that file.
+      return failure(
+        UsageRefreshStatus.unavailable,
+        'TOKEN_REFRESHABLE',
+        'Claude Code renueva el acceso al abrir este perfil.',
+      );
+    }
     if (expiresAt != null && !expiresAt.isAfter(_now())) {
       return failure(
         UsageRefreshStatus.authRequired,
@@ -240,8 +251,10 @@ class ClaudeUsageClient {
         final token = oauth['accessToken'];
         if (token is! String || token.isEmpty) continue;
         final expiresAt = oauth['expiresAt'];
+        final refreshToken = oauth['refreshToken'];
         return _ClaudeCredentials(
           accessToken: token,
+          hasRefreshToken: refreshToken is String && refreshToken.isNotEmpty,
           expiresAt: expiresAt is num
               ? DateTime.fromMillisecondsSinceEpoch(
                   expiresAt.toInt(),
@@ -278,11 +291,13 @@ class ClaudeUsageClient {
 final class _ClaudeCredentials {
   const _ClaudeCredentials({
     required this.accessToken,
+    required this.hasRefreshToken,
     required this.expiresAt,
     required this.subscriptionType,
   });
 
   final String accessToken;
+  final bool hasRefreshToken;
   final DateTime? expiresAt;
   final String? subscriptionType;
 }
