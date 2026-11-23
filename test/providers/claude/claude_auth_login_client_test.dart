@@ -28,10 +28,7 @@ void main() {
   tearDown(() => root.deleteSync(recursive: true));
 
   test('parses plain and OSC 8 hyperlinked sign-in URLs', () {
-    expect(
-      ClaudeAuthLoginClient.parseAuthorizationUrl('visit: $_url\n'),
-      _url,
-    );
+    expect(ClaudeAuthLoginClient.parseAuthorizationUrl('visit: $_url\n'), _url);
     expect(
       ClaudeAuthLoginClient.parseAuthorizationUrl(
         'visit: \x1b]8;;$_url\x07$_url\x1b]8;;\x07\n',
@@ -93,6 +90,58 @@ void main() {
       'status',
       '--json',
     ]);
+  });
+
+  test('renews a session through auth status in the profile', () async {
+    ClaudeProcessLaunch? launch;
+    final client = ClaudeAuthLoginClient(
+      processRunner: (value) async {
+        launch = value;
+        return const ClaudeProcessOutput(0, '{"loggedIn": true}');
+      },
+    );
+
+    expect(await client.renewSession(profile), isTrue);
+    expect(launch?.executable, 'nini-agents');
+    expect(launch?.arguments, [
+      'exec',
+      'claude-cli/luis',
+      '--',
+      'auth',
+      'status',
+      '--json',
+    ]);
+    expect(launch?.environment, {'MULTICLI_HOME': root.path});
+  });
+
+  test('session renewal reports an ended login and unknown outcomes', () async {
+    ClaudeAuthLoginClient runner(Future<ClaudeProcessOutput> Function() run) =>
+        ClaudeAuthLoginClient(processRunner: (_) => run());
+
+    expect(
+      await runner(
+        () async => const ClaudeProcessOutput(1, '{"loggedIn": false}'),
+      ).renewSession(profile),
+      isFalse,
+    );
+    expect(
+      await runner(
+        () async => const ClaudeProcessOutput(1, 'error: unknown option'),
+      ).renewSession(profile),
+      isNull,
+    );
+    expect(
+      await runner(
+        () async => throw TimeoutException('auth status'),
+      ).renewSession(profile),
+      isNull,
+    );
+    expect(
+      await runner(
+        () async => throw const ProcessException('nini-agents', []),
+      ).renewSession(profile),
+      isNull,
+    );
   });
 
   test('a login that did not stick in the profile is reported', () async {

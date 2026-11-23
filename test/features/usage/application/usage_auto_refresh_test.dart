@@ -143,6 +143,50 @@ void main() {
     expect(f.service.nextAt, f.now.add(const Duration(hours: 5, minutes: 1)));
   });
 
+  test('a provider with a refresh interval rereads stale usage', () async {
+    final f = _Fixture(profile: _claudeProfile);
+    final observed = f.reset.subtract(const Duration(hours: 2));
+    expect(f.service.nextAt, observed.add(const Duration(minutes: 15)));
+    f.now = observed.add(const Duration(minutes: 15));
+    await f.service.refreshDue();
+    expect(f.reads, 1);
+    expect(f.service.nextAt, f.now.add(const Duration(minutes: 15)));
+  });
+
+  test('a provider without a refresh interval waits for the reset', () {
+    final f = _Fixture();
+    expect(f.service.nextAt, f.reset.add(const Duration(minutes: 1)));
+  });
+
+  test('a rate limited read backs off instead of pausing for good', () {
+    final f = _Fixture(profile: _claudeProfile);
+    f.now = f.reset.subtract(const Duration(hours: 1));
+    f.service.observe(
+      'a',
+      UsageSnapshot(
+        status: UsageRefreshStatus.unavailable,
+        startedAt: f.now,
+        completedAt: f.now,
+        errorCode: 'RATE_LIMITED',
+      ),
+    );
+    expect(f.service.nextAt, f.now.add(const Duration(minutes: 5)));
+  });
+
+  test('an ended session stops the stale rereads until a new read', () {
+    final f = _Fixture(profile: _claudeProfile);
+    f.service.observe(
+      'a',
+      UsageSnapshot(
+        status: UsageRefreshStatus.authRequired,
+        startedAt: f.now,
+        completedAt: f.now,
+        errorCode: 'TOKEN_EXPIRED',
+      ),
+    );
+    expect(f.service.nextAt, isNull);
+  });
+
   test('network failure before reset retries without losing the reset', () {
     final f = _Fixture();
     f.now = f.reset.subtract(const Duration(hours: 1));
@@ -328,7 +372,8 @@ void main() {
 }
 
 final class _Fixture {
-  _Fixture({bool seed = true}) {
+  _Fixture({bool seed = true, this.profile = _profile}) {
+    repository.profile = profile;
     service = UsageAutoRefresh(
       profiles: repository,
       gate: gate,
@@ -351,6 +396,7 @@ final class _Fixture {
     );
     if (seed) this.seed();
   }
+  final Profile profile;
   final reset = DateTime.utc(2026, 9, 10, 12);
   DateTime now = DateTime.utc(2026, 9, 10, 12);
   final repository = _Profiles();
@@ -363,7 +409,10 @@ final class _Fixture {
   int reads = 0, published = 0, synchronizations = 0, errors = 0;
 
   void seed() => service.replaceAccounts([
-    _account(_snapshot(reset.subtract(const Duration(hours: 2)), reset)),
+    _account(
+      _snapshot(reset.subtract(const Duration(hours: 2)), reset),
+      profile: profile,
+    ),
   ]);
 
   UsageSnapshot result() => status == UsageRefreshStatus.success
@@ -384,19 +433,33 @@ const _profile = Profile(
   isFavorite: false,
 );
 
-Account _account(UsageSnapshot snapshot) => const ProjectUsageAccount()(
-  Account(
-    profile: _profile,
-    metadata: null,
-    costShares: [],
-    currentCheck: null,
-    currentWindows: [],
-    lastSuccessfulCheck: null,
-    lastSuccessfulWindows: [],
-    resetCredits: null,
-  ),
-  snapshot,
+const _claudeProfile = Profile(
+  id: 'a',
+  toolKey: 'claude-cli',
+  profileName: 'a',
+  displayName: 'A',
+  profileHome: '/synthetic/a',
+  source: ProfileSource.multiCli,
+  kind: ProfileKind.full,
+  hasAuthFile: true,
+  isAvailable: true,
+  isFavorite: false,
 );
+
+Account _account(UsageSnapshot snapshot, {Profile profile = _profile}) =>
+    const ProjectUsageAccount()(
+      Account(
+        profile: profile,
+        metadata: null,
+        costShares: [],
+        currentCheck: null,
+        currentWindows: [],
+        lastSuccessfulCheck: null,
+        lastSuccessfulWindows: [],
+        resetCredits: null,
+      ),
+      snapshot,
+    );
 
 UsageSnapshot _snapshot(
   DateTime observed,

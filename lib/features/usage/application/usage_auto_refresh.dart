@@ -285,6 +285,27 @@ final class _TrackedUsage {
     if (paused || !UsageAutoRefresh.eligible(profile)) {
       return null;
     }
+    final scheduled = _scheduledAt;
+    final stale = _staleAt;
+    if (scheduled == null) return stale;
+    if (stale == null) return scheduled;
+    return stale.isBefore(scheduled) ? stale : scheduled;
+  }
+
+  /// Usage keeps moving between resets; providers with a refresh interval
+  /// read it again once the last read gets old. A failure backs off instead.
+  DateTime? get _staleAt {
+    final interval = profileProviderOrNull(
+      profile.toolKey,
+    )?.usageRefreshInterval;
+    if (interval == null || retryAt != null) return null;
+    final last = checkedAt;
+    return last == null
+        ? DateTime.fromMillisecondsSinceEpoch(0, isUtc: true)
+        : last.add(interval);
+  }
+
+  DateTime? get _scheduledAt {
     if (quotaObservedAt == null) return retryAt;
     final natural = UsageResetRefreshPolicy.nextAt(
       windows,
@@ -338,7 +359,7 @@ final class _TrackedUsage {
     final incomplete =
         snapshot.status == UsageRefreshStatus.timeout ||
         snapshot.status == UsageRefreshStatus.error ||
-        UsageResetRefreshPolicy.awaitsProviderRenewal(snapshot.errorCode) ||
+        UsageResetRefreshPolicy.retriesLater(snapshot.errorCode) ||
         ((snapshot.status == UsageRefreshStatus.success ||
                 snapshot.status == UsageRefreshStatus.partial) &&
             (!snapshot.rateLimitsReadSucceeded || snapshot.windows.isEmpty));

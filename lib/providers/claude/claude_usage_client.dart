@@ -13,6 +13,11 @@ final class ClaudeHttpResponse {
   final String body;
 }
 
+/// Lets Claude Code check its own session, which renews an expired access
+/// token. Returns whether Claude Code still reports a login, or null when the
+/// check could not run.
+typedef ClaudeSessionRenewal = Future<bool?> Function(Profile profile);
+
 typedef ClaudeHttpGet =
     Future<ClaudeHttpResponse> Function(
       Uri uri,
@@ -23,19 +28,22 @@ typedef ClaudeHttpGet =
 /// Reads the subscription quota that Claude Code's `/usage` shows.
 ///
 /// The token is read from the profile's own credential file and is never
-/// refreshed here: Claude Code owns rotation, and refreshing from a second
-/// process could invalidate a session that is running with that profile.
+/// refreshed here: Claude Code owns rotation. When the access token expired,
+/// [renewSession] asks Claude Code itself to renew it, under its own lock, so
+/// a session running with that profile keeps working.
 class ClaudeUsageClient {
   const ClaudeUsageClient({
     this.baseUrl = 'https://api.anthropic.com',
     this.timeout = const Duration(seconds: 15),
     this.httpGet,
+    this.renewSession,
     this.now,
   });
 
   final String baseUrl;
   final Duration timeout;
   final ClaudeHttpGet? httpGet;
+  final ClaudeSessionRenewal? renewSession;
   final DateTime Function()? now;
 
   static const primaryMinutes = 300;
@@ -62,32 +70,41 @@ class ClaudeUsageClient {
         'La carpeta del perfil no existe.',
       );
     }
-    final credentials = _readCredentials(profile.profileHome);
-    if (credentials == null) {
-      return failure(
-        UsageRefreshStatus.authRequired,
-        'AUTH_REQUIRED',
-        'Vincula la cuenta de Claude para consultar su uso.',
-      );
-    }
-    final expiresAt = credentials.expiresAt;
-    if (expiresAt != null &&
-        !expiresAt.isAfter(_now()) &&
-        credentials.hasRefreshToken) {
-      // The session is still valid: Claude Code renews the access token the
-      // next time the profile opens, and usage resumes from that file.
-      return failure(
-        UsageRefreshStatus.unavailable,
-        'TOKEN_REFRESHABLE',
-        'Claude Code renueva el acceso al abrir este perfil.',
-      );
-    }
-    if (expiresAt != null && !expiresAt.isAfter(_now())) {
-      return failure(
-        UsageRefreshStatus.authRequired,
-        'TOKEN_EXPIRED',
-        'El acceso de Claude venció. Abre este perfil en Claude Code para renovarlo.',
-      );
+    UsageSnapshot unlinked() => failure(
+      UsageRefreshStatus.authRequired,
+      'AUTH_REQUIRED',
+      'Vincula la cuenta de Claude para consultar su uso.',
+    );
+    UsageSnapshot sessionEnded() => failure(
+      UsageRefreshStatus.authRequired,
+      'TOKEN_EXPIRED',
+      'La sesión de Claude terminó y no se puede renovar. Vuelve a vincular la cuenta.',
+    );
+
+    var credentials = _readCredentials(profile.profileHome);
+    if (credentials == null) return unlinked();
+    if (credentials.accessExpired(_now())) {
+      if (!credentials.renewable(_now())) return sessionEnded();
+      final renew = renewSession;
+      if (renew != null) {
+        final loggedIn = await renew(profile);
+        if (loggedIn == false) return sessionEnded();
+        credentials = _readCredentials(profile.profileHome);
+        if (credentials == null) return unlinked();
+        if (credentials.accessExpired(_now()) &&
+            !credentials.renewable(_now())) {
+          return sessionEnded();
+        }
+      }
+      if (credentials.accessExpired(_now())) {
+        // The session is still valid but Claude Code did not renew it yet;
+        // the automatic refresh tries again later.
+        return failure(
+          UsageRefreshStatus.unavailable,
+          'TOKEN_REFRESHABLE',
+          'Claude Code aún no renovó el acceso de este perfil; se reintentará.',
+        );
+      }
     }
 
     final headers = {
@@ -249,18 +266,21 @@ class ClaudeUsageClient {
       try {
         final oauth = _map(_decode(file.readAsStringSync())['claudeAiOauth']);
         final token = oauth['accessToken'];
-        if (token is! String || token.isEmpty) continue;
-        final expiresAt = oauth['expiresAt'];
+        final loginEnded = oauth['loginEnded'];
+        final ended = loginEnded is String && loginEnded.isNotEmpty;
+        // A login Claude Code could not renew keeps its marker but no tokens.
+        if ((token is! String || token.isEmpty) && !ended) continue;
+        DateTime? instant(Object? value) => value is num
+            ? DateTime.fromMillisecondsSinceEpoch(value.toInt(), isUtc: true)
+            : null;
         final refreshToken = oauth['refreshToken'];
         return _ClaudeCredentials(
-          accessToken: token,
+          accessToken: token is String ? token : '',
           hasRefreshToken: refreshToken is String && refreshToken.isNotEmpty,
-          expiresAt: expiresAt is num
-              ? DateTime.fromMillisecondsSinceEpoch(
-                  expiresAt.toInt(),
-                  isUtc: true,
-                )
-              : null,
+          expiresAt: instant(oauth['expiresAt']),
+          refreshExpiresAt: instant(oauth['refreshTokenExpiresAt']),
+          // Claude Code marks a login it could not renew (e.g. `time_limit`).
+          loginEnded: ended,
           subscriptionType: oauth['subscriptionType'] as String?,
         );
       } on FormatException {
@@ -293,13 +313,26 @@ final class _ClaudeCredentials {
     required this.accessToken,
     required this.hasRefreshToken,
     required this.expiresAt,
+    required this.refreshExpiresAt,
+    required this.loginEnded,
     required this.subscriptionType,
   });
 
   final String accessToken;
   final bool hasRefreshToken;
   final DateTime? expiresAt;
+  final DateTime? refreshExpiresAt;
+  final bool loginEnded;
   final String? subscriptionType;
+
+  bool accessExpired(DateTime now) =>
+      loginEnded || (expiresAt != null && !expiresAt!.isAfter(now));
+
+  /// Whether Claude Code can still renew the access token on its own.
+  bool renewable(DateTime now) =>
+      hasRefreshToken &&
+      !loginEnded &&
+      (refreshExpiresAt == null || refreshExpiresAt!.isAfter(now));
 }
 
 Future<ClaudeHttpResponse> _ioGet(

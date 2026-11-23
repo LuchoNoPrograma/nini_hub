@@ -52,9 +52,8 @@ abstract interface class ClaudeProcessHandle {
   bool kill(ProcessSignal signal);
 }
 
-typedef ClaudeProcessStarter = Future<ClaudeProcessHandle> Function(
-  ClaudeProcessLaunch launch,
-);
+typedef ClaudeProcessStarter =
+    Future<ClaudeProcessHandle> Function(ClaudeProcessLaunch launch);
 typedef ClaudeProcessTreeTerminator = Future<void> Function(int pid);
 
 final class ClaudeProcessOutput {
@@ -64,9 +63,8 @@ final class ClaudeProcessOutput {
   final String stdout;
 }
 
-typedef ClaudeProcessRunner = Future<ClaudeProcessOutput> Function(
-  ClaudeProcessLaunch launch,
-);
+typedef ClaudeProcessRunner =
+    Future<ClaudeProcessOutput> Function(ClaudeProcessLaunch launch);
 
 /// Drives `claude auth login` inside a Nini Agents profile.
 ///
@@ -146,8 +144,32 @@ class ClaudeAuthLoginClient {
     if (status?['loggedIn'] == true) return true;
     throw const ClaudeAuthLoginFailure(
       code: 'CLAUDE_LOGIN_UNCONFIRMED',
-      message: 'Claude Code terminó, pero el perfil no quedó con la sesión iniciada.',
+      message:
+          'Claude Code terminó, pero el perfil no quedó con la sesión iniciada.',
     );
+  }
+
+  /// Runs `claude auth status` in the profile so Claude Code renews an expired
+  /// access token itself, under its own credential lock. The renewed token
+  /// lands in the profile runtime, where the usage reader looks first.
+  ///
+  /// Returns whether Claude Code still reports a login, or null when the
+  /// check could not run.
+  Future<bool?> renewSession(Profile profile) async {
+    if (!Directory(profile.profileHome).existsSync()) return null;
+    try {
+      final result = await (processRunner ?? _runClaudeProcess)(
+        _processLaunch(profile, const ['auth', 'status', '--json']),
+      );
+      final loggedIn = parseAuthStatus(result.stdout)?['loggedIn'];
+      return loggedIn is bool ? loggedIn : null;
+    } on ClaudeAuthLoginFailure {
+      return null;
+    } on ProcessException {
+      return null;
+    } on TimeoutException {
+      return null;
+    }
   }
 
   /// Reads the JSON object printed by `claude auth status --json`, ignoring

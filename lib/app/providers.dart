@@ -112,7 +112,11 @@ final usageProviderProvider = Provider<UsageProvider>(
     'codex': CodexUsageProvider.current(
       () => ref.read(codexClientRuntimeProvider).current,
     ),
-    'claude-cli': const ClaudeUsageProvider(ClaudeUsageClient()),
+    'claude-cli': ClaudeUsageProvider(
+      ClaudeUsageClient(
+        renewSession: const ClaudeAuthLoginClient().renewSession,
+      ),
+    ),
   }),
 );
 

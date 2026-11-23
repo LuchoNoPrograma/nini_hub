@@ -9,8 +9,16 @@ abstract final class UsageResetRefreshPolicy {
   static bool awaitsProviderRenewal(String? errorCode) =>
       errorCode?.toUpperCase() == 'TOKEN_REFRESHABLE';
 
+  /// A provider that throttled usage reads answers again after a while.
+  static bool isRateLimited(String? errorCode) =>
+      errorCode?.toUpperCase() == 'RATE_LIMITED';
+
+  /// Failures that back off and retry instead of waiting for the user.
+  static bool retriesLater(String? errorCode) =>
+      awaitsProviderRenewal(errorCode) || isRateLimited(errorCode);
+
   static bool pauses(UsageRefreshStatus status, {String? errorCode}) =>
-      !awaitsProviderRenewal(errorCode) && _pausingStatus(status);
+      !retriesLater(errorCode) && _pausingStatus(status);
 
   static bool _pausingStatus(UsageRefreshStatus status) => switch (status) {
     UsageRefreshStatus.authRequired ||

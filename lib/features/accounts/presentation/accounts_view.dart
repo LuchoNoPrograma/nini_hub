@@ -2134,8 +2134,8 @@ String _stateDetail(Account account) {
           : 'No se pudo conectar con ${provider.displayName}',
     AccountUsageIssue.sessionPaused =>
       account.lastSuccessfulWindows.isNotEmpty
-          ? 'Se renueva al abrir el perfil; se muestra el último dato válido'
-          : 'Se renueva al abrir el perfil',
+          ? 'Renovación pendiente; se muestra el último dato válido'
+          : 'Renovación pendiente; se reintentará automáticamente',
     AccountUsageIssue.credentialExpired =>
       'La credencial expiró; vuelve a iniciar sesión',
     AccountUsageIssue.credentialInvalidated =>

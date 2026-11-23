@@ -15,6 +15,7 @@ class ProfileProvider {
     this.supportsAuthMethodChoice = false,
     this.supportsResetCredits = false,
     this.launchArguments = const [],
+    this.usageRefreshInterval,
   });
 
   final String toolKey;
@@ -36,6 +37,10 @@ class ProfileProvider {
   /// Whether usage reports purchasable quota resets (a Codex-only concept).
   final bool supportsResetCredits;
   final List<String> launchArguments;
+
+  /// How long a quota read stays current before the automatic refresh reads
+  /// it again. Null refreshes only when a quota window resets.
+  final Duration? usageRefreshInterval;
 
   String profileSpec(String name) => '$multiCliTool/$name';
 
@@ -76,6 +81,8 @@ const supportedProfileProviders = <ProfileProvider>[
     supportsUsage: true,
     supportsDeviceAuth: true,
     showsDefaultProfile: false,
+    // A light HTTP read: usage between resets would otherwise stay stale.
+    usageRefreshInterval: Duration(minutes: 15),
   ),
 ];
 
