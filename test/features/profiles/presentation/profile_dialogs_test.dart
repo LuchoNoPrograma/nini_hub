@@ -122,6 +122,8 @@ void main() {
     await tester.tap(find.text('Abrir renombre'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'renamed');
+    // "Renombrar" is enabled only once the name differs from the current one.
+    await tester.pump();
     await tester.tap(find.text('Renombrar'));
     await tester.pumpAndSettle();
 

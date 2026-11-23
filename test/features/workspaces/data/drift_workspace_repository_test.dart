@@ -100,22 +100,18 @@ void main() {
     expect(workspace.lastUsedAt.isUtc, isTrue);
   });
 
-  test(
-    'deduplicates workspace path casing on Windows',
-    () async {
-      final directory = await Directory.systemTemp.createTemp(
-        'workspace-windows-case-',
-      );
-      addTearDown(() => directory.delete(recursive: true));
+  test('deduplicates workspace path casing on Windows', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'workspace-windows-case-',
+    );
+    addTearDown(() => directory.delete(recursive: true));
 
-      final original = await repository.add(directory.path);
-      final caseVariant = await repository.add(directory.path.toUpperCase());
+    final original = await repository.add(directory.path);
+    final caseVariant = await repository.add(directory.path.toUpperCase());
 
-      expect(caseVariant.id, original.id);
-      expect(await repository.loadAll(), hasLength(1));
-    },
-    skip: Platform.isWindows ? false : 'Requires a Windows runtime.',
-  );
+    expect(caseVariant.id, original.id);
+    expect(await repository.loadAll(), hasLength(1));
+  }, skip: Platform.isWindows ? false : 'Requires a Windows runtime.');
 
   test('stores nullable selection with legacy empty-string encoding', () async {
     expect(await selectionStore.loadCurrentWorkspaceId(), isNull);

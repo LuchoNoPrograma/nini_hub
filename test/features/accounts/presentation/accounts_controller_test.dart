@@ -86,6 +86,19 @@ void main() {
     expect(_visibleIds(fixture.state), ['delta']);
     expect(fixture.state.selectedProfileId, 'beta');
 
+    fixture.controller.setProviderFilter('codex');
+    expect(_visibleIds(fixture.state), isEmpty);
+    fixture.controller.setStatusFilter(AccountStatusFilter.all);
+    fixture.controller.setSearch('a');
+    fixture.controller.setSort(AccountSortMode.availability);
+    expect(fixture.state.query.toolKey, 'codex');
+    expect(_visibleIds(fixture.state), ['alpha', 'beta']);
+    fixture.controller.setProviderFilter(null);
+    fixture.controller.setSearch('');
+    fixture.controller.setSort(AccountSortMode.name);
+    fixture.controller.setStatusFilter(AccountStatusFilter.unlinked);
+    expect(fixture.state.selectedProfileId, 'beta');
+
     fixture.accounts.values = [fixture.accounts.values.first];
     expect(await fixture.controller.load(removedProfileId: 'other'), isTrue);
     expect(fixture.state.selectedProfileId, 'beta');

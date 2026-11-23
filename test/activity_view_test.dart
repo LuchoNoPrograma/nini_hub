@@ -115,6 +115,27 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('activity search field starts from the applied filter', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(900, 620));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final container = _activityContainer(database);
+    addTearDown(container.dispose);
+    // The filter outlives the view, which is rebuilt on every section switch.
+    container.read(activityControllerProvider.notifier).setSearch('cuota');
+
+    await _pumpActivity(tester, container);
+
+    final field = tester.widget<TextField>(
+      find.byKey(const ValueKey('activity-search')),
+    );
+    expect(field.controller?.text, 'cuota');
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('activity opens log detail on a narrow surface', (tester) async {
     await tester.binding.setSurfaceSize(const Size(420, 620));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -201,6 +222,47 @@ void main() {
 
     expect(find.text('OK'), findsOneWidget);
     expect(find.text('Esperando salida…'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a newer log does not replace the detail being read', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(900, 620));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final container = _activityContainer(database);
+    addTearDown(container.dispose);
+    expect(
+      await container.read(activityControllerProvider.notifier).load(),
+      isTrue,
+    );
+    final startedAt = DateTime.utc(2026, 8, 25, 12);
+    Future<void> insert(String id, String output, int minute) => database
+        .into(database.commandLogs)
+        .insert(
+          CommandLogsCompanion.insert(
+            id: id,
+            command: 'command $id',
+            summary: 'Summary $id',
+            output: Value(output),
+            status: 'success',
+            startedAt: startedAt.add(Duration(minutes: minute)),
+          ),
+        );
+
+    await insert('first', 'Salida que se está leyendo', 0);
+    await _pumpActivity(tester, container);
+    expect(find.text('Salida que se está leyendo'), findsOneWidget);
+
+    // Nothing was selected by hand: the detail still stays on what is shown.
+    await insert('second', 'Salida de un registro posterior', 1);
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.text('Summary second'), findsWidgets);
+    expect(find.text('Salida que se está leyendo'), findsOneWidget);
+    expect(find.text('Salida de un registro posterior'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

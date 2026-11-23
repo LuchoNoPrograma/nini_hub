@@ -70,6 +70,62 @@ Future<bool> showCodexHeartbeatConfirmation(
     ) ??
     false;
 
+/// Asks before spending one quota reset: it cannot be undone.
+Future<bool> showResetCreditConfirmation(
+  BuildContext context,
+  Account account, {
+  required DateTime now,
+}) async {
+  final available = account.resetCredits?.availableCount ?? 0;
+  final windows = account.visibleWindows
+      .where((window) => window.usedPercent != null)
+      .toList();
+  return await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          icon: const Icon(Icons.restart_alt),
+          title: Text('Usar un reset de ${account.profile.displayName}'),
+          scrollable: true,
+          content: SizedBox(
+            width: 430,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Se gastará 1 de $available '
+                  '${available == 1 ? 'reset' : 'resets'} y los límites de la '
+                  'cuenta volverán a cero. No se puede deshacer.',
+                ),
+                if (windows.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  for (final window in windows)
+                    Text(
+                      '• ${window.usedPercent!.round()} % usado'
+                      '${window.resetsAt == null || !window.resetsAt!.isAfter(now) ? '' : ' · reinicia solo en ${formatTimeRemaining(window.resetsAt!, from: now)}'}',
+                      style: Theme.of(dialogContext).textTheme.bodySmall,
+                    ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              autofocus: true,
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton.icon(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              icon: const Icon(Icons.restart_alt, size: 18),
+              label: const Text('Usar reset'),
+            ),
+          ],
+        ),
+      ) ??
+      false;
+}
+
 Future<AccountAuthMethod?> showAccountAuthMethodDialog(
   BuildContext context, {
   String title = 'Vincular con ChatGPT',
@@ -1688,6 +1744,7 @@ class _ShareEditor {
     required this.paid,
     required this.notes,
     required this.status,
+    this.storedPaidOn,
   });
 
   factory _ShareEditor.empty() => _ShareEditor(
@@ -1710,6 +1767,7 @@ class _ShareEditor {
     ),
     notes: TextEditingController(text: item.notes),
     status: item.paymentStatus,
+    storedPaidOn: item.paymentStatus == 'paid' ? item.paidOn : null,
   );
 
   final String id;
@@ -1719,6 +1777,9 @@ class _ShareEditor {
   final TextEditingController notes;
   String status;
 
+  /// Payment date already stored for a share that was saved as paid.
+  final DateTime? storedPaidOn;
+
   AccountCostShare draft(String currency) => AccountCostShare(
     id: id,
     personName: name.text,
@@ -1726,7 +1787,9 @@ class _ShareEditor {
     paidAmountMinor: _minorUnits(paid.text, currency),
     currencyCode: currency,
     paymentStatus: status,
-    paidOn: status == 'paid' ? DateTime.now() : null,
+    // The date records when the share became paid. Saving the form again
+    // must not move it to today.
+    paidOn: status == 'paid' ? storedPaidOn ?? DateTime.now().toUtc() : null,
     notes: notes.text,
   );
 

@@ -30,6 +30,9 @@ Future<Profile?> showRenameProfileDialog(
   controller.clearFailure();
   return showDialog<Profile>(
     context: context,
+    // Closing by the barrier while the engine works would drop the result of a
+    // rename that still completes.
+    barrierDismissible: false,
     builder: (_) => _RenameProfileDialog(
       controller: controller,
       readState: readState,
@@ -65,6 +68,8 @@ Future<bool> showDeleteProfileDialog(
       ),
       actions: [
         TextButton(
+          // A destructive confirmation starts on the safe choice.
+          autofocus: true,
           onPressed: () => Navigator.pop(dialogContext, false),
           child: const Text('Cancelar'),
         ),
@@ -80,11 +85,14 @@ Future<bool> showDeleteProfileDialog(
   );
   if (confirmed != true || !context.mounted) return false;
 
+  // Captured before the wait: the dialog is already closed, so the user can
+  // leave this section and the failure must still be reported.
+  final messenger = ScaffoldMessenger.of(context);
   controller.clearFailure();
   final deleted = await controller.delete(DeleteProfileCommand(profileId));
-  if (!deleted && context.mounted) {
+  if (!deleted) {
     final message = readState().errorMessage;
-    ScaffoldMessenger.of(context).showSnackBar(
+    messenger.showSnackBar(
       SnackBar(
         content: Text(message ?? 'Ya hay una operación de perfiles en curso.'),
       ),
@@ -394,7 +402,15 @@ class _RenameProfileDialogState extends State<_RenameProfileDialog> {
     super.dispose();
   }
 
+  bool get _unchanged => name.text.trim() == widget.profileName;
+
   Future<void> submit() async {
+    if (saving || _unchanged) return;
+    final invalid = _validateProfileName(name.text.trim());
+    if (invalid != null) {
+      setState(() => error = invalid);
+      return;
+    }
     setState(() {
       saving = true;
       error = null;
@@ -418,6 +434,10 @@ class _RenameProfileDialogState extends State<_RenameProfileDialog> {
   @override
   Widget build(BuildContext context) {
     final provider = profileProvider(widget.toolKey);
+    return PopScope(canPop: !saving, child: _dialog(context, provider));
+  }
+
+  Widget _dialog(BuildContext context, ProfileProvider provider) {
     return AlertDialog(
       title: const Text('Cambiar identificador'),
       content: SizedBox(
@@ -429,8 +449,11 @@ class _RenameProfileDialogState extends State<_RenameProfileDialog> {
             TextField(
               controller: name,
               autofocus: true,
+              enabled: !saving,
               decoration: InputDecoration(prefixText: provider.commandPrefix),
-              onSubmitted: (_) => saving ? null : submit(),
+              // Rebuilds to enable "Renombrar" only once the name differs.
+              onChanged: (_) => setState(() {}),
+              onSubmitted: (_) => submit(),
             ),
             const SizedBox(height: 12),
             Text(
@@ -455,9 +478,16 @@ class _RenameProfileDialogState extends State<_RenameProfileDialog> {
           onPressed: saving ? null : () => Navigator.pop(context),
           child: const Text('Cancelar'),
         ),
-        FilledButton(
-          onPressed: saving ? null : submit,
-          child: const Text('Renombrar'),
+        FilledButton.icon(
+          onPressed: saving || _unchanged ? null : submit,
+          icon: saving
+              ? const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.drive_file_rename_outline, size: 17),
+          label: Text(saving ? 'Renombrando…' : 'Renombrar'),
         ),
       ],
     );

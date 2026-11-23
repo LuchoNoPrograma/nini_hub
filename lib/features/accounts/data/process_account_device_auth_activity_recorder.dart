@@ -23,18 +23,20 @@ final class ProcessAccountDeviceAuthActivityRecorder
   );
 
   @override
-  Future<void> recordCompleted(Profile profile, {required bool success}) =>
-      runner.addInternalLog(
-        summary: 'Vincular ${profile.displayName}',
-        status: success ? 'success' : 'error',
-        output: success
-            ? '${_productName(profile)} confirmó la cuenta y guardó la credencial en el perfil.'
-            : 'El acceso no fue confirmado.',
-        profileId: profile.id,
-        command: _isClaude(profile)
-            ? 'nini-agents exec ${_spec(profile)} -- auth login'
-            : 'codex app-server account/login/completed',
-      );
+  Future<void> recordCompleted(
+    Profile profile, {
+    required bool success,
+  }) => runner.addInternalLog(
+    summary: 'Vincular ${profile.displayName}',
+    status: success ? 'success' : 'error',
+    output: success
+        ? '${_productName(profile)} confirmó la cuenta y guardó la credencial en el perfil.'
+        : 'El acceso no fue confirmado.',
+    profileId: profile.id,
+    command: _isClaude(profile)
+        ? 'nini-agents exec ${_spec(profile)} -- auth login'
+        : 'codex app-server account/login/completed',
+  );
 
   static bool _isClaude(Profile profile) => profile.toolKey == 'claude-cli';
 

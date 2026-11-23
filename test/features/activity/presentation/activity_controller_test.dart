@@ -66,15 +66,16 @@ void main() {
     fixture.controller.setSearch('');
     fixture.controller.selectLog('success');
     fixture.controller.setStatusFilter(ActivityStatusFilter.error);
-    expect(_visibleIds(fixture.state), ['error']);
+    // A timeout is painted as a failure, so the failure filter includes it.
+    expect(_visibleIds(fixture.state), ['error', 'timeout']);
     expect(fixture.state.selectedLogId, 'success');
     expect(fixture.state.selectedLog?.id, 'error');
 
     fixture.controller.setStatusFilter(ActivityStatusFilter.all);
     expect(fixture.state.selectedLog?.id, 'success');
     fixture.controller.setStatusFilter(ActivityStatusFilter.error);
-    expect(_visibleIds(fixture.state), ['error']);
-    expect(_visibleIds(fixture.state), isNot(contains('timeout')));
+    expect(_visibleIds(fixture.state), ['error', 'timeout']);
+    expect(_visibleIds(fixture.state), isNot(contains('running')));
   });
 
   test('stream failure retains the previous snapshot and cause', () async {

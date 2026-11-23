@@ -2,7 +2,7 @@ import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:nini_hub/app/providers.dart';
 import 'package:nini_hub/core/formatters.dart';
@@ -20,10 +20,29 @@ class UsageCalendarView extends ConsumerStatefulWidget {
 class _UsageCalendarViewState extends ConsumerState<UsageCalendarView> {
   late DateTime focusedDay;
 
+  // One pair of bounds for the month arrows and the calendar grid. The grid
+  // asserts that the focused day stays inside them.
+  late final DateTime _firstDay = DateTime(2023);
+  late final DateTime _lastDay = () {
+    final now = DateTime.now();
+    return DateTime(now.year + 2, now.month, now.day);
+  }();
+
   @override
   void initState() {
     super.initState();
-    focusedDay = _day(ref.read(usageControllerProvider).selectedDay);
+    final selected = _day(ref.read(usageControllerProvider).selectedDay);
+    focusedDay = selected.isBefore(_firstDay)
+        ? _firstDay
+        : selected.isAfter(_lastDay)
+        ? _lastDay
+        : selected;
+  }
+
+  bool _canShiftMonth(int offset) {
+    final target = DateTime(focusedDay.year, focusedDay.month + offset);
+    return !target.isBefore(DateTime(_firstDay.year, _firstDay.month)) &&
+        !target.isAfter(DateTime(_lastDay.year, _lastDay.month));
   }
 
   void _focusMonth(DateTime day) {
@@ -35,6 +54,7 @@ class _UsageCalendarViewState extends ConsumerState<UsageCalendarView> {
   }
 
   void _shiftMonth(int offset) {
+    if (!_canShiftMonth(offset)) return;
     _focusMonth(DateTime(focusedDay.year, focusedDay.month + offset, 1));
   }
 
@@ -90,6 +110,9 @@ class _UsageCalendarViewState extends ConsumerState<UsageCalendarView> {
       (sum, item) => sum + item.successfulChecks + item.failedChecks,
     );
     return SingleChildScrollView(
+      // The section is rebuilt on every tab switch; the storage key brings the
+      // scroll position back.
+      key: const PageStorageKey<String>('usage-calendar-scroll'),
       padding: const EdgeInsets.all(18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -99,11 +122,18 @@ class _UsageCalendarViewState extends ConsumerState<UsageCalendarView> {
             subtitle:
                 'Explora los tokens registrados y el seguimiento de tus cuentas.',
           ),
-          if (state.isCalendarLoading)
-            const LinearProgressIndicator(
-              minHeight: 2,
-              backgroundColor: Colors.transparent,
-            ),
+          // Fixed height: the page must not shift on every background sync.
+          SizedBox(
+            height: 2,
+            child: state.isCalendarLoading
+                ? const RepaintBoundary(
+                    child: LinearProgressIndicator(
+                      minHeight: 2,
+                      backgroundColor: Colors.transparent,
+                    ),
+                  )
+                : null,
+          ),
           if (state.calendarFailure != null)
             _UsageCalendarFailureBanner(
               message: state.calendarFailure!.message,
@@ -135,12 +165,12 @@ class _UsageCalendarViewState extends ConsumerState<UsageCalendarView> {
                 AppIconButton(
                   icon: Icons.chevron_left,
                   tooltip: 'Mes anterior',
-                  onPressed: () => _shiftMonth(-1),
+                  onPressed: _canShiftMonth(-1) ? () => _shiftMonth(-1) : null,
                 ),
                 AppIconButton(
                   icon: Icons.chevron_right,
                   tooltip: 'Mes siguiente',
-                  onPressed: () => _shiftMonth(1),
+                  onPressed: _canShiftMonth(1) ? () => _shiftMonth(1) : null,
                 ),
               ],
             ),
@@ -188,13 +218,10 @@ class _UsageCalendarViewState extends ConsumerState<UsageCalendarView> {
           ),
           const SizedBox(height: 18),
           _UsageTrend(
-                data: state.calendar.days,
-                anchorDay: selected,
-                onDaySelected: _selectDay,
-              )
-              .animate()
-              .fadeIn(duration: 300.ms, delay: 80.ms)
-              .moveY(begin: 8, end: 0),
+            data: state.calendar.days,
+            anchorDay: selected,
+            onDaySelected: _selectDay,
+          ),
           const SizedBox(height: 20),
           Text(
             'Detalle por día',
@@ -210,6 +237,8 @@ class _UsageCalendarViewState extends ConsumerState<UsageCalendarView> {
               final calendar = _CalendarPanel(
                 data: state.calendar.days,
                 focusedDay: focusedDay,
+                firstDay: _firstDay,
+                lastDay: _lastDay,
                 selectedDay: selected,
                 onSelected: _selectDay,
                 onPageChanged: _focusMonth,
@@ -299,6 +328,8 @@ class _CalendarPanel extends StatelessWidget {
   const _CalendarPanel({
     required this.data,
     required this.focusedDay,
+    required this.firstDay,
+    required this.lastDay,
     required this.selectedDay,
     required this.onSelected,
     required this.onPageChanged,
@@ -306,6 +337,8 @@ class _CalendarPanel extends StatelessWidget {
 
   final Map<DateTime, UsageCalendarDay> data;
   final DateTime focusedDay;
+  final DateTime firstDay;
+  final DateTime lastDay;
   final DateTime selectedDay;
   final ValueChanged<DateTime> onSelected;
   final ValueChanged<DateTime> onPageChanged;
@@ -334,8 +367,8 @@ class _CalendarPanel extends StatelessWidget {
           ),
           TableCalendar<UsageCalendarDay>(
             locale: 'es',
-            firstDay: DateTime.utc(2023),
-            lastDay: DateTime.now().add(const Duration(days: 730)),
+            firstDay: firstDay,
+            lastDay: lastDay,
             focusedDay: focusedDay,
             selectedDayPredicate: (day) => isSameDay(day, selectedDay),
             onDaySelected: (selected, _) => onSelected(selected),
@@ -404,7 +437,7 @@ class _CalendarPanel extends StatelessWidget {
           ),
         ],
       ),
-    ).animate().fadeIn(duration: 280.ms).moveX(begin: -8, end: 0);
+    );
   }
 }
 
@@ -742,8 +775,12 @@ class _DayInspector extends StatelessWidget {
                     height: 1,
                     color: theme.colorScheme.outlineVariant,
                   ),
-                  itemBuilder: (context, index) =>
-                      _AccountDayRow(account: accounts[index]),
+                  // Keyed by account: without it the availability bar of one
+                  // account animated from the value of another.
+                  itemBuilder: (context, index) => _AccountDayRow(
+                    key: ValueKey<String>(accounts[index].profileId),
+                    account: accounts[index],
+                  ),
                 ),
               ),
             ],
@@ -828,7 +865,7 @@ class _TodayBadge extends StatelessWidget {
 }
 
 class _AccountDayRow extends StatelessWidget {
-  const _AccountDayRow({required this.account});
+  const _AccountDayRow({super.key, required this.account});
 
   final UsageAccountDay account;
 
@@ -980,7 +1017,7 @@ class _AvailabilityBar extends StatelessWidget {
         const SizedBox(height: 5),
         TweenAnimationBuilder<double>(
           tween: Tween(begin: 0, end: value / 100),
-          duration: const Duration(milliseconds: 620),
+          duration: const Duration(milliseconds: 180),
           curve: Curves.easeOutCubic,
           builder: (context, progress, _) => LinearProgressIndicator(
             key: ValueKey('calendar-availability-$profileId'),
@@ -1041,41 +1078,275 @@ class _UsageTrend extends StatefulWidget {
 
 class _UsageTrendState extends State<_UsageTrend> {
   int range = 14;
-  int? focusedIndex;
+
+  // Hover lives outside setState: moving the pointer only rebuilds the summary
+  // line, never the chart.
+  final ValueNotifier<int?> _focusedIndex = ValueNotifier<int?>(null);
+
+  // fl_chart restarts its implicit animation whenever it receives a
+  // LineChartData that is not equal to the previous one, and callbacks created
+  // during build are never equal. The data is therefore rebuilt only when one
+  // of its inputs changes.
+  LineChartData? _chartData;
+  // Theme.of returns a new ThemeData instance per call, so the cache compares
+  // the two theme values the chart actually draws with.
+  ColorScheme? _chartColors;
+  TextStyle? _chartLabelStyle;
+  DateTime? _chartAnchor;
+  DateTime? _chartToday;
+  int? _chartRange;
+  List<int> _chartValues = const [];
+  Duration _chartDuration = Duration.zero;
 
   @override
   void didUpdateWidget(covariant _UsageTrend oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!isSameDay(oldWidget.anchorDay, widget.anchorDay)) {
-      focusedIndex = null;
+      _focusedIndex.value = null;
     }
+  }
+
+  @override
+  void dispose() {
+    _focusedIndex.dispose();
+    super.dispose();
+  }
+
+  LineChartData _resolveChartData({
+    required ThemeData theme,
+    required DateTime anchor,
+    required DateTime today,
+    required List<DateTime> days,
+    required List<int> values,
+    required _ChartScale scale,
+  }) {
+    final cached = _chartData;
+    final sameWindow = _chartAnchor == anchor && _chartRange == range;
+    if (cached != null &&
+        sameWindow &&
+        _chartToday == today &&
+        _chartColors == theme.colorScheme &&
+        _chartLabelStyle == theme.textTheme.labelSmall &&
+        listEquals(_chartValues, values)) {
+      return cached;
+    }
+    // New values in the same window ease in. A different window shows other
+    // dates at the same positions, so interpolating between them means nothing.
+    _chartDuration = cached != null && sameWindow
+        ? const Duration(milliseconds: 180)
+        : Duration.zero;
+    _chartColors = theme.colorScheme;
+    _chartLabelStyle = theme.textTheme.labelSmall;
+    _chartAnchor = anchor;
+    _chartToday = today;
+    _chartRange = range;
+    _chartValues = values;
+    return _chartData = _buildChartData(
+      theme: theme,
+      today: today,
+      days: days,
+      values: values,
+      scale: scale,
+    );
+  }
+
+  LineChartData _buildChartData({
+    required ThemeData theme,
+    required DateTime today,
+    required List<DateTime> days,
+    required List<int> values,
+    required _ChartScale scale,
+  }) {
+    final todayIndex = days.indexWhere((day) => isSameDay(day, today));
+    final spots = [
+      for (var index = 0; index < values.length; index++)
+        FlSpot(index.toDouble(), values[index].toDouble()),
+    ];
+    return LineChartData(
+      minX: 0,
+      maxX: (days.length - 1).toDouble(),
+      minY: 0,
+      maxY: scale.maximum,
+      extraLinesData: ExtraLinesData(
+        verticalLines: [
+          if (todayIndex >= 0)
+            VerticalLine(
+              x: todayIndex.toDouble(),
+              color: theme.colorScheme.tertiary.withValues(alpha: .7),
+              strokeWidth: 1,
+              dashArray: [4, 4],
+              label: VerticalLineLabel(
+                show: true,
+                alignment: Alignment.topLeft,
+                padding: const EdgeInsets.only(left: 4, bottom: 3),
+                style: theme.textTheme.labelSmall!.copyWith(
+                  color: theme.colorScheme.tertiary,
+                  fontWeight: FontWeight.w700,
+                ),
+                labelResolver: (_) => 'HOY',
+              ),
+            ),
+        ],
+      ),
+      borderData: FlBorderData(show: false),
+      gridData: FlGridData(
+        drawVerticalLine: false,
+        horizontalInterval: scale.interval,
+        getDrawingHorizontalLine: (_) =>
+            FlLine(color: theme.colorScheme.outlineVariant, strokeWidth: 1),
+      ),
+      titlesData: FlTitlesData(
+        topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        rightTitles: const AxisTitles(
+          sideTitles: SideTitles(showTitles: false),
+        ),
+        leftTitles: AxisTitles(
+          sideTitles: SideTitles(
+            showTitles: true,
+            reservedSize: 46,
+            interval: scale.interval,
+            getTitlesWidget: (value, meta) => SideTitleWidget(
+              meta: meta,
+              child: Text(
+                formatCompactInt(value.round()),
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ),
+        ),
+        bottomTitles: AxisTitles(
+          sideTitles: SideTitles(
+            showTitles: true,
+            interval: days.length <= 14
+                ? 3
+                : days.length <= 30
+                ? 7
+                : 15,
+            reservedSize: 34,
+            getTitlesWidget: (value, meta) {
+              final day = days[value.round().clamp(0, days.length - 1)];
+              final isToday = isSameDay(day, today);
+              final label = '${day.day} ${_shortMonth(day)}';
+              return SideTitleWidget(
+                meta: meta,
+                space: 7,
+                child: Text(
+                  isToday ? 'Hoy\n$label' : label,
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: isToday
+                        ? theme.colorScheme.tertiary
+                        : theme.colorScheme.onSurfaceVariant,
+                    fontWeight: isToday ? FontWeight.w700 : null,
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+      lineTouchData: LineTouchData(
+        enabled: true,
+        touchSpotThreshold: 24,
+        mouseCursorResolver: (_, response) =>
+            response?.lineBarSpots?.isNotEmpty == true
+            ? SystemMouseCursors.click
+            : SystemMouseCursors.basic,
+        touchCallback: (event, response) {
+          final spot = response?.lineBarSpots?.firstOrNull;
+          final nextIndex = event.isInterestedForInteractions
+              ? spot?.x.round()
+              : null;
+          _focusedIndex.value = nextIndex;
+          if (event is FlTapUpEvent && nextIndex != null) {
+            widget.onDaySelected(days[nextIndex.clamp(0, days.length - 1)]);
+          }
+        },
+        getTouchedSpotIndicator: (barData, indexes) => indexes
+            .map(
+              (_) => TouchedSpotIndicatorData(
+                FlLine(
+                  color: theme.colorScheme.primary.withValues(alpha: .35),
+                  strokeWidth: 1,
+                  dashArray: [3, 3],
+                ),
+                FlDotData(
+                  getDotPainter: (_, _, _, _) => FlDotCirclePainter(
+                    radius: 4,
+                    color: theme.colorScheme.primary,
+                    strokeWidth: 2,
+                    strokeColor: theme.colorScheme.surface,
+                  ),
+                ),
+              ),
+            )
+            .toList(),
+        touchTooltipData: LineTouchTooltipData(
+          maxContentWidth: 170,
+          fitInsideHorizontally: true,
+          fitInsideVertically: true,
+          getTooltipColor: (_) => theme.colorScheme.inverseSurface,
+          getTooltipItems: (touchedSpots) => touchedSpots.map((spot) {
+            final index = spot.x.round().clamp(0, days.length - 1);
+            return LineTooltipItem(
+              '${formatFullDate(days[index])}\n'
+              '${formatTokenDetails(values[index])}',
+              theme.textTheme.labelSmall!.copyWith(
+                color: theme.colorScheme.onInverseSurface,
+                fontWeight: FontWeight.w600,
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+      lineBarsData: [
+        LineChartBarData(
+          spots: spots,
+          isCurved: true,
+          preventCurveOverShooting: true,
+          curveSmoothness: .2,
+          barWidth: 2.2,
+          color: theme.colorScheme.primary,
+          dotData: FlDotData(
+            show: true,
+            checkToShowDot: (spot, _) => spot.y > 0,
+            getDotPainter: (_, _, _, _) => FlDotCirclePainter(
+              radius: 2.6,
+              color: theme.colorScheme.surface,
+              strokeWidth: 1.8,
+              strokeColor: theme.colorScheme.primary,
+            ),
+          ),
+          belowBarData: BarAreaData(
+            show: true,
+            color: theme.colorScheme.primary.withValues(alpha: .07),
+          ),
+        ),
+      ],
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final anchor = _day(widget.anchorDay);
+    final today = _day(DateTime.now());
+    // Calendar arithmetic, not a 24-hour subtraction: across a daylight-saving
+    // change the latter lands on 23:00 or 01:00 and misses the midnight keys.
     final days = List.generate(
       range,
-      (index) => anchor.subtract(Duration(days: range - 1 - index)),
+      (index) =>
+          DateTime(anchor.year, anchor.month, anchor.day - (range - 1 - index)),
     );
-    final values = days.map((day) => widget.data[day]?.tokens ?? 0).toList();
+    final values = [for (final day in days) widget.data[day]?.tokens ?? 0];
     final maximum = values.fold<int>(
       0,
       (current, value) => value > current ? value : current,
     );
     final total = values.fold<int>(0, (sum, value) => sum + value);
     final activeDays = values.where((value) => value > 0).length;
-    final spots = values
-        .asMap()
-        .entries
-        .map((entry) => FlSpot(entry.key.toDouble(), entry.value.toDouble()))
-        .toList();
-    final selectedIndex = focusedIndex?.clamp(0, days.length - 1);
-    final selectedDay = selectedIndex == null ? null : days[selectedIndex];
-    final selectedData = selectedDay == null ? null : widget.data[selectedDay];
-    final scale = _ChartScale.fromMaximum(maximum);
-    final todayIndex = days.indexWhere((day) => isSameDay(day, DateTime.now()));
 
     return Container(
       height: 286,
@@ -1122,47 +1393,57 @@ class _UsageTrendState extends State<_UsageTrend> {
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
                 onSelectionChanged: (selection) {
-                  setState(() {
-                    range = selection.first;
-                    focusedIndex = null;
-                  });
+                  _focusedIndex.value = null;
+                  setState(() => range = selection.first);
                 },
               ),
             ],
           ),
           const SizedBox(height: 8),
-          AnimatedSize(
-            duration: const Duration(milliseconds: 160),
-            alignment: Alignment.centerLeft,
-            child: selectedDay == null
-                ? Text(
-                    '${formatCompactInt(total)} tokens registrados · ${formatCompactInt(total ~/ range)} por día · $activeDays días con tokens',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  )
-                : Row(
-                    children: [
-                      Text(
-                        formatDate(selectedDay),
-                        style: theme.textTheme.labelLarge,
-                      ),
-                      const SizedBox(width: 10),
-                      Text(
-                        '${formatCompactInt(selectedData?.tokens ?? 0)} tokens',
-                        style: theme.textTheme.labelLarge?.copyWith(
-                          color: theme.colorScheme.primary,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Text(
-                        '${selectedData?.accounts.length ?? 0} ${selectedData?.accounts.length == 1 ? 'cuenta' : 'cuentas'}',
+          ValueListenableBuilder<int?>(
+            valueListenable: _focusedIndex,
+            builder: (context, focused, _) {
+              final selectedIndex = focused?.clamp(0, days.length - 1);
+              final selectedDay = selectedIndex == null
+                  ? null
+                  : days[selectedIndex];
+              final selectedData = selectedDay == null
+                  ? null
+                  : widget.data[selectedDay];
+              return AnimatedSize(
+                duration: const Duration(milliseconds: 160),
+                alignment: Alignment.centerLeft,
+                child: selectedDay == null
+                    ? Text(
+                        '${formatCompactInt(total)} tokens registrados · ${formatCompactInt(total ~/ range)} por día · $activeDays días con tokens',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
                         ),
+                      )
+                    : Row(
+                        children: [
+                          Text(
+                            formatDate(selectedDay),
+                            style: theme.textTheme.labelLarge,
+                          ),
+                          const SizedBox(width: 10),
+                          Text(
+                            '${formatCompactInt(selectedData?.tokens ?? 0)} tokens',
+                            style: theme.textTheme.labelLarge?.copyWith(
+                              color: theme.colorScheme.primary,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Text(
+                            '${selectedData?.accounts.length ?? 0} ${selectedData?.accounts.length == 1 ? 'cuenta' : 'cuentas'}',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
+              );
+            },
           ),
           const SizedBox(height: 8),
           Expanded(
@@ -1175,202 +1456,21 @@ class _UsageTrendState extends State<_UsageTrend> {
                       ),
                     ),
                   )
-                : LineChart(
-                    LineChartData(
-                      minX: 0,
-                      maxX: (range - 1).toDouble(),
-                      minY: 0,
-                      maxY: scale.maximum,
-                      extraLinesData: ExtraLinesData(
-                        verticalLines: [
-                          if (todayIndex >= 0)
-                            VerticalLine(
-                              x: todayIndex.toDouble(),
-                              color: theme.colorScheme.tertiary.withValues(
-                                alpha: .7,
-                              ),
-                              strokeWidth: 1,
-                              dashArray: [4, 4],
-                              label: VerticalLineLabel(
-                                show: true,
-                                alignment: Alignment.topLeft,
-                                padding: const EdgeInsets.only(
-                                  left: 4,
-                                  bottom: 3,
-                                ),
-                                style: theme.textTheme.labelSmall!.copyWith(
-                                  color: theme.colorScheme.tertiary,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                                labelResolver: (_) => 'HOY',
-                              ),
-                            ),
-                        ],
+                // The chart repaints on hover and while it animates; the
+                // boundary keeps that from repainting the rest of the page.
+                : RepaintBoundary(
+                    child: LineChart(
+                      _resolveChartData(
+                        theme: theme,
+                        anchor: anchor,
+                        today: today,
+                        days: days,
+                        values: values,
+                        scale: _ChartScale.fromMaximum(maximum),
                       ),
-                      borderData: FlBorderData(show: false),
-                      gridData: FlGridData(
-                        drawVerticalLine: false,
-                        horizontalInterval: scale.interval,
-                        getDrawingHorizontalLine: (_) => FlLine(
-                          color: theme.colorScheme.outlineVariant,
-                          strokeWidth: 1,
-                        ),
-                      ),
-                      titlesData: FlTitlesData(
-                        topTitles: const AxisTitles(
-                          sideTitles: SideTitles(showTitles: false),
-                        ),
-                        rightTitles: const AxisTitles(
-                          sideTitles: SideTitles(showTitles: false),
-                        ),
-                        leftTitles: AxisTitles(
-                          sideTitles: SideTitles(
-                            showTitles: true,
-                            reservedSize: 46,
-                            interval: scale.interval,
-                            getTitlesWidget: (value, meta) => SideTitleWidget(
-                              meta: meta,
-                              child: Text(
-                                formatCompactInt(value.round()),
-                                style: theme.textTheme.labelSmall?.copyWith(
-                                  color: theme.colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                        bottomTitles: AxisTitles(
-                          sideTitles: SideTitles(
-                            showTitles: true,
-                            interval: range <= 14
-                                ? 3
-                                : range <= 30
-                                ? 7
-                                : 15,
-                            reservedSize: 34,
-                            getTitlesWidget: (value, meta) {
-                              final index = value.round().clamp(
-                                0,
-                                days.length - 1,
-                              );
-                              return SideTitleWidget(
-                                meta: meta,
-                                space: 7,
-                                child: Text(
-                                  isSameDay(days[index], DateTime.now())
-                                      ? 'Hoy\n${days[index].day} ${_shortMonth(days[index])}'
-                                      : '${days[index].day} ${_shortMonth(days[index])}',
-                                  textAlign: TextAlign.center,
-                                  style: theme.textTheme.labelSmall?.copyWith(
-                                    color:
-                                        isSameDay(days[index], DateTime.now())
-                                        ? theme.colorScheme.tertiary
-                                        : theme.colorScheme.onSurfaceVariant,
-                                    fontWeight:
-                                        isSameDay(days[index], DateTime.now())
-                                        ? FontWeight.w700
-                                        : null,
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      ),
-                      lineTouchData: LineTouchData(
-                        enabled: true,
-                        touchSpotThreshold: 24,
-                        mouseCursorResolver: (_, response) =>
-                            response?.lineBarSpots?.isNotEmpty == true
-                            ? SystemMouseCursors.click
-                            : SystemMouseCursors.basic,
-                        touchCallback: (event, response) {
-                          final spot = response?.lineBarSpots?.firstOrNull;
-                          final nextIndex = event.isInterestedForInteractions
-                              ? spot?.x.round()
-                              : null;
-                          if (nextIndex != focusedIndex) {
-                            setState(() => focusedIndex = nextIndex);
-                          }
-                          if (event is FlTapUpEvent && nextIndex != null) {
-                            widget.onDaySelected(days[nextIndex]);
-                          }
-                        },
-                        getTouchedSpotIndicator: (barData, indexes) => indexes
-                            .map(
-                              (_) => TouchedSpotIndicatorData(
-                                FlLine(
-                                  color: theme.colorScheme.primary.withValues(
-                                    alpha: .35,
-                                  ),
-                                  strokeWidth: 1,
-                                  dashArray: [3, 3],
-                                ),
-                                FlDotData(
-                                  getDotPainter: (_, _, _, _) =>
-                                      FlDotCirclePainter(
-                                        radius: 4,
-                                        color: theme.colorScheme.primary,
-                                        strokeWidth: 2,
-                                        strokeColor: theme.colorScheme.surface,
-                                      ),
-                                ),
-                              ),
-                            )
-                            .toList(),
-                        touchTooltipData: LineTouchTooltipData(
-                          maxContentWidth: 170,
-                          fitInsideHorizontally: true,
-                          fitInsideVertically: true,
-                          getTooltipColor: (_) =>
-                              theme.colorScheme.inverseSurface,
-                          getTooltipItems: (touchedSpots) => touchedSpots.map((
-                            spot,
-                          ) {
-                            final index = spot.x.round().clamp(
-                              0,
-                              days.length - 1,
-                            );
-                            final value = values[index];
-                            return LineTooltipItem(
-                              '${formatFullDate(days[index])}\n${formatTokenDetails(value)}',
-                              theme.textTheme.labelSmall!.copyWith(
-                                color: theme.colorScheme.onInverseSurface,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            );
-                          }).toList(),
-                        ),
-                      ),
-                      lineBarsData: [
-                        LineChartBarData(
-                          spots: spots,
-                          isCurved: true,
-                          preventCurveOverShooting: true,
-                          curveSmoothness: .2,
-                          barWidth: 2.2,
-                          color: theme.colorScheme.primary,
-                          dotData: FlDotData(
-                            show: true,
-                            checkToShowDot: (spot, _) => spot.y > 0,
-                            getDotPainter: (_, _, _, _) => FlDotCirclePainter(
-                              radius: 2.6,
-                              color: theme.colorScheme.surface,
-                              strokeWidth: 1.8,
-                              strokeColor: theme.colorScheme.primary,
-                            ),
-                          ),
-                          belowBarData: BarAreaData(
-                            show: true,
-                            color: theme.colorScheme.primary.withValues(
-                              alpha: .07,
-                            ),
-                          ),
-                        ),
-                      ],
+                      duration: _chartDuration,
+                      curve: Curves.easeOutCubic,
                     ),
-                    duration: const Duration(milliseconds: 420),
-                    curve: Curves.easeOutCubic,
                   ),
           ),
         ],

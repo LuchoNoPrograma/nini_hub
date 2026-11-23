@@ -17,7 +17,34 @@ class ActivityView extends ConsumerStatefulWidget {
 }
 
 class _ActivityViewState extends ConsumerState<ActivityView> {
-  final searchController = TextEditingController();
+  // The view is rebuilt on every tab switch while the filter lives in the
+  // controller, so the field starts from the filter that is still applied.
+  late final searchController = TextEditingController(
+    text: ref.read(activityControllerProvider).search,
+  );
+
+  // Log shown in the inspector during this visit when the user has not picked
+  // one. Without it the detail jumped to every newer log while being read.
+  String? _shownLogId;
+
+  ActivityLog? _stickySelection(ActivityState state, List<ActivityLog> logs) {
+    if (logs.isEmpty) {
+      _shownLogId = null;
+      return null;
+    }
+    final wanted = state.selectedLogId ?? _shownLogId;
+    var shown = logs.first;
+    if (wanted != null) {
+      for (final log in logs) {
+        if (log.id == wanted) {
+          shown = log;
+          break;
+        }
+      }
+    }
+    _shownLogId = shown.id;
+    return shown;
+  }
 
   @override
   void dispose() {
@@ -30,7 +57,7 @@ class _ActivityViewState extends ConsumerState<ActivityView> {
     final state = ref.watch(activityControllerProvider);
     final controller = ref.read(activityControllerProvider.notifier);
     final logs = state.visibleLogs;
-    final selected = state.selectedLog;
+    final selected = _stickySelection(state, logs);
 
     return Column(
       children: [
@@ -48,11 +75,18 @@ class _ActivityViewState extends ConsumerState<ActivityView> {
             ),
           ),
         ),
-        if (state.isBusy)
-          const LinearProgressIndicator(
-            minHeight: 2,
-            backgroundColor: Colors.transparent,
-          ),
+        // Fixed height: the list below must not shift when work starts or ends.
+        SizedBox(
+          height: 2,
+          child: state.isBusy
+              ? const RepaintBoundary(
+                  child: LinearProgressIndicator(
+                    minHeight: 2,
+                    backgroundColor: Colors.transparent,
+                  ),
+                )
+              : null,
+        ),
         if (state.isInitialized && state.errorMessage != null)
           _ActivityFailureBanner(
             message: state.errorMessage!,
@@ -137,7 +171,21 @@ class _ActivityViewState extends ConsumerState<ActivityView> {
         maxWidth: 720,
         maxHeight: MediaQuery.sizeOf(context).height * .76,
       ),
-      builder: (_) => _LogInspector(log: log, sheet: true),
+      // Watches the log by id so a command that was still running shows its
+      // result when it finishes.
+      builder: (_) => Consumer(
+        builder: (context, sheetRef, _) {
+          final current = sheetRef.watch(
+            activityControllerProvider.select((state) {
+              for (final item in state.logs) {
+                if (item.id == log.id) return item;
+              }
+              return null;
+            }),
+          );
+          return _LogInspector(log: current ?? log, sheet: true);
+        },
+      ),
     );
   }
 
@@ -308,6 +356,7 @@ class _StatusMenu extends StatelessWidget {
     };
     return PopupMenuButton<ActivityStatusFilter>(
       tooltip: 'Filtrar por estado',
+      popUpAnimationStyle: appMenuAnimationStyle,
       initialValue: value,
       onSelected: onChanged,
       position: PopupMenuPosition.under,
@@ -368,25 +417,35 @@ class _ActivityTimeline extends StatelessWidget {
   final ValueChanged<ActivityLog> onSelected;
 
   @override
-  Widget build(BuildContext context) => ListView.builder(
-    padding: const EdgeInsets.symmetric(vertical: 6),
-    itemCount: logs.length,
-    itemBuilder: (context, index) {
-      final log = logs[index];
-      return _ActivityRow(
-            log: log,
-            selected: log.id == selectedId,
-            onTap: () => onSelected(log),
-          )
-          .animate(delay: (index.clamp(0, 7) * 24).ms)
-          .fadeIn(duration: 180.ms)
-          .moveY(begin: 3, end: 0);
-    },
-  );
+  Widget build(BuildContext context) {
+    final indexById = <String, int>{
+      for (var index = 0; index < logs.length; index++) logs[index].id: index,
+    };
+    return ListView.builder(
+      key: const PageStorageKey<String>('activity-timeline'),
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      itemCount: logs.length,
+      // Rows keep their identity when a newer log shifts them down, so a row
+      // never animates into the state of a different log.
+      findChildIndexCallback: (key) =>
+          key is ValueKey<String> ? indexById[key.value] : null,
+      itemBuilder: (context, index) {
+        final log = logs[index];
+        // No entrance animation: rows scrolled into view appeared late.
+        return _ActivityRow(
+          key: ValueKey<String>(log.id),
+          log: log,
+          selected: log.id == selectedId,
+          onTap: () => onSelected(log),
+        );
+      },
+    );
+  }
 }
 
 class _ActivityRow extends StatelessWidget {
   const _ActivityRow({
+    super.key,
     required this.log,
     required this.selected,
     required this.onTap,
@@ -633,6 +692,8 @@ class _LogInspector extends StatelessWidget {
               padding: const EdgeInsets.all(14),
               color: theme.colorScheme.surfaceContainerLowest,
               child: SingleChildScrollView(
+                // Keyed by log: the output of another log starts at its top.
+                key: ValueKey<String>('activity-output-${item.id}'),
                 child: SelectableText(
                   item.output.isNotEmpty
                       ? item.output
@@ -732,7 +793,12 @@ _LogStatusVisual _statusVisual(ThemeData theme, ActivityLogStatus status) =>
         Icons.sync_rounded,
         theme.colorScheme.tertiary,
       ),
-      _ => _LogStatusVisual(
+      ActivityLogStatus.timeout => _LogStatusVisual(
+        'Tiempo agotado',
+        Icons.timer_off_outlined,
+        theme.colorScheme.error,
+      ),
+      ActivityLogStatus.error || ActivityLogStatus.unknown => _LogStatusVisual(
         'Falló',
         Icons.close_rounded,
         theme.colorScheme.error,

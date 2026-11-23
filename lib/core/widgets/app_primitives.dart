@@ -1,5 +1,12 @@
 import 'package:flutter/material.dart';
 
+/// Menus open on a pointer click; the Material default of 300 ms reads as lag
+/// on desktop.
+const appMenuAnimationStyle = AnimationStyle(
+  duration: Duration(milliseconds: 120),
+  reverseDuration: Duration(milliseconds: 80),
+);
+
 class AppIconButton extends StatelessWidget {
   const AppIconButton({
     required this.icon,
@@ -15,19 +22,24 @@ class AppIconButton extends StatelessWidget {
   final Color? color;
 
   @override
-  Widget build(BuildContext context) => Tooltip(
-    message: tooltip,
-    child: IconButton(
-      onPressed: onPressed,
-      icon: Icon(
-        icon,
-        size: 18,
-        color: color ?? Theme.of(context).colorScheme.onSurfaceVariant,
+  Widget build(BuildContext context) {
+    final resolved = color ?? Theme.of(context).colorScheme.onSurfaceVariant;
+    return Tooltip(
+      message: tooltip,
+      child: IconButton(
+        onPressed: onPressed,
+        icon: Icon(
+          icon,
+          size: 18,
+          // An explicit icon color overrides the button's disabled color, so
+          // the disabled state is dimmed here to stay distinguishable.
+          color: onPressed == null ? resolved.withValues(alpha: .38) : resolved,
+        ),
+        constraints: const BoxConstraints.tightFor(width: 38, height: 38),
+        padding: EdgeInsets.zero,
       ),
-      constraints: const BoxConstraints.tightFor(width: 38, height: 38),
-      padding: EdgeInsets.zero,
-    ),
-  );
+    );
+  }
 }
 
 class StatusDot extends StatelessWidget {

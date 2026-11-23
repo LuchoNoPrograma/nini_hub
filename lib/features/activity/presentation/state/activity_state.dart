@@ -41,7 +41,11 @@ final class ActivityState {
           ActivityStatusFilter.all => true,
           ActivityStatusFilter.running =>
             log.status == ActivityLogStatus.running,
-          ActivityStatusFilter.error => log.status == ActivityLogStatus.error,
+          // Every status the list paints as a failure belongs to this filter.
+          ActivityStatusFilter.error =>
+            log.status == ActivityLogStatus.error ||
+                log.status == ActivityLogStatus.timeout ||
+                log.status == ActivityLogStatus.unknown,
         };
         final textMatches =
             normalizedSearch.isEmpty ||

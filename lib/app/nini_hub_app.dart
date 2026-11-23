@@ -52,6 +52,9 @@ class NiniHubApp extends ConsumerWidget {
       themeMode: mode,
       home: bootstrap.when(
         skipLoadingOnReload: false,
+        // "Reintentar" invalidates the provider; showing the loader is the
+        // only feedback that the retry started.
+        skipLoadingOnRefresh: false,
         data: (loaded) => loaded
             ? const DashboardShell()
             : _SettingsStartupFailure(

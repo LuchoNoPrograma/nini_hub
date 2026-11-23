@@ -108,7 +108,13 @@ void main() {
         runner,
         keepTerminalOpenAfterExit: () => true,
       ).launch(profile, workingDirectory: '${root.path}/missing'),
-      throwsA(isA<AgentLauncherFailure>()),
+      throwsA(
+        isA<AgentLauncherFailure>().having(
+          (failure) => failure.reason,
+          'reason',
+          AgentLauncherFailureReason.workingDirectoryMissing,
+        ),
+      ),
     );
 
     expect(runner.executable, isNull);
@@ -127,7 +133,13 @@ void main() {
         runner,
         keepTerminalOpenAfterExit: () => true,
       ).launch(profile, workingDirectory: workspaceDirectory.path),
-      throwsA(isA<AgentLauncherFailure>()),
+      throwsA(
+        isA<AgentLauncherFailure>().having(
+          (failure) => failure.reason,
+          'reason',
+          AgentLauncherFailureReason.terminalUnavailable,
+        ),
+      ),
     );
 
     expect((await _storedProfile(database, profile.id)).lastLaunchedAt, isNull);

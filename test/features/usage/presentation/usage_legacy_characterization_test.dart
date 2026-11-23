@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:drift/native.dart';
+import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -71,6 +73,89 @@ void main() {
         fixture.container.read(usageControllerProvider).isRefreshing,
         isFalse,
       );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('switching sections restores the statistics scroll position', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(900, 620));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final fixture = _PresentationFixture(
+      profiles: [_profile('primary')],
+      calendar: _calendar(),
+    );
+    addTearDown(fixture.dispose);
+    await fixture.initializeCalendar();
+
+    ScrollPosition statisticsScroll() => tester
+        .state<ScrollableState>(
+          find
+              .descendant(
+                of: find.byKey(
+                  const PageStorageKey<String>('usage-calendar-scroll'),
+                ),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        )
+        .position;
+
+    await tester.pumpWidget(fixture.dashboardWidget());
+    await tester.pumpAndSettle();
+    statisticsScroll().jumpTo(180);
+    await tester.pump();
+
+    await tester.tap(find.text('Cuentas'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('calendar')), findsNothing);
+    await tester.tap(find.text('Estadísticas'));
+    await tester.pumpAndSettle();
+
+    expect(statisticsScroll().pixels, 180);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'unrelated rebuilds and hover keep the trend chart data instance',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 760));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final fixture = _PresentationFixture(
+        profiles: [_profile('primary')],
+        calendar: _calendar(),
+      );
+      addTearDown(fixture.dispose);
+      await fixture.initializeCalendar(selectedDay: DateTime(2026, 8, 13));
+
+      await tester.pumpWidget(fixture.calendarWidget());
+      await tester.pumpAndSettle();
+      LineChart chart() => tester.widget<LineChart>(find.byType(LineChart));
+      final initial = chart().data;
+
+      // The controller publishes a new state even for the same day; the chart
+      // must receive the same data so its implicit animation does not restart.
+      fixture.container
+          .read(usageControllerProvider.notifier)
+          .selectDay(DateTime(2026, 8, 13));
+      await tester.pump();
+      expect(chart().data, same(initial));
+
+      final pointer = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      addTearDown(pointer.removePointer);
+      await pointer.addPointer(location: Offset.zero);
+      await pointer.moveTo(tester.getCenter(find.byType(LineChart)));
+      await tester.pump();
+      expect(chart().data, same(initial));
+
+      // Another anchor day shows other dates: new data, shown without easing.
+      fixture.container
+          .read(usageControllerProvider.notifier)
+          .selectDay(DateTime(2026, 8, 12));
+      await tester.pump();
+      expect(chart().data, isNot(same(initial)));
+      expect(chart().duration, Duration.zero);
       expect(tester.takeException(), isNull);
     },
   );

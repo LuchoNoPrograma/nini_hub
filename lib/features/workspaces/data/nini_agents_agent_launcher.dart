@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:drift/drift.dart';
 import 'package:nini_hub/core/database/app_database.dart';
 import 'package:nini_hub/core/process/process_runner.dart';
@@ -24,9 +26,19 @@ final class NiniAgentsAgentLauncher implements AgentLauncher {
     required String workingDirectory,
   }) async {
     try {
-      final launchDirectory = DesktopWorkspaceRuntime.validateWorkingDirectory(
-        workingDirectory,
-      );
+      final String launchDirectory;
+      try {
+        launchDirectory = DesktopWorkspaceRuntime.validateWorkingDirectory(
+          workingDirectory,
+        );
+      } on StateError catch (_, stackTrace) {
+        Error.throwWithStackTrace(
+          const AgentLauncherFailure(
+            reason: AgentLauncherFailureReason.workingDirectoryMissing,
+          ),
+          stackTrace,
+        );
+      }
       final title = DesktopWorkspaceRuntime.buildTerminalTitle(
         profileName: profile.profileName,
         workingDirectory: launchDirectory,
@@ -75,6 +87,22 @@ final class NiniAgentsAgentLauncher implements AgentLauncher {
       );
     } on AgentLauncherFailure {
       rethrow;
+    } on StateError catch (_, stackTrace) {
+      // After the directory check, the runner raises StateError only when no
+      // supported terminal (or its helper shell) exists on this machine.
+      Error.throwWithStackTrace(
+        const AgentLauncherFailure(
+          reason: AgentLauncherFailureReason.terminalUnavailable,
+        ),
+        stackTrace,
+      );
+    } on ProcessException catch (_, stackTrace) {
+      Error.throwWithStackTrace(
+        const AgentLauncherFailure(
+          reason: AgentLauncherFailureReason.terminalUnavailable,
+        ),
+        stackTrace,
+      );
     } catch (_, stackTrace) {
       Error.throwWithStackTrace(const AgentLauncherFailure(), stackTrace);
     }

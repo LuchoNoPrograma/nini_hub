@@ -55,15 +55,24 @@ class _DashboardShellState extends ConsumerState<DashboardShell> {
               section: section,
               onSectionChanged: (value) => setState(() => section = value),
             ),
-            if (startup.isLoading ||
-                usageBusy ||
-                heartbeatBusy ||
-                profilesBusy ||
-                accountsBusy)
-              const LinearProgressIndicator(
-                minHeight: 2,
-                backgroundColor: Colors.transparent,
-              ),
+            // The strip keeps its height so the content below never shifts
+            // when work starts or ends.
+            SizedBox(
+              height: 2,
+              child:
+                  startup.isLoading ||
+                      usageBusy ||
+                      heartbeatBusy ||
+                      profilesBusy ||
+                      accountsBusy
+                  ? const RepaintBoundary(
+                      child: LinearProgressIndicator(
+                        minHeight: 2,
+                        backgroundColor: Colors.transparent,
+                      ),
+                    )
+                  : null,
+            ),
             Expanded(child: _body(context, ref, startup)),
           ],
         ),
@@ -72,6 +81,11 @@ class _DashboardShellState extends ConsumerState<DashboardShell> {
   }
 
   Widget _body(BuildContext context, WidgetRef ref, AsyncValue<void> startup) {
+    // Loading first: a retry keeps the previous error while it runs, and the
+    // error screen with an enabled "Reintentar" would hide that it started.
+    if (startup.isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
     if (startup.hasError) {
       final failure = AppStartupFailure.from(startup.error!);
       return EmptyState(
@@ -87,9 +101,6 @@ class _DashboardShellState extends ConsumerState<DashboardShell> {
         ),
       );
     }
-    if (startup.isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
     final content = switch (section) {
       DashboardSection.accounts => const AccountsView(
         key: ValueKey('accounts'),
@@ -101,20 +112,12 @@ class _DashboardShellState extends ConsumerState<DashboardShell> {
         key: ValueKey('activity'),
       ),
     };
+    // A short cross-fade only: sections restore their own scroll position and
+    // no longer replay entrance animations, so the switch reads as immediate.
     return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 260),
-      switchInCurve: Curves.easeOutCubic,
-      switchOutCurve: Curves.easeInCubic,
-      transitionBuilder: (child, animation) => FadeTransition(
-        opacity: animation,
-        child: SlideTransition(
-          position: Tween(
-            begin: const Offset(.015, 0),
-            end: Offset.zero,
-          ).animate(animation),
-          child: child,
-        ),
-      ),
+      duration: const Duration(milliseconds: 110),
+      switchInCurve: Curves.easeOut,
+      switchOutCurve: Curves.easeOut,
       child: content,
     );
   }
@@ -178,6 +181,9 @@ class _OperationsBar extends ConsumerWidget {
       );
       return;
     }
+    // Another account operation may have started meanwhile. It owns the
+    // state; reporting "could not load" for it would be a false error.
+    if (ref.read(accountsControllerProvider).isBusy) return;
     final accountsLoaded = await ref
         .read(accountsControllerProvider.notifier)
         .load();
@@ -323,7 +329,8 @@ class _OperationsBar extends ConsumerWidget {
             icon: Icons.refresh,
             tooltip: 'Actualizar todas las cuentas',
             onPressed:
-                !usageState.isRefreshing &&
+                !startupBusy &&
+                    !usageState.isRefreshing &&
                     !heartbeatState.isBusy &&
                     !accountsBusy
                 ? () => _guard(context, _refreshAll(context, ref))
@@ -332,7 +339,7 @@ class _OperationsBar extends ConsumerWidget {
           AppIconButton(
             icon: Icons.person_add_alt_1_outlined,
             tooltip: 'Crear perfil',
-            onPressed: profilesBusy
+            onPressed: startupBusy || profilesBusy
                 ? null
                 : () => showCreateProfileFlow(context, ref),
           ),
@@ -381,7 +388,8 @@ class _TopMenuItemState extends State<_TopMenuItem> {
         onTap: widget.onTap,
         borderRadius: BorderRadius.circular(3),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 140),
+          duration: const Duration(milliseconds: 110),
+          curve: Curves.easeOut,
           height: 40,
           padding: const EdgeInsets.symmetric(horizontal: 13),
           alignment: Alignment.center,
@@ -404,7 +412,9 @@ class _TopMenuItemState extends State<_TopMenuItem> {
               color: widget.selected
                   ? theme.colorScheme.onSurface
                   : theme.colorScheme.onSurfaceVariant,
-              fontWeight: widget.selected ? FontWeight.w600 : FontWeight.w400,
+              // One weight for both states: a heavier selected label would
+              // change its width and push the neighbouring tabs sideways.
+              fontWeight: FontWeight.w500,
             ),
           ),
         ),

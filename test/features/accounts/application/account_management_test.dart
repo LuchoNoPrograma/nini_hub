@@ -77,6 +77,26 @@ void main() {
       _ids(snapshot.visible(const AccountQuery(search: 'ALPHA@EXAMPLE.COM'))),
       ['alpha'],
     );
+    expect(_ids(snapshot.visible(const AccountQuery(toolKey: 'claude-cli'))), [
+      'delta',
+      'epsilon',
+    ]);
+    expect(_ids(snapshot.visible(const AccountQuery(toolKey: 'codex'))), [
+      'alpha',
+      'beta',
+      'gamma',
+    ]);
+    expect(
+      _ids(
+        snapshot.visible(
+          const AccountQuery(
+            status: AccountStatusFilter.ready,
+            toolKey: 'codex',
+          ),
+        ),
+      ),
+      isEmpty,
+    );
     expect(
       _ids(
         snapshot.visible(const AccountQuery(status: AccountStatusFilter.ready)),

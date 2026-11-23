@@ -2,7 +2,6 @@ import 'package:nini_hub/features/accounts/domain/account_device_auth.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:nini_hub/app/providers.dart';
 import 'package:nini_hub/core/formatters.dart';
@@ -14,12 +13,14 @@ import 'package:nini_hub/features/accounts/presentation/accounts_quota_clock.dar
 import 'package:nini_hub/features/accounts/presentation/controllers/accounts_controller.dart';
 import 'package:nini_hub/features/accounts/presentation/state/accounts_state.dart';
 import 'package:nini_hub/features/heartbeat/domain/heartbeat_policy.dart';
+import 'package:nini_hub/features/profiles/domain/profile_failure.dart';
 import 'package:nini_hub/features/profiles/domain/profile_provider.dart';
 import 'package:nini_hub/features/profiles/domain/profile.dart';
 import 'package:nini_hub/features/profiles/presentation/profile_dialogs.dart';
 import 'package:nini_hub/features/profiles/presentation/profile_provider_icon.dart';
 import 'package:nini_hub/features/usage/application/usage_account_projection.dart';
 import 'package:nini_hub/features/usage/domain/quota_reset_anchor_policy.dart';
+import 'package:nini_hub/features/usage/domain/usage.dart';
 import 'package:nini_hub/features/usage/presentation/state/usage_state.dart';
 import 'package:nini_hub/features/workspaces/presentation/launch_agent_dialog.dart';
 
@@ -63,16 +64,20 @@ Future<void> _renameProfileFlow(
   Account account,
 ) async {
   if (_profilesBusy(context, ref)) return;
+  // The user can leave this section before the engine answers, which unmounts
+  // the view. What the follow-up needs is captured while it is still mounted.
+  final container = ProviderScope.containerOf(context, listen: false);
+  final messenger = ScaffoldMessenger.of(context);
   final renamed = await showRenameProfileDialog(
     context,
-    controller: ref.read(profilesControllerProvider.notifier),
-    readState: () => ref.read(profilesControllerProvider),
+    controller: container.read(profilesControllerProvider.notifier),
+    readState: () => container.read(profilesControllerProvider),
     profileId: account.profile.id,
     toolKey: account.profile.toolKey,
     profileName: account.profile.profileName,
   );
-  if (renamed == null || !context.mounted) return;
-  await _reloadAccounts(context, ref);
+  if (renamed == null && !_profileMutationWasApplied(container)) return;
+  await _reloadAccounts(container, messenger);
 }
 
 Future<void> _deleteProfileFlow(
@@ -81,33 +86,42 @@ Future<void> _deleteProfileFlow(
   Account account,
 ) async {
   if (_profilesBusy(context, ref)) return;
+  final container = ProviderScope.containerOf(context, listen: false);
+  final messenger = ScaffoldMessenger.of(context);
   final deleted = await showDeleteProfileDialog(
     context,
-    controller: ref.read(profilesControllerProvider.notifier),
-    readState: () => ref.read(profilesControllerProvider),
+    controller: container.read(profilesControllerProvider.notifier),
+    readState: () => container.read(profilesControllerProvider),
     profileId: account.profile.id,
     displayName: _profileTitle(account),
   );
-  if (!deleted || !context.mounted) return;
-  await _reloadAccounts(context, ref, removedProfileId: account.profile.id);
+  if (!deleted && !_profileMutationWasApplied(container)) return;
+  await _reloadAccounts(
+    container,
+    messenger,
+    removedProfileId: account.profile.id,
+  );
 }
 
+/// The engine applied the change even though the operation reported a failure
+/// (for example a timeout after the rename). SQLite already holds the new
+/// identity, so the visible accounts must be reloaded as well.
+bool _profileMutationWasApplied(ProviderContainer container) =>
+    container.read(profilesControllerProvider).failure
+        is ProfileMutationAppliedFailure;
+
 Future<bool> _reloadAccounts(
-  BuildContext context,
-  WidgetRef ref, {
+  ProviderContainer container,
+  ScaffoldMessengerState messenger, {
   String? removedProfileId,
 }) async {
-  final loaded = await ref
+  final loaded = await container
       .read(accountsControllerProvider.notifier)
       .load(removedProfileId: removedProfileId);
   if (loaded) return true;
-  if (context.mounted) {
-    final message = ref.read(accountsControllerProvider).errorMessage;
-    _showProfileFlowError(
-      context,
-      StateError(message ?? 'No se pudieron cargar las cuentas.'),
-    );
-  }
+  // A rejected reload (another account operation in flight) is not an error.
+  final message = container.read(accountsControllerProvider).errorMessage;
+  if (message != null) messenger.showSnackBar(SnackBar(content: Text(message)));
   return false;
 }
 
@@ -168,12 +182,6 @@ bool _profilesBusy(BuildContext context, WidgetRef ref) {
   return true;
 }
 
-void _showProfileFlowError(BuildContext context, Object error) {
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text(error.toString().replaceFirst('Bad state: ', ''))),
-  );
-}
-
 Future<void> _openLaunchAgentDialog(
   BuildContext context,
   WidgetRef ref, {
@@ -197,15 +205,8 @@ Future<void> _openLaunchAgentDialog(
     context: context,
     builder: (context) => Consumer(
       builder: (context, dialogRef, _) {
-        dialogRef.listen(workspaceControllerProvider, (previous, next) {
-          final message = next.errorMessage;
-          if (message == null || identical(previous?.failure, next.failure)) {
-            return;
-          }
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text(message)));
-        });
+        // The dialog shows workspace failures itself: a SnackBar would appear
+        // on the page underneath the modal barrier.
         final accountsState = dialogRef.watch(accountsControllerProvider);
         return LaunchAgentDialog(
           controller: dialogRef.read(workspaceControllerProvider.notifier),
@@ -277,6 +278,15 @@ class AccountsView extends ConsumerWidget {
     final profilesBusy = ref.watch(
       profilesControllerProvider.select((state) => state.isBusy),
     );
+    // The profile a rename or delete is working on, so its card shows it.
+    final mutatingProfileId = ref.watch(
+      profilesControllerProvider.select((state) => state.operationProfileId),
+    );
+    final manualHeartbeatEnabled = ref.watch(
+      settingsControllerProvider.select(
+        (state) => state.preferences.weeklyKeepAliveEnabled,
+      ),
+    );
     final quotaNow =
         ref.watch(accountsQuotaClockProvider).asData?.value ?? DateTime.now();
     final cardLayout = ref.watch(settingsCardLayoutProvider);
@@ -326,6 +336,9 @@ class AccountsView extends ConsumerWidget {
     ).visible(accountsState.query);
 
     return CustomScrollView(
+      // The section is rebuilt on every tab switch; the storage key brings the
+      // scroll position back.
+      key: const PageStorageKey<String>('accounts-scroll'),
       slivers: [
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(18, 12, 18, 10),
@@ -344,6 +357,7 @@ class AccountsView extends ConsumerWidget {
                       total: accounts.length,
                       statusCounts: statusCounts,
                       recent: recent,
+                      resetCredits: _ResetCreditsTotal.of(accounts, quotaNow),
                     ),
                   ],
                 );
@@ -488,104 +502,133 @@ class AccountsView extends ConsumerWidget {
                     final usageRefreshStage = supportsUsage
                         ? usageState.stageForProfile(account.profile.id)
                         : UsageProfileRefreshStage.idle;
+                    // No entrance animation: a per-index delay left cards
+                    // invisible while scrolling and replayed on every visit.
                     return SizedBox(
-                          width: extent,
-                          child: AccountCard(
-                            account: account,
-                            quotaNow: quotaNow,
-                            refreshing:
-                                accountsState.authRefreshingProfileIds.contains(
-                                  account.profile.id,
-                                ) ||
-                                heartbeatState.isRunningProfile(
-                                  account.profile.id,
-                                ) ||
-                                usageRefreshStage ==
-                                    UsageProfileRefreshStage.running,
-                            usageRefreshStage: usageRefreshStage,
-                            usageFailureMessage: usageState
-                                .failureForProfile(account.profile.id)
-                                ?.message,
-                            usageActionsDisabled:
-                                accountsState.authRefreshingProfileIds.contains(
-                                  account.profile.id,
-                                ) ||
-                                usageState.isRefreshingAll ||
-                                usageState.isSynchronizing,
-                            compact: cardLayout.compactCards,
-                            accountBusy:
-                                accountsState.authRefreshingProfileIds.contains(
-                                  account.profile.id,
-                                ) ||
-                                accountsState.operationProfileId ==
-                                    account.profile.id,
-                            profileMutationBusy:
-                                profilesBusy ||
-                                accountsState.authRefreshingProfileIds.contains(
-                                  account.profile.id,
-                                ),
-                            onEditAccount: () => showEditAccountDialog(
-                              context,
-                              accountsController,
-                              () => ref.read(accountsControllerProvider),
-                              account,
+                      width: extent,
+                      child: AccountCard(
+                        account: account,
+                        quotaNow: quotaNow,
+                        manualHeartbeatEnabled: manualHeartbeatEnabled,
+                        refreshing:
+                            mutatingProfileId == account.profile.id ||
+                            accountsState.authRefreshingProfileIds.contains(
+                              account.profile.id,
+                            ) ||
+                            heartbeatState.isRunningProfile(
+                              account.profile.id,
+                            ) ||
+                            usageRefreshStage ==
+                                UsageProfileRefreshStage.running,
+                        usageRefreshStage: usageRefreshStage,
+                        usageFailureMessage: usageState
+                            .failureForProfile(account.profile.id)
+                            ?.message,
+                        usageActionsDisabled:
+                            accountsState.authRefreshingProfileIds.contains(
+                              account.profile.id,
+                            ) ||
+                            usageState.isRefreshingAll ||
+                            usageState.isSynchronizing,
+                        compact: cardLayout.compactCards,
+                        accountBusy:
+                            accountsState.authRefreshingProfileIds.contains(
+                              account.profile.id,
+                            ) ||
+                            accountsState.operationProfileId ==
+                                account.profile.id,
+                        profileMutationBusy:
+                            profilesBusy ||
+                            accountsState.authRefreshingProfileIds.contains(
+                              account.profile.id,
                             ),
-                            onHeartbeat: (account) async {
-                              final profileId = account.profile.id;
-                              final completed = await ref
-                                  .read(heartbeatControllerProvider.notifier)
-                                  .run(
-                                    profileId: profileId,
-                                    expectedWindowMinutes:
-                                        _heartbeatWindowMinutes(account),
-                                  );
-                              if (!completed) {
-                                final state = ref.read(
-                                  heartbeatControllerProvider,
-                                );
-                                throw StateError(
-                                  state.failureForProfile(profileId)?.message ??
-                                      state
-                                          .resultForProfile(profileId)
-                                          ?.message ??
-                                      'No se pudo completar el heartbeat.',
-                                );
-                              }
-                              if (!context.mounted) return;
-                              final message = ref
-                                  .read(heartbeatControllerProvider)
-                                  .resultForProfile(profileId)
-                                  ?.message;
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    message ?? 'Heartbeat completado.',
-                                  ),
+                        onEditAccount: () => showEditAccountDialog(
+                          context,
+                          accountsController,
+                          () => ref.read(accountsControllerProvider),
+                          account,
+                        ),
+                        onHeartbeat: (account) async {
+                          final profileId = account.profile.id;
+                          // Captured before the wait: the heartbeat takes long
+                          // enough for the user to leave this section, and its
+                          // result must still be reported.
+                          final container = ProviderScope.containerOf(
+                            context,
+                            listen: false,
+                          );
+                          final messenger = ScaffoldMessenger.of(context);
+                          final completed = await container
+                              .read(heartbeatControllerProvider.notifier)
+                              .run(
+                                profileId: profileId,
+                                expectedWindowMinutes: _heartbeatWindowMinutes(
+                                  account,
                                 ),
                               );
-                            },
-                            onRefresh: (account) async {
-                              await ref
+                          if (!completed) {
+                            final state = container.read(
+                              heartbeatControllerProvider,
+                            );
+                            throw StateError(
+                              state.failureForProfile(profileId)?.message ??
+                                  state.resultForProfile(profileId)?.message ??
+                                  'No se pudo completar el heartbeat.',
+                            );
+                          }
+                          final message = container
+                              .read(heartbeatControllerProvider)
+                              .resultForProfile(profileId)
+                              ?.message;
+                          messenger.showSnackBar(
+                            SnackBar(
+                              content: Text(message ?? 'Heartbeat completado.'),
+                            ),
+                          );
+                        },
+                        onRefresh: (account) async {
+                          await ref
+                              .read(usageRefreshCoordinatorProvider)
+                              .refreshOne(account.profile.id);
+                        },
+                        onUseResetCredit: (account) async {
+                          final messenger = ScaffoldMessenger.of(context);
+                          final name = account.profile.displayName;
+                          final outcome =
+                              await ProviderScope.containerOf(
+                                    context,
+                                    listen: false,
+                                  )
                                   .read(usageRefreshCoordinatorProvider)
-                                  .refreshOne(account.profile.id);
-                            },
-                            onDeviceAuth: (account) =>
-                                _showDeviceAuth(context, ref, account),
-                            onRenameProfile: (account) =>
-                                _renameProfileFlow(context, ref, account),
-                            onDeleteProfile: (account) =>
-                                _deleteProfileFlow(context, ref, account),
-                            onLaunchAgent: (profileId) =>
-                                _openLaunchAgentDialog(
-                                  context,
-                                  ref,
-                                  initialProfileId: profileId,
-                                ),
-                          ),
-                        )
-                        .animate(delay: (index * 45).ms)
-                        .fadeIn(duration: 260.ms)
-                        .moveY(begin: 10, end: 0, curve: Curves.easeOutCubic);
+                                  .consumeResetCredit(account.profile.id);
+                          messenger.showSnackBar(
+                            SnackBar(
+                              content: Text(switch (outcome) {
+                                ResetCreditOutcome.reset =>
+                                  'Límites de $name reiniciados. Se gastó un reset.',
+                                ResetCreditOutcome.nothingToReset =>
+                                  '$name no tenía nada que reiniciar. No se gastó ningún reset.',
+                                ResetCreditOutcome.noCredit =>
+                                  '$name no tiene resets disponibles.',
+                                ResetCreditOutcome.alreadyRedeemed =>
+                                  'Ese reset de $name ya se había aplicado.',
+                              }),
+                            ),
+                          );
+                        },
+                        onDeviceAuth: (account) =>
+                            _showDeviceAuth(context, ref, account),
+                        onRenameProfile: (account) =>
+                            _renameProfileFlow(context, ref, account),
+                        onDeleteProfile: (account) =>
+                            _deleteProfileFlow(context, ref, account),
+                        onLaunchAgent: (profileId) => _openLaunchAgentDialog(
+                          context,
+                          ref,
+                          initialProfileId: profileId,
+                        ),
+                      ),
+                    );
                   }, childCount: visibleAccounts.length),
                 );
               },
@@ -647,11 +690,13 @@ class _SummaryBand extends StatelessWidget {
     required this.total,
     required this.statusCounts,
     required this.recent,
+    required this.resetCredits,
   });
 
   final int total;
   final Map<AccountStatus, int> statusCounts;
   final DateTime? recent;
+  final _ResetCreditsTotal resetCredits;
 
   @override
   Widget build(BuildContext context) {
@@ -669,6 +714,18 @@ class _SummaryBand extends StatelessWidget {
                 color: _statusColor(context, status),
               ),
             ),
+        if (resetCredits.count > 0)
+          Tooltip(
+            message:
+                'Resets vigentes según la última lectura de cada cuenta.\n'
+                '${resetCredits.nextExpiresAt == null ? 'Vencimiento no informado' : 'Próximo vencimiento: ${formatDateTime(resetCredits.nextExpiresAt)}'}',
+            child: Text(
+              '${resetCredits.count} ${resetCredits.count == 1 ? 'reset' : 'resets'} en '
+              '${resetCredits.accounts} ${resetCredits.accounts == 1 ? 'cuenta' : 'cuentas'}',
+              key: const ValueKey('reset-credits-total'),
+              style: theme.textTheme.bodySmall,
+            ),
+          ),
         Tooltip(
           message: 'Última consulta: ${formatDateTime(recent)}',
           child: Text(
@@ -681,6 +738,54 @@ class _SummaryBand extends StatelessWidget {
       ],
     );
   }
+}
+
+/// Resets that can still be spent, from the last reading of each account.
+final class _ResetCreditsTotal {
+  const _ResetCreditsTotal({
+    required this.count,
+    required this.accounts,
+    required this.nextExpiresAt,
+  });
+
+  factory _ResetCreditsTotal.of(Iterable<Account> accounts, DateTime now) {
+    var count = 0;
+    var holders = 0;
+    DateTime? next;
+    for (final account in accounts) {
+      final available = _spendableResetCredits(account, now);
+      if (available == 0) continue;
+      count += available;
+      holders++;
+      final expiry = account.resetCredits?.nextExpiresAt;
+      if (expiry != null && (next == null || expiry.isBefore(next))) {
+        next = expiry;
+      }
+    }
+    return _ResetCreditsTotal(
+      count: count,
+      accounts: holders,
+      nextExpiresAt: next,
+    );
+  }
+
+  final int count;
+  final int accounts;
+  final DateTime? nextExpiresAt;
+}
+
+/// Resets the last reading reported as still valid; zero when it reported
+/// none or its nearest expiry has already passed.
+int _spendableResetCredits(Account account, DateTime now) {
+  if (profileProviderOrNull(account.profile.toolKey)?.supportsResetCredits !=
+      true) {
+    return 0;
+  }
+  final credits = account.resetCredits;
+  if (credits == null || credits.availableCount <= 0) return 0;
+  final expiry = credits.nextExpiresAt;
+  if (expiry != null && !expiry.isAfter(now)) return 0;
+  return credits.availableCount;
 }
 
 class _AccountFilters extends StatelessWidget {
@@ -742,12 +847,18 @@ class _AccountFilters extends StatelessWidget {
           if (value != null) controller.setSort(value);
         },
       );
+      final providers = _ProviderFilter(
+        selectedToolKey: state.query.toolKey,
+        onChanged: controller.setProviderFilter,
+      );
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               Expanded(child: search),
+              const SizedBox(width: 10),
+              providers,
               const SizedBox(width: 10),
               SizedBox(width: 180, child: sort),
             ],
@@ -756,6 +867,47 @@ class _AccountFilters extends StatelessWidget {
           filters,
         ],
       );
+    },
+  );
+}
+
+class _ProviderFilter extends StatelessWidget {
+  const _ProviderFilter({
+    required this.selectedToolKey,
+    required this.onChanged,
+  });
+
+  /// Empty segment value standing for "all providers".
+  static const _all = '';
+
+  final String? selectedToolKey;
+  final ValueChanged<String?> onChanged;
+
+  @override
+  Widget build(BuildContext context) => SegmentedButton<String>(
+    showSelectedIcon: false,
+    style: const ButtonStyle(
+      visualDensity: VisualDensity.compact,
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    ),
+    segments: [
+      const ButtonSegment(
+        value: _all,
+        label: Text('Todos'),
+        tooltip: 'Mostrar todos los proveedores',
+      ),
+      for (final provider in supportedProfileProviders)
+        ButtonSegment(
+          value: provider.toolKey,
+          icon: ProfileProviderIcon(toolKey: provider.toolKey, size: 16),
+          label: Text(provider.displayName),
+          tooltip: 'Mostrar sólo perfiles de ${provider.displayName}',
+        ),
+    ],
+    selected: {selectedToolKey ?? _all},
+    onSelectionChanged: (selection) {
+      final value = selection.single;
+      onChanged(value == _all ? null : value);
     },
   );
 }
@@ -823,9 +975,11 @@ class AccountCard extends StatefulWidget {
     required this.onRenameProfile,
     required this.onDeleteProfile,
     required this.onLaunchAgent,
+    this.onUseResetCredit,
     this.usageRefreshStage = UsageProfileRefreshStage.idle,
     this.usageFailureMessage,
     this.usageActionsDisabled = false,
+    this.manualHeartbeatEnabled = true,
     super.key,
   });
 
@@ -835,6 +989,10 @@ class AccountCard extends StatefulWidget {
   final UsageProfileRefreshStage usageRefreshStage;
   final String? usageFailureMessage;
   final bool usageActionsDisabled;
+
+  /// False while the automatic cycle start is switched off in Settings: the
+  /// engine refuses a manual start too, so the menu says so up front.
+  final bool manualHeartbeatEnabled;
   final bool compact;
   final bool accountBusy;
   final bool profileMutationBusy;
@@ -846,6 +1004,9 @@ class AccountCard extends StatefulWidget {
   final Future<void> Function(Account account) onDeleteProfile;
   final ValueChanged<String> onLaunchAgent;
 
+  /// Spends one quota reset; null hides the action.
+  final Future<void> Function(Account account)? onUseResetCredit;
+
   @override
   State<AccountCard> createState() => _AccountCardState();
 }
@@ -854,11 +1015,13 @@ class _AccountCardState extends State<AccountCard> {
   bool hovered = false;
 
   Future<void> _guard(Future<void> future) async {
+    // Captured before the wait so a failure is still reported if the card was
+    // unmounted meanwhile.
+    final messenger = ScaffoldMessenger.of(context);
     try {
       await future;
     } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         SnackBar(
           content: Text(error.toString().replaceFirst('Bad state: ', '')),
         ),
@@ -872,11 +1035,11 @@ class _AccountCardState extends State<AccountCard> {
       widget.account,
     );
     if (!confirmed || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
     try {
       await widget.onHeartbeat(widget.account);
     } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         SnackBar(
           content: Text(error.toString().replaceFirst('Bad state: ', '')),
         ),
@@ -884,11 +1047,22 @@ class _AccountCardState extends State<AccountCard> {
     }
   }
 
+  Future<void> _useResetCredit() async {
+    final confirmed = await showResetCreditConfirmation(
+      context,
+      widget.account,
+      now: widget.quotaNow ?? DateTime.now(),
+    );
+    if (!confirmed || !mounted) return;
+    await _guard(widget.onUseResetCredit!(widget.account));
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final account = widget.account;
     final quotaNow = widget.quotaNow ?? DateTime.now();
+    final spendableResets = _spendableResetCredits(account, quotaNow);
     final provider = profileProvider(account.profile.toolKey);
     final launchable = _canLaunchAccount(account, provider);
     final stateColor = _stateColor(context, account);
@@ -1028,6 +1202,7 @@ class _AccountCardState extends State<AccountCard> {
                     height: 38,
                     child: PopupMenuButton<String>(
                       tooltip: 'Más acciones',
+                      popUpAnimationStyle: appMenuAnimationStyle,
                       icon: Icon(
                         Icons.more_vert,
                         size: 18,
@@ -1047,6 +1222,8 @@ class _AccountCardState extends State<AccountCard> {
                           unawaited(widget.onDeleteProfile(account));
                         } else if (value == 'heartbeat') {
                           unawaited(_startHeartbeat());
+                        } else if (value == 'reset-credit') {
+                          unawaited(_useResetCredit());
                         }
                       },
                       itemBuilder: (context) => [
@@ -1079,19 +1256,53 @@ class _AccountCardState extends State<AccountCard> {
                           PopupMenuItem(
                             value: 'heartbeat',
                             enabled:
+                                widget.manualHeartbeatEnabled &&
                                 account.profile.isAvailable &&
                                 account.profile.hasAuthFile &&
                                 !widget.refreshing &&
                                 !widget.usageActionsDisabled,
                             height: 38,
                             padding: const EdgeInsets.symmetric(horizontal: 12),
-                            child: const Row(
+                            child: Row(
                               children: [
-                                Icon(Icons.monitor_heart_outlined, size: 15),
-                                SizedBox(width: 8),
+                                const Icon(
+                                  Icons.monitor_heart_outlined,
+                                  size: 15,
+                                ),
+                                const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
-                                    'Iniciar ciclo',
+                                    widget.manualHeartbeatEnabled
+                                        ? 'Iniciar ciclo'
+                                        : 'Ciclos apagados en Ajustes',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        if (provider.supportsResetCredits &&
+                            widget.onUseResetCredit != null)
+                          PopupMenuItem(
+                            value: 'reset-credit',
+                            enabled:
+                                spendableResets > 0 &&
+                                account.profile.isAvailable &&
+                                account.profile.hasAuthFile &&
+                                !widget.refreshing &&
+                                !widget.usageActionsDisabled,
+                            height: 38,
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.restart_alt, size: 15),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    spendableResets > 0
+                                        ? 'Usar reset ($spendableResets)'
+                                        : 'Sin resets para usar',
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                   ),
@@ -1889,8 +2100,9 @@ String _stateLabel(Account account) => switch (account.currentIssue) {
     'Sesión en pausa',
   AccountUsageIssue.credentialExpired => 'Credencial expirada',
   AccountUsageIssue.credentialInvalidated => 'Credencial revocada',
-  AccountUsageIssue.network when account.status == AccountStatus.queryError =>
-    'Sin conexión',
+  // Network failures use the status label like every other case, so a card
+  // shows the same words as the filter chip that selects it. The detail line
+  // below says that the connection failed.
   _ => _statusLabel(account.status),
 };
 
@@ -1915,10 +2127,11 @@ String _stateDetail(Account account) {
   final issueDetail = switch (account.currentIssue) {
     AccountUsageIssue.network =>
       account.currentWindows.isNotEmpty
-          ? 'Cuotas actualizadas; falló otra consulta de Codex'
+          ? 'Cuotas actualizadas; falló otra consulta de '
+                '${provider.productName}'
           : account.lastSuccessfulWindows.isNotEmpty
           ? 'Sin conexión; se muestra el último dato válido y se reintentará'
-          : 'No se pudo conectar con ChatGPT',
+          : 'No se pudo conectar con ${provider.displayName}',
     AccountUsageIssue.sessionPaused =>
       account.lastSuccessfulWindows.isNotEmpty
           ? 'Se renueva al abrir el perfil; se muestra el último dato válido'
@@ -1926,13 +2139,13 @@ String _stateDetail(Account account) {
     AccountUsageIssue.credentialExpired =>
       'La credencial expiró; vuelve a iniciar sesión',
     AccountUsageIssue.credentialInvalidated =>
-      'ChatGPT revocó la credencial; vuelve a vincularla',
+      '${provider.displayName} revocó la credencial; vuelve a vincularla',
     AccountUsageIssue.partialMetadata =>
       account.currentWindows.isNotEmpty
           ? 'Se obtuvieron cuotas, pero faltan datos complementarios'
           : account.lastSuccessfulWindows.isNotEmpty
           ? 'Sin cuotas nuevas; se muestra el último dato válido'
-          : 'Codex no devolvió ventanas de cuota',
+          : '${provider.productName} no devolvió ventanas de cuota',
     null => null,
   };
   if (issueDetail != null) return issueDetail;

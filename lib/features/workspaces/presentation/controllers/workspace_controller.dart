@@ -164,7 +164,15 @@ final class WorkspaceController extends Notifier<WorkspaceState> {
     ProfileNotFoundFailure() => 'El perfil seleccionado ya no está disponible.',
     ProfileUnavailableFailure() =>
       'La cuenta seleccionada no está disponible para lanzar.',
-    AgentLauncherFailure() => 'No se pudo abrir el agente en la terminal.',
+    AgentLauncherFailure(:final reason) => switch (reason) {
+      AgentLauncherFailureReason.workingDirectoryMissing =>
+        'La carpeta del workspace ya no existe. Elige otra o quítala del '
+            'historial.',
+      AgentLauncherFailureReason.terminalUnavailable =>
+        'No se encontró una terminal compatible para abrir el agente.',
+      AgentLauncherFailureReason.unknown =>
+        'No se pudo abrir el agente en la terminal.',
+    },
     _ => 'No se pudo completar la operación.',
   };
 }

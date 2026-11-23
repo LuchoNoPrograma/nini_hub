@@ -204,50 +204,17 @@ class _LaunchAgentDialogState extends State<LaunchAgentDialog> {
       content: SizedBox(
         width: width,
         height: height,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final useColumns = constraints.maxWidth >= 640;
-            final workspacePanel = _WorkspacePickerPanel(
-              key: const Key('launch-workspace-panel'),
-              workspaces: visibleWorkspaces,
-              hasWorkspaceHistory: workspaceState.workspaces.isNotEmpty,
-              selectedId: workspaceId,
-              searchController: workspaceSearchController,
-              query: workspaceQuery,
-              onSelected: (value) => setState(() => workspaceId = value.id),
-              onSearch: _searchWorkspaces,
-              onClearSearch: _clearWorkspaceSearch,
-              onAdd: _addWorkspace,
-              onRename: _renameWorkspace,
-              onRemove: _removeWorkspace,
-            );
-            final accountPanel = _AccountPickerPanel(
-              key: const Key('launch-account-panel'),
-              profiles: widget.profiles,
-              selectedId: profileId,
-              onSelected: (value) => setState(() => profileId = value.id),
-            );
-
-            if (useColumns) {
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(child: workspacePanel),
-                  const SizedBox(width: 12),
-                  Expanded(child: accountPanel),
-                ],
-              );
-            }
-
-            final workspaceHeight = (height * .36).clamp(150.0, 240.0);
-            return Column(
-              children: [
-                SizedBox(height: workspaceHeight, child: workspacePanel),
-                const SizedBox(height: 12),
-                Expanded(child: accountPanel),
-              ],
-            );
-          },
+        child: Column(
+          children: [
+            if (workspaceState.errorMessage != null) ...[
+              _LaunchFailureBand(
+                message: workspaceState.errorMessage!,
+                onDismiss: controller.clearFailure,
+              ),
+              const SizedBox(height: 8),
+            ],
+            Expanded(child: _pickers(height)),
+          ],
         ),
       ),
       actions: [
@@ -272,6 +239,99 @@ class _LaunchAgentDialogState extends State<LaunchAgentDialog> {
           label: const Text('Lanzar agente'),
         ),
       ],
+    );
+  }
+
+  Widget _pickers(double height) => LayoutBuilder(
+    builder: (context, constraints) {
+      final useColumns = constraints.maxWidth >= 640;
+      final workspacePanel = _WorkspacePickerPanel(
+        key: const Key('launch-workspace-panel'),
+        workspaces: visibleWorkspaces,
+        hasWorkspaceHistory: workspaceState.workspaces.isNotEmpty,
+        selectedId: workspaceId,
+        searchController: workspaceSearchController,
+        query: workspaceQuery,
+        onSelected: (value) => setState(() => workspaceId = value.id),
+        onSearch: _searchWorkspaces,
+        onClearSearch: _clearWorkspaceSearch,
+        onAdd: _addWorkspace,
+        onRename: _renameWorkspace,
+        onRemove: _removeWorkspace,
+      );
+      final accountPanel = _AccountPickerPanel(
+        key: const Key('launch-account-panel'),
+        profiles: widget.profiles,
+        selectedId: profileId,
+        onSelected: (value) => setState(() => profileId = value.id),
+      );
+
+      if (useColumns) {
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(child: workspacePanel),
+            const SizedBox(width: 12),
+            Expanded(child: accountPanel),
+          ],
+        );
+      }
+
+      final workspaceHeight = (height * .36).clamp(150.0, 240.0);
+      return Column(
+        children: [
+          SizedBox(height: workspaceHeight, child: workspacePanel),
+          const SizedBox(height: 12),
+          Expanded(child: accountPanel),
+        ],
+      );
+    },
+  );
+}
+
+class _LaunchFailureBand extends StatelessWidget {
+  const _LaunchFailureBand({required this.message, required this.onDismiss});
+
+  final String message;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Semantics(
+      liveRegion: true,
+      child: Container(
+        key: const Key('launch-failure'),
+        padding: const EdgeInsets.fromLTRB(10, 2, 2, 2),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.error.withValues(alpha: .1),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: theme.colorScheme.error.withValues(alpha: .5),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.error_outline, size: 16, color: theme.colorScheme.error),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                message,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurface,
+                ),
+              ),
+            ),
+            AppIconButton(
+              icon: Icons.close,
+              tooltip: 'Ocultar aviso',
+              onPressed: onDismiss,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -381,6 +441,7 @@ class _WorkspacePickerPanel extends StatelessWidget {
                           height: 30,
                           child: PopupMenuButton<String>(
                             tooltip: 'Administrar workspace',
+                            popUpAnimationStyle: appMenuAnimationStyle,
                             icon: const Icon(Icons.more_vert, size: 16),
                             padding: EdgeInsets.zero,
                             position: PopupMenuPosition.under,
@@ -444,9 +505,24 @@ class _AccountPickerPanelState extends State<_AccountPickerPanel> {
   @override
   void didUpdateWidget(covariant _AccountPickerPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!identical(oldWidget.profiles, widget.profiles)) {
+    // The caller passes a new list on every account snapshot. Only a change in
+    // which accounts are listed may bring the selection back into view;
+    // otherwise the list would scroll by itself while the user is browsing it.
+    if (!_sameProfileIds(oldWidget.profiles, widget.profiles)) {
       scrolledSelectionId = null;
     }
+  }
+
+  static bool _sameProfileIds(
+    List<LaunchProfileOption> previous,
+    List<LaunchProfileOption> current,
+  ) {
+    if (identical(previous, current)) return true;
+    if (previous.length != current.length) return false;
+    for (var index = 0; index < current.length; index++) {
+      if (previous[index].id != current[index].id) return false;
+    }
+    return true;
   }
 
   void _scrollToSelection(
@@ -544,6 +620,7 @@ class _AccountPickerPanelState extends State<_AccountPickerPanel> {
                   height: 34,
                   child: PopupMenuButton<_AccountSort>(
                     tooltip: 'Ordenar cuentas',
+                    popUpAnimationStyle: appMenuAnimationStyle,
                     initialValue: sort,
                     icon: Icon(
                       sort == _AccountSort.name
@@ -600,10 +677,12 @@ class _AccountPickerPanelState extends State<_AccountPickerPanel> {
                         itemBuilder: (context, index) {
                           final profile = sortedProfiles[index];
                           final selected = profile.id == widget.selectedId;
+                          // The key sits on the item root so a reordered item
+                          // keeps its state instead of being rebuilt.
                           return Opacity(
+                            key: ValueKey('launch-account-${profile.id}'),
                             opacity: profile.canLaunch ? 1 : .46,
                             child: _PickerRow(
-                              key: ValueKey('launch-account-${profile.id}'),
                               selected: selected,
                               onTap: profile.canLaunch
                                   ? () => widget.onSelected(profile)
@@ -635,7 +714,6 @@ class _PickerRow extends StatelessWidget {
     required this.leading,
     required this.title,
     required this.subtitle,
-    super.key,
     this.action,
     this.footer,
   });
@@ -743,7 +821,7 @@ class _LaunchAvailability extends StatelessWidget {
               begin: 0,
               end: remaining == null ? 0 : remaining / 100,
             ),
-            duration: const Duration(milliseconds: 620),
+            duration: const Duration(milliseconds: 180),
             curve: Curves.easeOutCubic,
             builder: (context, value, _) => LinearProgressIndicator(
               key: ValueKey('launch-account-availability-${profile.id}'),

@@ -28,11 +28,15 @@ final class AccountQuery {
     this.search = '',
     this.status = AccountStatusFilter.all,
     this.sort = AccountSortMode.name,
+    this.toolKey,
   });
 
   final String search;
   final AccountStatusFilter status;
   final AccountSortMode sort;
+
+  /// Provider tool key to keep (`codex`, `claude-cli`); null keeps all.
+  final String? toolKey;
 }
 
 final class AccountSnapshot {
@@ -61,7 +65,9 @@ final class AccountSnapshot {
       final matchesStatus =
           query.status.accountStatus == null ||
           account.status == query.status.accountStatus;
-      return matchesSearch && matchesStatus;
+      final matchesProvider =
+          query.toolKey == null || account.profile.toolKey == query.toolKey;
+      return matchesSearch && matchesStatus && matchesProvider;
     }).toList();
     visible.sort((left, right) => _compare(left, right, query.sort));
     return List.unmodifiable(visible);

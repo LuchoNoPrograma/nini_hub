@@ -282,6 +282,7 @@ final class AccountsController extends Notifier<AccountsState> {
         search: search,
         status: state.query.status,
         sort: state.query.sort,
+        toolKey: state.query.toolKey,
       ),
     );
   }
@@ -292,6 +293,18 @@ final class AccountsController extends Notifier<AccountsState> {
         search: state.query.search,
         status: status,
         sort: state.query.sort,
+        toolKey: state.query.toolKey,
+      ),
+    );
+  }
+
+  void setProviderFilter(String? toolKey) {
+    state = state.copyWith(
+      query: AccountQuery(
+        search: state.query.search,
+        status: state.query.status,
+        sort: state.query.sort,
+        toolKey: toolKey,
       ),
     );
   }
@@ -302,6 +315,7 @@ final class AccountsController extends Notifier<AccountsState> {
         search: state.query.search,
         status: state.query.status,
         sort: sort,
+        toolKey: state.query.toolKey,
       ),
     );
   }

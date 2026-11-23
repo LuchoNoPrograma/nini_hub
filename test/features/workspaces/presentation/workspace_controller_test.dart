@@ -150,6 +150,25 @@ void main() {
       'No se pudo abrir el agente en la terminal.',
     );
 
+    // The causes the user can act on get their own message.
+    for (final entry in {
+      AgentLauncherFailureReason.workingDirectoryMissing:
+          'La carpeta del workspace ya no existe. Elige otra o quítala del '
+          'historial.',
+      AgentLauncherFailureReason.terminalUnavailable:
+          'No se encontró una terminal compatible para abrir el agente.',
+    }.entries) {
+      fixture.launcher.failure = AgentLauncherFailure(reason: entry.key);
+      expect(
+        await fixture.controller.launch(
+          profileId: 'profile-1',
+          workspaceId: 'workspace-1',
+        ),
+        isFalse,
+      );
+      expect(fixture.state.errorMessage, entry.value);
+    }
+
     final unexpected = StateError('database failed');
     fixture.repository.nextLoadFailure = unexpected;
     expect(await fixture.controller.load(), isFalse);

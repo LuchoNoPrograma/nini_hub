@@ -106,6 +106,9 @@ class AppTheme {
       fontFamily: resolvedFamily,
       fontFamilyFallback: const ['Noto Sans', 'Segoe UI', 'sans-serif'],
       visualDensity: VisualDensity.compact,
+      // Desktop pointers get an immediate hover and highlight instead of a
+      // touch ripple that keeps expanding after the click.
+      splashFactory: NoSplash.splashFactory,
       dividerColor: border,
       iconTheme: IconThemeData(size: 16, color: scheme.onSurfaceVariant),
       primaryIconTheme: IconThemeData(size: 16, color: scheme.onPrimary),
@@ -259,6 +262,9 @@ class AppTheme {
           borderRadius: BorderRadius.circular(5),
         ),
         textStyle: TextStyle(color: Colors.white, fontSize: size(11)),
+        // Without a wait every pointer pass over a dense toolbar flashes a
+        // tooltip.
+        waitDuration: const Duration(milliseconds: 400),
       ),
       iconButtonTheme: IconButtonThemeData(
         style: IconButton.styleFrom(
