@@ -52,7 +52,9 @@ import 'package:nini_hub/features/settings/presentation/controllers/settings_con
 import 'package:nini_hub/features/settings/presentation/state/settings_state.dart';
 import 'package:nini_hub/features/usage/application/usage_calendar.dart';
 import 'package:nini_hub/features/usage/application/usage_refresh.dart';
+import 'package:nini_hub/features/usage/application/usage_reset_credit.dart';
 import 'package:nini_hub/features/usage/data/claude_usage_provider.dart';
+import 'package:nini_hub/features/usage/data/codex_reset_credit_consumer.dart';
 import 'package:nini_hub/features/usage/data/codex_usage_provider.dart';
 import 'package:nini_hub/features/usage/data/drift_usage_calendar_repository.dart';
 import 'package:nini_hub/features/usage/data/drift_usage_snapshot_repository.dart';
@@ -73,6 +75,7 @@ import 'package:nini_hub/features/workspaces/presentation/state/workspace_state.
 import 'package:nini_hub/providers/claude/claude_auth_login_client.dart';
 import 'package:nini_hub/providers/claude/claude_usage_client.dart';
 import 'package:nini_hub/providers/codex/codex_client_runtime.dart';
+import 'package:uuid/uuid.dart';
 
 typedef WorkspaceDirectoryPicker =
     Future<String?> Function(String? initialDirectory);
@@ -509,6 +512,17 @@ final NotifierProvider<UsageController, UsageState> usageControllerProvider =
           ),
           loadUsageCalendar: LoadUsageCalendar(
             repository: DriftUsageCalendarRepository(database),
+          ),
+          consumeResetCredit: ConsumeResetCredit(
+            discovery: discovery,
+            consumer: CodexResetCreditConsumer.current(
+              () => ref.read(codexClientRuntimeProvider).current,
+            ),
+            activity: ProcessUsageActivityRecorder(
+              ref.watch(processRunnerProvider),
+            ),
+            operationGate: ref.watch(usageOperationGateProvider),
+            newAttemptId: const Uuid().v4,
           ),
           refreshConcurrency: () =>
               ref.read(settingsControllerProvider).preferences.concurrency,

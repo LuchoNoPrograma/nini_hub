@@ -10,6 +10,25 @@ abstract interface class UsageProvider {
   Future<UsageSnapshot> refresh(Profile profile);
 }
 
+/// Spends one quota reset of the account behind [profile].
+///
+/// [attemptId] identifies one user decision: sending it again must never spend
+/// a second credit.
+abstract interface class UsageResetCreditConsumer {
+  Future<ResetCreditOutcome> consume(
+    Profile profile, {
+    required String attemptId,
+  });
+}
+
+abstract interface class UsageResetCreditActivityRecorder {
+  Future<void> recordResetCredit({
+    required Profile profile,
+    required ResetCreditOutcome? outcome,
+    String? errorMessage,
+  });
+}
+
 abstract interface class UsageSnapshotRepository {
   Future<void> saveSnapshot({
     required String profileId,

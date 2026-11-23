@@ -56,6 +56,16 @@ final class CodexAppServerFailure implements Exception {
   String toString() => message;
 }
 
+/// The reset-credit request never left this machine, so nothing was spent.
+final class CodexResetCreditNotSent implements Exception {
+  const CodexResetCreditNotSent(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 class QuotaSnapshot {
   const QuotaSnapshot({
     required this.limitId,

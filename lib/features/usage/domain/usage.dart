@@ -9,6 +9,21 @@ enum UsageRefreshStatus {
   error,
 }
 
+/// What the provider did with a request to spend one quota reset.
+enum ResetCreditOutcome {
+  /// The limits were reset and one credit was spent.
+  reset,
+
+  /// The limits were already clear; no credit was spent.
+  nothingToReset,
+
+  /// The account has no credit left to spend.
+  noCredit,
+
+  /// This same attempt had already been applied.
+  alreadyRedeemed,
+}
+
 final class UsageQuotaWindow {
   const UsageQuotaWindow({
     required this.limitId,

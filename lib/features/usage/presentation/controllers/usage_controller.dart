@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:nini_hub/features/usage/application/usage_calendar.dart';
 import 'package:nini_hub/features/usage/application/usage_refresh.dart';
+import 'package:nini_hub/features/usage/application/usage_reset_credit.dart';
 import 'package:nini_hub/features/usage/domain/usage.dart';
 import 'package:nini_hub/features/usage/domain/usage_failure.dart';
 import 'package:nini_hub/features/usage/presentation/state/usage_state.dart';
@@ -14,8 +15,10 @@ final class UsageControllerDependencies {
     required this.refreshAllUsage,
     required this.loadUsageCalendar,
     required this.refreshConcurrency,
+    this.consumeResetCredit,
   });
 
+  final ConsumeResetCredit? consumeResetCredit;
   final RefreshUsage refreshUsage;
   final RefreshAllUsage refreshAllUsage;
   final LoadUsageCalendar loadUsageCalendar;
@@ -28,12 +31,14 @@ final class UsageController extends Notifier<UsageState> {
     required RefreshAllUsage refreshAllUsage,
     required LoadUsageCalendar loadUsageCalendar,
     int Function()? refreshConcurrency,
+    ConsumeResetCredit? consumeResetCredit,
   }) => UsageController.composed(
     (_) => UsageControllerDependencies(
       refreshUsage: refreshUsage,
       refreshAllUsage: refreshAllUsage,
       loadUsageCalendar: loadUsageCalendar,
       refreshConcurrency: refreshConcurrency ?? _defaultConcurrency,
+      consumeResetCredit: consumeResetCredit,
     ),
   );
 
@@ -128,6 +133,36 @@ final class UsageController extends Notifier<UsageState> {
         ),
       );
       return false;
+    }
+  }
+
+  /// Spends one quota reset of [profileId].
+  ///
+  /// Throws a [StateError] whose message is ready to show; the account stays
+  /// marked as busy meanwhile so no refresh overlaps the request.
+  Future<ResetCreditOutcome> consumeResetCredit(String profileId) async {
+    final consume = _dependencies.consumeResetCredit;
+    if (consume == null ||
+        state.isRefreshingAll ||
+        state.isSynchronizing ||
+        state.isRefreshingProfile(profileId)) {
+      throw StateError('Hay otra operación en curso para esta cuenta.');
+    }
+    final generation = _generation;
+    state = state.copyWith(
+      refreshingProfileIds: {...state.refreshingProfileIds, profileId},
+    );
+    try {
+      return await consume(profileId);
+    } catch (error) {
+      throw StateError(_resetCreditFailureMessage(error));
+    } finally {
+      if (generation == _generation) {
+        state = state.copyWith(
+          refreshingProfileIds: Set<String>.of(state.refreshingProfileIds)
+            ..remove(profileId),
+        );
+      }
     }
   }
 
@@ -354,6 +389,24 @@ final class UsageController extends Notifier<UsageState> {
     }
     return 'No se pudieron actualizar las cuentas.';
   }
+
+  static String _resetCreditFailureMessage(Object error) => switch (error) {
+    UsageResetCreditFailure(reason: UsageResetCreditFailureReason.notSent) =>
+      'No se pudo contactar a Codex. No se gastó ningún reset.',
+    UsageResetCreditFailure(
+      reason: UsageResetCreditFailureReason.authRequired,
+    ) =>
+      'Codex pide volver a vincular la cuenta. No se gastó ningún reset.',
+    UsageResetCreditFailure(reason: UsageResetCreditFailureReason.rejected) =>
+      'Codex rechazó la solicitud. No se gastó ningún reset.',
+    UsageResetCreditFailure() =>
+      'Codex no confirmó el resultado. Revisa los resets de la cuenta antes '
+          'de volver a intentarlo.',
+    UsageUnsupportedProviderFailure() => 'Esta herramienta no tiene resets.',
+    UsageProfileNotFoundFailure() ||
+    UsageProfileUnavailableFailure() => _refreshFailureMessage(error),
+    _ => 'No se pudo usar el reset.',
+  };
 
   static String _refreshFailureMessage(Object error) => switch (error) {
     UsageProfileNotFoundFailure() =>

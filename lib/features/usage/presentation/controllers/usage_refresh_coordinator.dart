@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:nini_hub/features/usage/domain/usage.dart';
 import 'package:nini_hub/features/usage/domain/usage_failure.dart';
 import 'package:nini_hub/features/usage/presentation/controllers/usage_controller.dart';
 import 'package:nini_hub/features/usage/presentation/state/usage_state.dart';
@@ -30,6 +31,20 @@ final class UsageRefreshCoordinator {
       return;
     }
     await _synchronize(includeAccounts: true);
+  }
+
+  /// Spends one reset and then re-reads the account, whatever the answer was:
+  /// the fresh quota is the only proof of what the provider really did.
+  Future<ResetCreditOutcome> consumeResetCredit(String profileId) async {
+    try {
+      return await controller.consumeResetCredit(profileId);
+    } finally {
+      try {
+        await refreshOne(profileId);
+      } catch (_) {
+        // The card already shows the refresh failure.
+      }
+    }
   }
 
   Future<void> refreshAll() async {

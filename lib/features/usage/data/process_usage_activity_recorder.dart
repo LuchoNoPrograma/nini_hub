@@ -3,7 +3,8 @@ import 'package:nini_hub/features/profiles/domain/profile.dart';
 import 'package:nini_hub/features/usage/domain/usage.dart';
 import 'package:nini_hub/features/usage/domain/usage_ports.dart';
 
-final class ProcessUsageActivityRecorder implements UsageActivityRecorder {
+final class ProcessUsageActivityRecorder
+    implements UsageActivityRecorder, UsageResetCreditActivityRecorder {
   const ProcessUsageActivityRecorder(this.runner);
 
   final ProcessRunner runner;
@@ -23,5 +24,25 @@ final class ProcessUsageActivityRecorder implements UsageActivityRecorder {
     command: profile.toolKey == 'claude-cli'
         ? 'GET api.anthropic.com/api/oauth/usage'
         : 'codex app-server metadata',
+  );
+
+  @override
+  Future<void> recordResetCredit({
+    required Profile profile,
+    required ResetCreditOutcome? outcome,
+    String? errorMessage,
+  }) => runner.addInternalLog(
+    summary: 'Usar reset de ${profile.displayName}',
+    status: outcome == null ? 'error' : 'success',
+    output: switch (outcome) {
+      null => errorMessage ?? 'No se pudo usar el reset.',
+      ResetCreditOutcome.reset => 'Límites reiniciados; se gastó un reset.',
+      ResetCreditOutcome.nothingToReset =>
+        'No había nada que reiniciar; no se gastó ningún reset.',
+      ResetCreditOutcome.noCredit => 'La cuenta no tiene resets disponibles.',
+      ResetCreditOutcome.alreadyRedeemed => 'Ese reset ya se había aplicado.',
+    },
+    profileId: profile.id,
+    command: 'codex app-server account/rateLimitResetCredit/consume',
   );
 }

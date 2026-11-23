@@ -37,6 +37,38 @@ final class UsageUnsupportedProviderFailure implements Exception {
   String toString() => 'Usage is not supported for $toolKey ($profileId)';
 }
 
+enum UsageResetCreditFailureReason {
+  /// Nothing was sent: the tool or the profile folder is missing.
+  notSent,
+
+  /// The provider rejected the session; nothing was spent.
+  authRequired,
+
+  /// The provider answered with an error; nothing was spent.
+  rejected,
+
+  /// No answer arrived, so the credit may or may not have been spent.
+  outcomeUnknown,
+}
+
+final class UsageResetCreditFailure implements Exception {
+  const UsageResetCreditFailure({
+    required this.profileId,
+    required this.reason,
+    required this.detail,
+  });
+
+  final String profileId;
+  final UsageResetCreditFailureReason reason;
+
+  /// Sanitized provider diagnostic, for the activity log only.
+  final String detail;
+
+  @override
+  String toString() =>
+      'Reset credit failed for $profileId (${reason.name}): $detail';
+}
+
 enum UsageRefreshProgress { snapshotPersisted, activityRecorded }
 
 final class UsageRefreshAppliedFailure implements Exception {

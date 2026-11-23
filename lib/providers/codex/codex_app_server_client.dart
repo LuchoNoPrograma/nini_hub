@@ -201,6 +201,52 @@ class CodexAppServerClient {
     }
   }
 
+  /// Spends one rate-limit reset credit and returns the raw outcome.
+  ///
+  /// Sent exactly once: only the caller can decide to repeat an attempt, and
+  /// it must then reuse [idempotencyKey] so a second credit is never spent.
+  Future<String> consumeResetCredit(
+    Profile profile, {
+    required String idempotencyKey,
+  }) async {
+    if (!Directory(profile.profileHome).existsSync()) {
+      throw const CodexResetCreditNotSent('La carpeta del perfil no existe.');
+    }
+    final _CodexRpcProcess rpc;
+    try {
+      rpc = await _CodexRpcProcess.start(
+        launch: _processLaunch(profile),
+        requestTimeout: timeout,
+        processStarter: processStarter,
+        processTreeTerminator: processTreeTerminator,
+        isWindows: isWindows ?? Platform.isWindows,
+      );
+    } on CodexAppServerFailure catch (error) {
+      throw CodexResetCreditNotSent(_sanitize(error.message));
+    } on TimeoutException {
+      throw const CodexResetCreditNotSent('Codex no llegó a iniciar.');
+    }
+    try {
+      try {
+        await rpc.initialize();
+      } on CodexAppServerFailure catch (error) {
+        throw CodexResetCreditNotSent(_sanitize(error.message));
+      }
+      final result = await rpc.request('account/rateLimitResetCredit/consume', {
+        'idempotencyKey': idempotencyKey,
+      });
+      return result['outcome']?.toString() ?? '';
+    } on CodexAppServerFailure catch (error) {
+      throw CodexAppServerFailure(
+        kind: error.kind,
+        code: error.code,
+        message: _sanitize(error.message),
+      );
+    } finally {
+      await rpc.close();
+    }
+  }
+
   Future<CodexDeviceAuthSession> startDeviceAuth(
     Profile profile, {
     bool useBrowser = false,

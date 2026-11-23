@@ -4,6 +4,9 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nini_hub/features/profiles/domain/profile.dart';
+import 'package:nini_hub/features/usage/data/codex_reset_credit_consumer.dart';
+import 'package:nini_hub/features/usage/domain/usage.dart';
+import 'package:nini_hub/features/usage/domain/usage_failure.dart';
 import 'package:nini_hub/providers/codex/codex_app_server_client.dart';
 import 'package:nini_hub/providers/codex/codex_app_server_models.dart';
 
@@ -542,6 +545,155 @@ void main() {
       await process.dispose();
     },
   );
+
+  group('reset credit', () {
+    _FakeCodexProcess processFor(
+      List<Map<String, dynamic>> requests,
+      void Function(_FakeCodexProcess, Map<String, dynamic>) onConsume,
+    ) => _FakeCodexProcess((process, request) {
+      requests.add(request);
+      if (request['method'] == 'initialize') {
+        process.respond(request, <String, Object?>{});
+      } else {
+        onConsume(process, request);
+      }
+    });
+
+    test('is sent once with the attempt key and returns the outcome', () async {
+      final profile = await _managedProfile(scratch);
+      final requests = <Map<String, dynamic>>[];
+      final process = processFor(
+        requests,
+        (process, request) => process.respond(request, {'outcome': 'reset'}),
+      );
+      final client = CodexAppServerClient(processStarter: (_) async => process);
+
+      final outcome = await client.consumeResetCredit(
+        profile,
+        idempotencyKey: 'attempt-1',
+      );
+
+      expect(outcome, 'reset');
+      expect(requests.map((request) => request['method']), [
+        'initialize',
+        'account/rateLimitResetCredit/consume',
+      ]);
+      expect(requests.last['params'], {'idempotencyKey': 'attempt-1'});
+      expect(process.stdinClosed, isTrue);
+      await process.dispose();
+    });
+
+    test('a transient failure is never retried by the client', () async {
+      final profile = await _managedProfile(scratch);
+      final requests = <Map<String, dynamic>>[];
+      final process = processFor(
+        requests,
+        (process, request) => process.sendRaw(
+          jsonEncode({
+            'id': request['id'],
+            'error': {'message': 'connection reset by peer'},
+          }),
+        ),
+      );
+      final consumer = CodexResetCreditConsumer.current(
+        () => CodexAppServerClient(processStarter: (_) async => process),
+      );
+
+      await expectLater(
+        consumer.consume(profile, attemptId: 'attempt-1'),
+        throwsA(
+          isA<UsageResetCreditFailure>().having(
+            (failure) => failure.reason,
+            'reason',
+            UsageResetCreditFailureReason.rejected,
+          ),
+        ),
+      );
+      expect(
+        requests.where(
+          (request) =>
+              request['method'] == 'account/rateLimitResetCredit/consume',
+        ),
+        hasLength(1),
+      );
+      await process.dispose();
+    });
+
+    test('an unanswered request leaves the outcome unknown', () async {
+      final profile = await _managedProfile(scratch);
+      final process = processFor([], (_, _) {});
+      final consumer = CodexResetCreditConsumer.current(
+        () => CodexAppServerClient(
+          timeout: const Duration(milliseconds: 40),
+          processStarter: (_) async => process,
+        ),
+      );
+
+      await expectLater(
+        consumer.consume(profile, attemptId: 'attempt-1'),
+        throwsA(
+          isA<UsageResetCreditFailure>().having(
+            (failure) => failure.reason,
+            'reason',
+            UsageResetCreditFailureReason.outcomeUnknown,
+          ),
+        ),
+      );
+      await process.dispose();
+    });
+
+    test('a missing profile folder sends nothing', () async {
+      var started = false;
+      final consumer = CodexResetCreditConsumer.current(
+        () => CodexAppServerClient(
+          processStarter: (_) async {
+            started = true;
+            throw StateError('must not start');
+          },
+        ),
+      );
+
+      await expectLater(
+        consumer.consume(
+          _profile(
+            home: '${scratch.path}/missing',
+            name: 'gone',
+            source: ProfileSource.multiCli,
+            kind: ProfileKind.full,
+          ),
+          attemptId: 'attempt-1',
+        ),
+        throwsA(
+          isA<UsageResetCreditFailure>().having(
+            (failure) => failure.reason,
+            'reason',
+            UsageResetCreditFailureReason.notSent,
+          ),
+        ),
+      );
+      expect(started, isFalse);
+    });
+
+    test('maps every documented outcome', () async {
+      final profile = await _managedProfile(scratch);
+      for (final (raw, expected) in [
+        ('reset', ResetCreditOutcome.reset),
+        ('nothingToReset', ResetCreditOutcome.nothingToReset),
+        ('noCredit', ResetCreditOutcome.noCredit),
+        ('alreadyRedeemed', ResetCreditOutcome.alreadyRedeemed),
+      ]) {
+        final process = processFor(
+          [],
+          (process, request) => process.respond(request, {'outcome': raw}),
+        );
+        final consumer = CodexResetCreditConsumer.current(
+          () => CodexAppServerClient(processStarter: (_) async => process),
+        );
+        expect(await consumer.consume(profile, attemptId: 'a'), expected);
+        await process.dispose();
+      }
+    });
+  });
 }
 
 typedef _Responder =
