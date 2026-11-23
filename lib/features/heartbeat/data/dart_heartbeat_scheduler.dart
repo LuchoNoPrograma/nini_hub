@@ -22,6 +22,11 @@ final class DartHeartbeatScheduler implements HeartbeatScheduler {
        _clock = clock ?? const SystemHeartbeatClock(),
        _timerFactory = timerFactory ?? _createTimer;
 
+  /// Shortest gap between two scheduled probes of one profile. Whatever asks
+  /// for an earlier probe is moved to this boundary, so no scheduling path can
+  /// turn into a zero-delay probe loop.
+  static const minimumProbeSpacing = Duration(seconds: 20);
+
   final HeartbeatScheduledProbe onScheduledProbe;
   final HeartbeatClock _clock;
   final HeartbeatTimerFactory _timerFactory;
@@ -50,6 +55,7 @@ final class DartHeartbeatScheduler implements HeartbeatScheduler {
   final Set<String> _leases = <String>{};
   final Map<String, Timer> _probeTimers = <String, Timer>{};
   final Map<String, DateTime> _probeDeadlines = <String, DateTime>{};
+  final Map<String, DateTime> _lastProbeStartedAt = <String, DateTime>{};
 
   Future<void>? _operationDrainFuture;
   Future<void>? _probeDrainFuture;
@@ -72,6 +78,7 @@ final class DartHeartbeatScheduler implements HeartbeatScheduler {
     _probeQueue.clear();
     _queuedProbeProfiles.clear();
     _initialProbeQueued.clear();
+    _lastProbeStartedAt.clear();
     while (_operationQueue.isNotEmpty) {
       final operation = _operationQueue.removeFirst();
       _queuedOperationProfiles.remove(operation.profileId);
@@ -105,6 +112,7 @@ final class DartHeartbeatScheduler implements HeartbeatScheduler {
     for (final profileId in _probeTimers.keys.toList(growable: false)) {
       if (!retained.contains(profileId)) cancel(profileId);
     }
+    _lastProbeStartedAt.removeWhere((id, _) => !retained.contains(id));
   }
 
   Future<T?> enqueueOperation<T>({
@@ -174,9 +182,13 @@ final class DartHeartbeatScheduler implements HeartbeatScheduler {
     final floor = requested == null || requested.isBefore(now)
         ? now
         : requested;
-    final requestedDeadline = dailySchedule
-        .nextSlotAtOrAfter(floor.toLocal())
-        .toUtc();
+    final slot = dailySchedule.nextSlotAtOrAfter(floor.toLocal()).toUtc();
+    // The grace period lets a late probe still run for the slot it missed. It
+    // must not pull a probe that was told to wait back to before that wait:
+    // the deadline would be in the past and the probe would repeat at once.
+    final requestedDeadline = floor.isAfter(now) && slot.isBefore(floor)
+        ? floor
+        : slot;
     final recurringDeadline = dailySchedule
         .nextSlotAfter(now.toLocal())
         .toUtc();
@@ -194,7 +206,12 @@ final class DartHeartbeatScheduler implements HeartbeatScheduler {
       return;
     }
     cancel(profileId);
-    final deadline = at.toUtc();
+    var deadline = at.toUtc();
+    final lastProbe = _lastProbeStartedAt[profileId];
+    if (lastProbe != null) {
+      final earliest = lastProbe.add(minimumProbeSpacing);
+      if (deadline.isBefore(earliest)) deadline = earliest;
+    }
     final delay = deadline.difference(_clock.nowUtc().toUtc());
     late final Timer timer;
     timer = _timerFactory(delay.isNegative ? Duration.zero : delay, () {
@@ -252,6 +269,7 @@ final class DartHeartbeatScheduler implements HeartbeatScheduler {
         final profileId = _probeQueue.removeFirst();
         try {
           if (!_profilesConstrained || _retainedProfiles.contains(profileId)) {
+            _lastProbeStartedAt[profileId] = _clock.nowUtc().toUtc();
             await onScheduledProbe(profileId);
           }
         } catch (_) {

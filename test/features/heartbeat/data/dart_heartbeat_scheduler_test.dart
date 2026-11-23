@@ -166,6 +166,76 @@ void main() {
     );
   });
 
+  test(
+    'a wait that ends inside a slot grace period is never scheduled in the past',
+    () async {
+      // The 12:00 slot fires while the window still resets at 12:10. The
+      // follow-up probe asked to wait until 12:10:30 must not be pulled back
+      // to 12:00, where it would run again at once and loop until the reset.
+      final clock = _Clock(DateTime(2026, 8, 23, 12).toUtc());
+      final timers = _TimerFactory();
+      final probes = <String>[];
+      late final DartHeartbeatScheduler scheduler;
+      final afterReset = DateTime(2026, 8, 23, 12, 10, 30).toUtc();
+      scheduler = DartHeartbeatScheduler(
+        onScheduledProbe: (id) async {
+          probes.add(id);
+          scheduler.cancel(id);
+          scheduler.scheduleNextPlanned(
+            profile: _profile(id),
+            notBefore: afterReset,
+          );
+        },
+        clock: clock,
+        timerFactory: timers.call,
+      );
+      addTearDown(scheduler.dispose);
+
+      scheduler.monitorProfileIds(['first']);
+      expect(timers.timers.single.duration, Duration.zero);
+      timers.timers.single.fire();
+      await scheduler.waitUntilIdle();
+
+      expect(probes, ['first']);
+      expect(scheduler.nextProbeAt('first'), afterReset);
+      final next = timers.timers.lastWhere((timer) => timer.isActive);
+      expect(next.duration, const Duration(minutes: 10, seconds: 30));
+    },
+  );
+
+  test('repeated immediate requests keep a minimum gap per profile', () async {
+    final clock = _Clock(DateTime.utc(2026, 8, 23, 10));
+    final timers = _TimerFactory();
+    final probes = <String>[];
+    final scheduler = DartHeartbeatScheduler(
+      onScheduledProbe: (id) async => probes.add(id),
+      clock: clock,
+      timerFactory: timers.call,
+    );
+    addTearDown(scheduler.dispose);
+
+    scheduler.schedule(profile: _profile('first'), at: clock.value);
+    timers.timers.single.fire();
+    await scheduler.waitUntilIdle();
+    expect(probes, ['first']);
+
+    scheduler.schedule(profile: _profile('first'), at: clock.value);
+    expect(
+      scheduler.nextProbeAt('first'),
+      clock.value.add(DartHeartbeatScheduler.minimumProbeSpacing),
+    );
+    expect(
+      timers.timers.lastWhere((timer) => timer.isActive).duration,
+      DartHeartbeatScheduler.minimumProbeSpacing,
+    );
+
+    scheduler.schedule(profile: _profile('second'), at: clock.value);
+    expect(
+      timers.timers.lastWhere((timer) => timer.isActive).duration,
+      Duration.zero,
+    );
+  });
+
   test('scheduled probes are FIFO and recheck retained profiles', () async {
     final clock = _Clock(DateTime.utc(2026, 8, 23, 10));
     final timers = _TimerFactory();
